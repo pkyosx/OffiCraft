@@ -43,7 +43,7 @@ When "Reassigning" appears on a task card, the task is being handed to a differe
 The "Workflow" on a task card lists the steps the assignee has broken the task into:
 
 - **Definition of done (DoD)**: how far a step must go before it counts as complete.
-- **Gate**: a step that needs your decision, approval, or acceptance. It is marked "Awaiting my reply" from the start. When the task reaches a gate, the member opens a reply card for you.
+- **Gate**: a step that needs your decision, approval, or acceptance. It is marked "Approval" from the start. When the task reaches a gate, the member opens a reply card for you. A step a member opens a reply card on becomes a gate too.
 - **Note**: progress and results that the assignee records on the step.
 
 ## Artifacts

@@ -510,7 +510,7 @@ func TestTaskDTOOf(t *testing.T) {
 					"dod":               "a review is signed off",
 					"status":            "waiting_owner",
 					"parallel_group":    "",
-					"is_gate":           false,
+					"is_gate":           true,
 					"reply_card_id":     cardID,
 					"reply_card_status": "waiting",
 					"waiting_reason":    "",

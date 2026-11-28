@@ -671,9 +671,8 @@ func TestAnsweringOneOfTwoCardsKeepsTheTaskWaiting(t *testing.T) {
 
 // TestBoundCardArmsANonGatePlainStep: a linked_task naming an is_gate=false,
 // not-done step of a live task is a legitimate ad-hoc 請示 and arms it
-// (waiting_owner + bound card + task follows). is_gate is a plan-declared
-// property and is NOT flipped: the step becomes a card-carrying plain step, the
-// state resumeGateState already folds.
+// (waiting_owner + bound card + task follows), and the step becomes a gate for
+// good: is_gate stays true after the card is answered and the step is done.
 func TestBoundCardArmsANonGatePlainStep(t *testing.T) {
 	api := newTasksTestServer(t)
 	task := createAdHocTask(t, api, "m-exec")
@@ -708,16 +707,36 @@ func TestBoundCardArmsANonGatePlainStep(t *testing.T) {
 	if step.Status != StepStatusWaitingOwner || step.ReplyCardID != card.ID {
 		t.Fatalf("plain step must be waiting_owner + bound: %+v", step)
 	}
-	// is_gate stays false — arming does not rewrite the plan shape.
-	if step.IsGate {
-		t.Fatalf("arming must not flip is_gate on a plain step: %+v", step)
-	}
 	stored, err := api.dal.GetTask(task.ID)
 	if err != nil || stored == nil {
 		t.Fatalf("task: %v %v", stored, err)
 	}
 	if stored.Status != TaskStatusWaitingOwner {
 		t.Fatalf("task must follow into waiting_owner, got %s", stored.Status)
+	}
+	if got := getTaskView(t, api, task.ID).Steps[0]; !got.IsGate {
+		t.Fatalf("get_task must show the bound step as a gate: %+v", got)
+	}
+
+	if rec := answerCard(t, api, card.ID,
+		map[string]any{"option_idxs": []int{0}}); rec.Code != http.StatusOK {
+		t.Fatalf("answer: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := reportStepStatus(t, api, task.ID, plainStep.ID, "m-exec", "done", ""); rec.Code != http.StatusOK {
+		t.Fatalf("finish step: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := getTaskView(t, api, task.ID).Steps[0]; got.Status != StepStatusDone || !got.IsGate {
+		t.Fatalf("get_task after answer + done = %+v, want done and still a gate", got)
+	}
+	rec = httptest.NewRecorder()
+	api.HandleGetTaskStepApiTasksTaskIdStepsStepIdGet(rec,
+		taskReq(t, "GET", "/api/tasks/"+task.ID+"/steps/"+plainStep.ID, nil, "owner", "owner"),
+		task.ID, plainStep.ID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get_task_step: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := decodeBody[taskStepDetailDTO](t, rec); !got.IsGate {
+		t.Fatalf("get_task_step after answer + done = %+v, want is_gate true", got)
 	}
 }
 
@@ -1781,7 +1800,7 @@ func TestSubmitPlanRelistingAnsweredCardStepContinuesTheLiveRow(t *testing.T) {
 		t.Fatalf("answer: %d %s", rec.Code, rec.Body.String())
 	}
 	v2 := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
-		{"name": "ask direction", "dod": "a different dod", "is_gate": true},
+		{"name": "ask direction", "dod": "a different dod", "is_gate": false},
 		{"name": "execute", "dod": "d"},
 	})
 	if len(v2.Steps) != 2 {
@@ -1794,7 +1813,7 @@ func TestSubmitPlanRelistingAnsweredCardStepContinuesTheLiveRow(t *testing.T) {
 	if cont.ReplyCardID != card.ID {
 		t.Fatalf("the continued row keeps its card pointer: %+v", cont)
 	}
-	if cont.DoD != "owner answered" || cont.IsGate {
+	if cont.DoD != "owner answered" || !cont.IsGate {
 		t.Fatalf("the relisted entry's dod and is_gate must not be written: %+v", cont)
 	}
 	if v2.ProgressDone != 0 || v2.ProgressTotal != 2 {

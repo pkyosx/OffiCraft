@@ -364,7 +364,7 @@ def test_full_task_loop(client, owner_token, executor):
 def test_linked_task_arms_a_plain_non_gate_step(client, owner_token, executor):
     """A linked_task naming a plain (is_gate=false) not-done step is a legitimate
     ad-hoc 請示. It arms the step (waiting_owner + bound card, task follows)
-    WITHOUT flipping is_gate."""
+    and makes it a gate for good (is_gate true)."""
     task = _create_task(client, executor, title="ad-hoc ask")["task"]
     planned = _plan_view(client, executor.token, task["id"],
                          [{"name": "build", "dod": "compiles"}])
@@ -390,8 +390,7 @@ def test_linked_task_arms_a_plain_non_gate_step(client, owner_token, executor):
     armed = next(s for s in view["steps"] if s["id"] == step["id"])
     assert armed["status"] == "waiting_owner"
     assert armed["reply_card_id"] == card["id"]
-    # is_gate is a plan-declared property — arming does not rewrite it.
-    assert armed["is_gate"] is False
+    assert armed["is_gate"] is True
 
 
 def test_list_is_light_detail_is_full(client, owner_token, executor):

@@ -437,8 +437,9 @@ The people who can change the due date are the same as for priority: you, the As
 
 **Gates and reply cards in detail**
 
-- When the plan is submitted, the task card shows "Awaiting my reply" in advance on gate steps. Steps that are set as gates or have had a reply card opened are marked "Approval".
-- On any unfinished step, when a member runs into something you need to decide, it can open a reply card on the spot. This does not turn the step into a gate, but the step is marked "Approval" all the same. Cards can be opened while the task is In progress, Awaiting my reply or Waiting on external; not once the step is done or the task is closed.
+- A gate step is marked "Approval", from the moment the plan is submitted and after it is done. Its status is its own stage, like any other step: To do until the member reaches it, Awaiting my reply while its reply card waits for you.
+- Once you answer a step's reply card, or the card is marked expired, the step shows In progress: the work is back with the member. "Answered" and "Expired" appear only on the reply card embedded in the step.
+- On any unfinished step, when a member runs into something you need to decide, it can open a reply card on the spot. That step becomes a gate for good and is marked "Approval". Cards can be opened while the task is In progress, Awaiting my reply or Waiting on external; not once the step is done or the task is closed.
 - When a member opens a card about a task someone else is responsible for, the card is not tied to a step, and the task does not stop because of it; after you answer, the assignee of the task in question is notified.
 
 **Who can do what**
