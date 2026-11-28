@@ -136,6 +136,14 @@ function rowById(container: HTMLElement, id: string): HTMLElement {
   return el;
 }
 
+/** Every entry starts folded; open each rendered one as a reader would. */
+function openAllRows(container: HTMLElement) {
+  for (const id of renderedIds(container)) {
+    const row = rowById(container, id);
+    if (row.dataset.folded === "true") fireEvent.click(row);
+  }
+}
+
 beforeEach(() => {
   // The page reads its section from the hash; every spec starts on the directory.
   history.replaceState(null, "", window.location.pathname);
@@ -181,13 +189,13 @@ describe("LorePage — 變灰", () => {
     ]);
   });
 
-  it("a dropped entry starts folded: the whole card with its body cut to two lines, 讀不到 after its tags, 編輯 on its first line and no message box; a click or Enter opens it in place and a click on it folds it back", async () => {
+  it("every entry starts folded, pinned and in-force ones too; a dropped one is the whole card with its body cut to two lines, 讀不到 after its tags, 編輯 on its first line and no message box; a click or Enter opens it in place and a click on it folds it back", async () => {
     stubList(page(entries, { capChars: 10000, firstDroppedId: "mid" }));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(5));
 
     const folded = (id: string) => rowById(container, id).dataset.folded === "true";
-    expect(renderedIds(container).filter(folded)).toEqual(["mid", "low"]);
+    expect(renderedIds(container).filter(folded)).toEqual(["p1", "top", "mid", "low", "r1"]);
     const mid = rowById(container, "mid");
     expect([mid.getAttribute("role"), mid.getAttribute("tabindex"), mid.getAttribute("aria-expanded"), mid.getAttribute("aria-label")]).toEqual([
       "button",
@@ -348,6 +356,7 @@ describe("LorePage — 訊息框", () => {
     );
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(4));
+    openAllRows(container);
     await waitFor(() =>
       expect(box(rowById(container, "L-1")).placeholder).toBe("傳訊息給 Warden · mbp5…"),
     );
@@ -389,6 +398,7 @@ describe("LorePage — 訊息框", () => {
     );
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
+    openAllRows(container);
     const posted = capturePosts();
     const row = rowById(container, "L-1");
     expect(rowById(container, "L-2").querySelector('[data-testid="lore-message-box"]')).toBeNull();
@@ -417,6 +427,7 @@ describe("LorePage — 訊息框", () => {
     );
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
+    openAllRows(container);
     const posted = capturePosts();
     const row = rowById(container, "L-1");
 
@@ -439,6 +450,7 @@ describe("LorePage — 訊息框", () => {
     );
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
+    openAllRows(container);
     const posted = capturePosts();
 
     const row = rowById(container, "L-31");
@@ -460,6 +472,7 @@ describe("LorePage — 訊息框", () => {
     stubList(page([mkEntry({ id: "L-7", authorId: "mira" })]));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    openAllRows(container);
     const posted = capturePosts();
     const row = rowById(container, "L-7");
     fireEvent.change(box(row), { target: { value: "收到" } });
@@ -471,6 +484,7 @@ describe("LorePage — 訊息框", () => {
     stubList(page([mkEntry({ id: "L-7", authorId: "mira" })]));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    openAllRows(container);
     const posted = capturePosts();
     const row = rowById(container, "L-7");
     expect(sendButton(row).disabled).toBe(true);
@@ -495,6 +509,7 @@ describe("LorePage — 訊息框", () => {
     stubList(page([mkEntry({ id: "L-7", authorId: "mira" })]));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    openAllRows(container);
     const row = rowById(container, "L-7");
 
     fireEvent.change(box(row), { target: { value: "這條還適用嗎" } });
@@ -516,6 +531,8 @@ describe("LorePage — 訊息框", () => {
     });
     stubList(page([mkEntry({ id: "L-11", authorId: "mira" })]));
     const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    openAllRows(container);
     const posted = capturePosts();
     const chips = await waitFor(() => {
       const el = container.querySelector<HTMLElement>('[data-testid="lore-suggested-replies"]');
@@ -639,6 +656,7 @@ describe("LorePage — 條目編號", () => {
     stubList(page([mkEntry({ id: "L-7" })]));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    openAllRows(container);
 
     const badge = container.querySelector<HTMLElement>(
       '[data-testid="lore-entry-id"]',
@@ -982,6 +1000,7 @@ describe("LorePage — 卡片底下的撰寫人與生效期", () => {
     );
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    openAllRows(container);
     const row = rowById(container, "L-7");
     const meta = row.querySelector<HTMLElement>(".card-meta")!;
     expect(Array.from(meta.children).map((el) => el.getAttribute("data-testid") ?? el.textContent)).toEqual([
@@ -1032,7 +1051,7 @@ describe("LorePage — 卡片底下的撰寫人與生效期", () => {
 });
 
 describe("LorePage — 卡片收合", () => {
-  it("an entry the server reads opens with its whole body; a click anywhere on the card that is not a control or the end of a text selection, Enter or Space folds only that card, which keeps its head, title and rows with the body cut to two lines, 編輯 still on its first line and no message box, and the same opens it again", async () => {
+  it("an entry the server reads starts folded too and a click opens it with its whole body; a click anywhere on the open card that is not a control or the end of a text selection, Enter or Space folds only that card, which keeps its head, title and rows with the body cut to two lines, 編輯 still on its first line and no message box, and the same opens it again", async () => {
     stubList(
       page([
         mkEntry({
@@ -1046,6 +1065,8 @@ describe("LorePage — 卡片收合", () => {
     );
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
+    expect(rowById(container, "L-7").dataset.folded).toBe("true");
+    fireEvent.click(rowById(container, "L-7"));
     const row = rowById(container, "L-7");
     expect(row.dataset.folded).toBeUndefined();
     expect([row.getAttribute("role"), row.getAttribute("tabindex"), row.getAttribute("aria-expanded"), row.getAttribute("aria-label")]).toEqual([
@@ -1099,7 +1120,7 @@ describe("LorePage — 卡片收合", () => {
     expect(folded.querySelector('.lore-row__actions [data-testid="lore-edit"]')).not.toBeNull();
     expect(folded.querySelector('[data-testid="lore-message-box"]')).toBeNull();
     expect(renderedIds(container)).toEqual(["L-7", "L-8"]);
-    expect(rowById(container, "L-8").dataset.folded).toBeUndefined();
+    expect(rowById(container, "L-8").dataset.folded).toBe("true");
     expect(rowById(container, "L-8").querySelector('[data-testid="lore-body"]')!.textContent).toBe("內容 L-8");
 
     fireEvent.click(folded);
@@ -1109,9 +1130,9 @@ describe("LorePage — 卡片收合", () => {
     expect(document.activeElement).toBe(reopened);
 
     fireEvent.keyDown(rowById(container, "L-8"), { key: "Enter" });
-    expect(rowById(container, "L-8").dataset.folded).toBe("true");
-    fireEvent.keyDown(rowById(container, "L-8"), { key: " " });
     expect(rowById(container, "L-8").dataset.folded).toBeUndefined();
+    fireEvent.keyDown(rowById(container, "L-8"), { key: " " });
+    expect(rowById(container, "L-8").dataset.folded).toBe("true");
     fireEvent.keyDown(rowById(container, "L-7"), { key: " " });
     expect(rowById(container, "L-7").dataset.folded).toBe("true");
   });
@@ -1354,7 +1375,7 @@ describe("LorePage — 可變動作面", () => {
     expect(unsavedIds(container)).toEqual(["L-1"]);
   });
 
-  it("儲存變更 sends every staged change once, then re-reads the whole section in the server's order, folds what the new answer newly marks dropped and keeps an opened one open", async () => {
+  it("儲存變更 sends every staged change once, then re-reads the whole section in the server's order, folds every entry nobody opened by hand and keeps an opened one open", async () => {
     const w = spyWrites();
     const before = page(
       [
@@ -1394,9 +1415,9 @@ describe("LorePage — 可變動作面", () => {
         rowById(container, id).getAttribute("data-folded") === "true",
       ]);
     expect(look()).toEqual([
-      ["P-1", "false", false],
-      ["A-1", "false", false],
-      ["A-2", "false", false],
+      ["P-1", "false", true],
+      ["A-1", "false", true],
+      ["A-2", "false", true],
       ["A-3", "true", false],
     ]);
     saved = true;
@@ -1408,8 +1429,8 @@ describe("LorePage — 可變動作面", () => {
     expect(w.scope).not.toHaveBeenCalled();
     expect(list.mock.calls.map((c) => c[0])).toEqual([MIRA_OPTS, MIRA_OPTS]);
     expect(look()).toEqual([
-      ["A-1", "false", false],
-      ["A-2", "false", false],
+      ["A-1", "false", true],
+      ["A-2", "false", true],
       ["P-1", "true", true],
       ["A-3", "true", false],
     ]);
@@ -3121,6 +3142,7 @@ describe("LorePage — 卡片右上的動作", () => {
     );
     const { container } = await renderOpen({ canSetScope: true });
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    openAllRows(container);
     const row = rowById(container, "L-1");
     expectHeadActions(row);
     fireEvent.click(row.querySelector('[data-testid="lore-edit"]')!);
@@ -3153,6 +3175,7 @@ describe("LorePage — 手機寬度", () => {
     stubList(page([mkEntry({ id: "L-1" })]));
     const { container } = await renderOpen({ canSetScope: true });
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    openAllRows(container);
     const row = rowById(container, "L-1");
     expectHeadActions(row);
     fireEvent.click(row.querySelector('[data-testid="lore-edit"]')!);

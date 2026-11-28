@@ -222,7 +222,8 @@ describe("LorePage — 已離開的撰寫人只留名牌，沒有訊息框", () 
     stubList([mkEntry({ id: "L-10", authorId: LIVE })]);
     const { container } = await renderPage();
 
-    const row = await waitFor(() => rowById(container, "L-10"));
+    fireEvent.click(await waitFor(() => rowById(container, "L-10")));
+    const row = rowById(container, "L-10");
     await waitFor(() =>
       expect(
         row.querySelector<HTMLTextAreaElement>('[data-testid="lore-msg-input"]')!.placeholder,

@@ -633,12 +633,14 @@ for (const width of [390, 1440]) {
     assertNoHScroll(width, g);
   });
 
-  test(`a click on a read card's body folds it to the same card with its body cut to two lines and no message box, the cards below move up, and a click opens it again @${width}px`, async ({ mount, page }) => {
+  test(`a read card starts folded and a click opens it; a click on its body folds it to the same card with its body cut to two lines and no message box, the cards below move up, and a click opens it again @${width}px`, async ({ mount, page }) => {
     const cmp = await mountAt(mount, page, width, false, MIRA);
-    const open = cmp.locator('[data-testid="lore-row"]:not([data-folded]):not([data-dimmed="true"])');
-    const card = open.first();
+    const card = cmp.locator('[data-testid="lore-row"]:not([data-dimmed="true"])').first();
     const id = (await card.getAttribute("data-entry-id"))!;
     const row = cmp.locator(`[data-testid="lore-row"][data-entry-id="${id}"]`);
+    await expect(row).toHaveAttribute("data-folded", "true");
+    await row.click();
+    await expect(row).not.toHaveAttribute("data-folded", "true");
     const next = row.locator("xpath=following-sibling::*[1]");
     const geom = (rowSel: string) =>
       page.evaluate((sel: string) => {

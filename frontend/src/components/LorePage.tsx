@@ -1258,10 +1258,8 @@ function LoreView({
     if (loadMore(currentDef)) r.pages += 1;
   }, [currentDef, currentData, highlightId, highlightLoaded, filterKey, loadMore]);
 
-  // A dropped entry starts folded to one row, every other entry open; a fold or
-  // open is remembered per entry for the life of the page, so a re-read that
-  // keeps it dropped keeps it as the reader left it. A highlighted entry opens
-  // itself.
+  // Every entry starts folded (owner); a fold or open is remembered per entry
+  // for the life of the page. A highlighted entry opens itself.
   const [openOverride, setOpenOverride] = useState<Map<string, boolean>>(() => new Map());
   const focusAfterToggle = useRef<string | null>(null);
   function setEntryOpen(id: string, open: boolean) {
@@ -1388,7 +1386,7 @@ function LoreView({
           const entry = withStaged(stored, ch);
           const dropped = stored.dropped === true;
           const foldable = !ch;
-          const expanded = !foldable || (openOverride.get(entry.id) ?? !dropped);
+          const expanded = openOverride.get(entry.id) ?? false;
           return (
             <LoreRow
                   key={entry.id}
