@@ -565,10 +565,16 @@ describe("ChatGroupPanel", () => {
     fireEvent.click(screen.getByTestId("chat-group-autojoin-bugfix"));
     expect(latest[0].taskTypeKeys).toEqual([]);
 
+    const info = within(dialog).getByTestId("info-hint");
+    fireEvent.keyDown(document.activeElement!, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(info);
     fireEvent.keyDown(document.activeElement!, { key: "Tab", shiftKey: true });
     expect(document.activeElement).toBe(screen.getByTestId("chat-group-autojoin-done"));
     fireEvent.keyDown(document.activeElement!, { key: "Tab" });
+    expect(document.activeElement).toBe(info);
+    fireEvent.keyDown(document.activeElement!, { key: "Tab" });
     expect(document.activeElement).toBe(screen.getByTestId("chat-group-autojoin-review"));
+    fireEvent.keyDown(document.activeElement!, { key: "Tab", shiftKey: true });
     fireEvent.keyDown(document.activeElement!, { key: "Tab", shiftKey: true });
     expect(document.activeElement).toBe(screen.getByTestId("chat-group-autojoin-done"));
     fireEvent.click(screen.getByTestId("chat-group-autojoin-done"));

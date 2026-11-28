@@ -439,10 +439,10 @@ function Menu({
   );
 }
 
-/** Tab and Shift+Tab go round the buttons inside `box`. */
+/** Tab and Shift+Tab go round the buttons and ⓘ inside `box`. */
 function trapTab(e: KeyboardEvent<HTMLElement>, box: HTMLElement | null) {
   if (e.key !== "Tab" || !box) return;
-  const buttons = Array.from(box.querySelectorAll<HTMLElement>("button"));
+  const buttons = Array.from(box.querySelectorAll<HTMLElement>("button, .info-hint"));
   const i = buttons.indexOf(document.activeElement as HTMLElement);
   const next = e.shiftKey ? (i <= 0 ? buttons.length - 1 : i - 1) : (i + 1) % buttons.length;
   e.preventDefault();

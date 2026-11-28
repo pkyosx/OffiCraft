@@ -53,7 +53,7 @@ export function ChatSuggestedRepliesDialog({
     }
     if (e.key !== "Tab" || !boxRef.current) return;
     const items = Array.from(
-      boxRef.current.querySelectorAll<HTMLElement>("button:not(:disabled), input"),
+      boxRef.current.querySelectorAll<HTMLElement>("button:not(:disabled), input, .info-hint"),
     );
     const at = items.indexOf(document.activeElement as HTMLElement);
     const next = e.shiftKey ? (at <= 0 ? items.length - 1 : at - 1) : (at + 1) % items.length;
