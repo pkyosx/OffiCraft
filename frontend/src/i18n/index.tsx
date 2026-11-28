@@ -63,6 +63,7 @@ import { loadBundledBuiltinTheme } from "../lib/bundledBuiltinThemes";
 import { BG_MOTIONS, watchStillCanvas, type BgMotion } from "../lib/stillCanvas";
 import { applyWording } from "./wording";
 import { makeMessages, type Messages } from "./compose";
+import { DEFAULT_LANGUAGE } from "./defaultLanguage";
 
 export type Locale = "zh" | "en";
 /** User-selectable language (mockup 語言 toggle offers only 中文 / English). */
@@ -274,16 +275,21 @@ interface I18nContextValue {
    * the theme settings call this when they open. */
   refreshThemeList: () => void;
   /** Reset local preferences to initial (used by the honest M1 "logout").
-   * Covers only the client-persisted prefs (theme/language); the owner
-   * nickname is server-backed now (T-0b41) and is left untouched. */
+   * Covers only the client-persisted prefs except the language, which is
+   * kept; the owner nickname is server-backed now (T-0b41) and is left
+   * untouched. */
   resetPreferences: () => void;
+  /** Pre-auth: adopt the station language from the public auth status. "zh"
+   * or "en" replaces the cache, as the login reconcile does; "" (never
+   * chosen) keeps it. */
+  adoptStationLanguage: (stationLanguage: string) => void;
 }
 
 const I18nContext = createContext<I18nContextValue | null>(null);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>(() =>
-    readStored<Language>(LS_LANGUAGE, ["zh", "en"], "zh")
+    readStored<Language>(LS_LANGUAGE, ["zh", "en"], DEFAULT_LANGUAGE)
   );
   const [theme, setThemeState] = useState<string>(() => readStoredTheme());
   const [wide, setWideState] = useState<boolean>(() => readStoredWide());
@@ -356,6 +362,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // hijacks the UI language; copy comes from `language`, with a custom theme's
   // optional 用詞 overlay laid on top (below).
   const locale: Locale = language;
+
+  useEffect(() => {
+    document.documentElement.lang = language === "zh" ? "zh-Hant" : "en";
+  }, [language]);
   // The active custom theme's 用詞 (wording) overlay for the current language,
   // laid on top of the base dict (T-16a1 P3). The built-in office theme has no
   // user overlay; a custom theme keys its overlay on `language` (zh/en). FALLBACK
@@ -1291,8 +1301,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     // The honest M1 "logout": drop back to the local defaults so the next
     // owner's first paint is not tinted by this session. Local-only — logout
     // must NOT rewrite the server pref (that would clear the owner's stored
-    // choice for every other device).
-    cacheLanguage("zh");
+    // choice for every other device). The language stays: the login wall is
+    // read by the same owner who just signed out.
     cacheTheme("office");
     writeStored(LS_THEME_PAINT, null);
     cacheWide(false);
@@ -1304,7 +1314,16 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     // that owner's reconcile).
     setThemeList([]);
     setActiveThemeBundle(null);
-  }, [cacheLanguage, cacheTheme, cacheWide, cacheSeasonalTheme, cacheThemeSchedule, adoptScheduleBundles]);
+  }, [cacheTheme, cacheWide, cacheSeasonalTheme, cacheThemeSchedule, adoptScheduleBundles]);
+
+  const adoptStationLanguage = useCallback(
+    (stationLanguage: string) => {
+      if (stationLanguage === "zh" || stationLanguage === "en") {
+        cacheLanguage(stationLanguage);
+      }
+    },
+    [cacheLanguage]
+  );
 
   const value = useMemo<I18nContextValue>(
     () => ({
@@ -1338,6 +1357,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       removeTheme,
       refreshThemeList,
       resetPreferences,
+      adoptStationLanguage,
     }),
     [
       locale,
@@ -1370,6 +1390,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       removeTheme,
       refreshThemeList,
       resetPreferences,
+      adoptStationLanguage,
     ]
   );
 

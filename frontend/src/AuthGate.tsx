@@ -7,6 +7,7 @@ import { USE_MOCK, api } from "./api";
 import { hasToken, clearToken, redeemLoginLink } from "./api/auth";
 import { isHttpStatus, retryAfterSeconds } from "./api/errors";
 import { ReplyCardsProvider } from "./hooks/useReplyCards";
+import { useI18n } from "./i18n";
 
 type Wall = "checking" | "firstrun" | "login" | "app";
 
@@ -41,6 +42,7 @@ function scrubLoginLinkFromURL(): void {
  * the login wall with a notice.
  */
 export function AuthGate({ authed }: { authed?: ReactNode } = {}) {
+  const { adoptStationLanguage } = useI18n();
   // Redeemed even when a token exists: a stale token left on a phone would
   // otherwise swallow a valid link without a word.
   const loginLinkCode = useRef(USE_MOCK ? "" : readLoginLinkCode());
@@ -101,6 +103,7 @@ export function AuthGate({ authed }: { authed?: ReactNode } = {}) {
       try {
         const status = await api.getAuthStatus();
         if (cancelled) return;
+        adoptStationLanguage(status.displayLanguage);
         setMfaRequired(status.mfaRequired);
         setPasskeyLoginAvailable(status.passkeyLoginAvailable);
         setWall(status.passwordSet ? "login" : "firstrun");
@@ -111,7 +114,7 @@ export function AuthGate({ authed }: { authed?: ReactNode } = {}) {
     return () => {
       cancelled = true;
     };
-  }, [wall]);
+  }, [wall, adoptStationLanguage]);
 
   // Real-mode-only: a gated call that hit 401 (expired/missing owner token) has
   // already cleared the token and fired "oc-auth-expired" (see api/http.ts). Drop

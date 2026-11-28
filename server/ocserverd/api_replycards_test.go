@@ -208,7 +208,7 @@ func TestOpenReplyCard(t *testing.T) {
 		initiator.wantFrames(chatFrame, cardFrame)
 		wantPushed(map[string]any{
 			"kind": "reply_card", "chat_id": card.ChatMessageID, "reply_card_id": card.ID,
-			"title": "OffiCraft：需要你決定", "body": "你有一張新的請示卡。", "needs_decision": true,
+			"title": "OffiCraft: decision needed", "body": "You have a new reply card.", "needs_decision": true,
 		})
 	})
 
@@ -500,8 +500,8 @@ func TestHandleCreateReplyCardApiReplyCardsPost(t *testing.T) {
 			"kind":           "reply_card",
 			"chat_id":        messageID,
 			"reply_card_id":  cardID,
-			"title":          "OffiCraft：需要你決定",
-			"body":           "你有一張新的請示卡。",
+			"title":          "OffiCraft: decision needed",
+			"body":           "You have a new reply card.",
 			"needs_decision": true,
 		})
 	})

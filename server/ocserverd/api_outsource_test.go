@@ -419,11 +419,11 @@ func TestHandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet(t *testin
 		zhContext := "# SYSTEM INTERACTION\n\n" + apiTestUserLanguageBlockZh + "\n\n# User additions\n\nOWNER ADDITIONS\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
 		enContext := "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports.\n\n" + apiTestUserLanguageGlossary + "\n\n# User additions\n\nOWNER ADDITIONS\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
 		for _, step := range []struct{ name, settings, want string }{
-			{name: "never set", want: zhContext},
-			{name: "en", settings: `{"display_language":"en"}`, want: enContext},
+			{name: "never set", want: enContext},
 			{name: "zh", settings: `{"display_language":"zh"}`, want: zhContext},
-			{name: "en again", settings: `{"display_language":"en"}`, want: enContext},
-			{name: "cleared", settings: `{"display_language":""}`, want: zhContext},
+			{name: "en", settings: `{"display_language":"en"}`, want: enContext},
+			{name: "zh again", settings: `{"display_language":"zh"}`, want: zhContext},
+			{name: "cleared", settings: `{"display_language":""}`, want: enContext},
 		} {
 			t.Run(step.name, func(t *testing.T) {
 				if step.settings != "" {

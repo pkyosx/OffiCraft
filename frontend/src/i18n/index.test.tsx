@@ -46,6 +46,23 @@ function Probe() {
   return <div data-testid="probe" data-theme={theme} data-lang={language} />;
 }
 
+/** The provider with the shipped default language rather than the test
+ * setup's Chinese one. It runs against its own api mock instance, reset to the
+ * same no-appearance station the other cases here use. */
+async function importWithShippedDefaultLanguage() {
+  vi.doUnmock("./defaultLanguage");
+  vi.resetModules();
+  const fresh = await import("./index");
+  const freshMock = await import("../api/mock");
+  freshMock.__resetMock();
+  freshMock.__setMockNoAppearance();
+  function ShippedProbe() {
+    const { theme, language } = fresh.useI18n();
+    return <div data-testid="probe" data-theme={theme} data-lang={language} />;
+  }
+  return { I18nProvider: fresh.I18nProvider, Probe: ShippedProbe };
+}
+
 let ctx = null as unknown as ReturnType<typeof useI18n>;
 function Capture() {
   ctx = useI18n();
@@ -161,22 +178,82 @@ describe("I18nProvider dual-layer theme/language", () => {
   });
 
   it("keeps the cache when the server pref is unset (\"\")", async () => {
+    const shipped = await importWithShippedDefaultLanguage();
     localStorage.setItem("oc.theme", "midnight");
+    localStorage.setItem("oc.language", "zh");
     localStorage.setItem(TOKEN_KEY, "live-owner-token");
     // Server default is "" for both — an unset server value must NOT clobber the
     // cache back to a default.
     render(
-      <I18nProvider>
-        <Probe />
-      </I18nProvider>
+      <shipped.I18nProvider>
+        <shipped.Probe />
+      </shipped.I18nProvider>
     );
     // Give the reconcile a chance to (wrongly) run, then assert it left the cache.
     await Promise.resolve();
     await waitFor(() =>
       expect(screen.getByTestId("probe").dataset.theme).toBe("midnight")
     );
+    expect(screen.getByTestId("probe").dataset.lang).toBe("zh");
     expect(localStorage.getItem("oc.theme")).toBe("midnight");
+    expect(localStorage.getItem("oc.language")).toBe("zh");
   });
+
+  it("shows English when neither the cache nor the server has a language", async () => {
+    const shipped = await importWithShippedDefaultLanguage();
+    localStorage.setItem(TOKEN_KEY, "live-owner-token");
+    render(
+      <shipped.I18nProvider>
+        <shipped.Probe />
+      </shipped.I18nProvider>
+    );
+    expect(screen.getByTestId("probe").dataset.lang).toBe("en");
+    expect(document.documentElement.lang).toBe("en");
+    await waitFor(() =>
+      expect(screen.getByTestId("probe").dataset.theme).toBe("office")
+    );
+    expect(screen.getByTestId("probe").dataset.lang).toBe("en");
+    expect(localStorage.getItem("oc.language")).toBeNull();
+  });
+
+  it("adopts the station language before login, over the cache, and caches it", () => {
+    localStorage.setItem("oc.language", "zh");
+    render(
+      <I18nProvider>
+        <Probe />
+        <Capture />
+      </I18nProvider>
+    );
+    act(() => ctx.adoptStationLanguage("en"));
+    expect(screen.getByTestId("probe").dataset.lang).toBe("en");
+    expect(document.documentElement.lang).toBe("en");
+    expect(localStorage.getItem("oc.language")).toBe("en");
+    act(() => ctx.adoptStationLanguage(""));
+    expect(screen.getByTestId("probe").dataset.lang).toBe("en");
+    expect(localStorage.getItem("oc.language")).toBe("en");
+    act(() => ctx.adoptStationLanguage("zh"));
+    expect(screen.getByTestId("probe").dataset.lang).toBe("zh");
+    expect(document.documentElement.lang).toBe("zh-Hant");
+    expect(localStorage.getItem("oc.language")).toBe("zh");
+  });
+
+  it.each(["zh", "en"] as const)(
+    "resetPreferences keeps the language in effect (%s; logout lands on a login wall in the same language)",
+    (lang) => {
+      localStorage.setItem("oc.language", lang);
+      localStorage.setItem("oc.theme", "office-light");
+      render(
+        <I18nProvider>
+          <Probe />
+          <Capture />
+        </I18nProvider>
+      );
+      act(() => ctx.resetPreferences());
+      expect(screen.getByTestId("probe").dataset.lang).toBe(lang);
+      expect(screen.getByTestId("probe").dataset.theme).toBe("office");
+      expect(localStorage.getItem("oc.language")).toBe(lang);
+    }
+  );
 });
 
 describe("I18nProvider following another tab's settings", () => {

@@ -13,7 +13,7 @@
 // function`. Product code (api/auth.ts) and the tests both assume a real browser
 // Storage, so we provide one here rather than weaken any test.
 
-import { afterEach } from "vitest";
+import { afterEach, vi } from "vitest";
 import { resetChatDrafts } from "../lib/chatDraftStore";
 import { resetAllSharedSnapshots } from "../lib/sharedSnapshot";
 
@@ -23,6 +23,13 @@ import { resetAllSharedSnapshots } from "../lib/sharedSnapshot";
 // id, so reset it between tests — mirrors the localStorage.clear() that
 // per-suite beforeEach hooks already do.
 afterEach(() => resetChatDrafts());
+
+// The shipped default language is English, but most suites assert Chinese text
+// and many clear or remove `oc.language` between cases, so a seeded storage key
+// would not hold. A suite about the default itself loads the real module with
+// `vi.doUnmock` plus `vi.resetModules()` (see importWithShippedDefaultLanguage
+// in i18n/index.test.tsx).
+vi.mock("../i18n/defaultLanguage", () => ({ DEFAULT_LANGUAGE: "zh" }));
 
 // T-8115: hooks/sharedServerSettings caches the /api/settings snapshot at module
 // level (that IS the point — one read per cockpit load). Left alone it would

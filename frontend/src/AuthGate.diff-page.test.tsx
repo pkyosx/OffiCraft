@@ -51,7 +51,7 @@ describe("AuthGate", () => {
   it("still walls that page off when there is no session", async () => {
     const probe = vi
       .spyOn(api, "getAuthStatus")
-      .mockResolvedValue({ passwordSet: true, mfaRequired: false, passkeyLoginAvailable: false });
+      .mockResolvedValue({ passwordSet: true, mfaRequired: false, passkeyLoginAvailable: false, displayLanguage: "" });
     render(
       <I18nProvider>
         <AuthGate authed={<div>比較畫面</div>} />

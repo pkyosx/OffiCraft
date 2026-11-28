@@ -29,9 +29,10 @@ const wireSchemaVersion = 3
 // MFARequired has no omitempty on purpose: the schema marks it optional, but
 // this server must say `false` rather than leave the login wall to guess.
 type authStatusDTO struct {
-	PasswordSet           bool `json:"password_set"`
-	MFARequired           bool `json:"mfa_required"`
-	PasskeyLoginAvailable bool `json:"passkey_login_available"`
+	PasswordSet           bool   `json:"password_set"`
+	MFARequired           bool   `json:"mfa_required"`
+	PasskeyLoginAvailable bool   `json:"passkey_login_available"`
+	DisplayLanguage       string `json:"display_language"`
 }
 
 // No key material on the wire: no public key, credential id, counter or AAGUID.

@@ -701,8 +701,8 @@ The boot context is these blocks, in this order, joined into one document:
 1. **系統互動** — the shared system-interaction file seed;
 2. **使用者語言** (`# User Language`) — which language the member writes to the owner in,
    the `user_language/global` boot document (folded: owner edit ⊕ seed). Its seed depends on
-   the `display.language` setting: `en` gets the English default, anything else (`zh`, or
-   `""` = never set) the Traditional Chinese one. An edit is used whatever the setting; a
+   the `display.language` setting: `zh` gets the Traditional Chinese default, anything else
+   (`en`, or `""` = never set) the English one. An edit is used whatever the setting; a
    write whose text equals either default (ignoring leading and trailing whitespace) is
    stored as a reset, so the document follows the setting again. It is editable with
    developer mode off. It is followed by the read-only `term_glossary/global` document, a

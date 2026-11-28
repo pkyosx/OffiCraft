@@ -17,13 +17,14 @@ import { ApiError } from "./errors";
 describe("mock settings — display prefs (display_theme / display_language)", () => {
   beforeEach(() => __resetMock());
 
-  it("starts like a fresh server: the desk display theme, and language \"\"", async () => {
+  it("starts like a fresh server: the desk display theme, and language \"\" in settings and the auth status", async () => {
     const s = await mockApi.getServerSettings();
     expect(s.displayTheme).toBe("modern-office-desk-day");
     expect(s.displayLanguage).toBe("");
+    expect((await mockApi.getAuthStatus()).displayLanguage).toBe("");
   });
 
-  it("PATCHes display prefs and reads them back durably", async () => {
+  it("PATCHes display prefs and reads them back durably, the language also from the auth status", async () => {
     const s = await mockApi.patchServerSettings({
       displayTheme: "office",
       displayLanguage: "en",
@@ -33,6 +34,7 @@ describe("mock settings — display prefs (display_theme / display_language)", (
     const again = await mockApi.getServerSettings();
     expect(again.displayTheme).toBe("office");
     expect(again.displayLanguage).toBe("en");
+    expect((await mockApi.getAuthStatus()).displayLanguage).toBe("en");
   });
 
   it("422s an out-of-enum display_theme, writing nothing", async () => {

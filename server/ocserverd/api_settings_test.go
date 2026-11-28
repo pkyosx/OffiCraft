@@ -190,7 +190,7 @@ func TestHandleAuthStatusApiAuthStatusGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, map[string]any{"password_set": false, "mfa_required": false, "passkey_login_available": true})
+		apiWantBody(t, data, map[string]any{"password_set": false, "mfa_required": false, "passkey_login_available": true, "display_language": ""})
 	})
 
 	t.Run("a claimed server answers 200 with the password set", func(t *testing.T) {
@@ -200,7 +200,20 @@ func TestHandleAuthStatusApiAuthStatusGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, map[string]any{"password_set": true, "mfa_required": false, "passkey_login_available": true})
+		apiWantBody(t, data, map[string]any{"password_set": true, "mfa_required": false, "passkey_login_available": true, "display_language": ""})
+	})
+
+	t.Run("a station whose language was chosen answers it to the login wall", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_language":"zh"}`); status != 200 {
+			t.Fatalf("PATCH settings: want 200, got %d (%v)", status, data)
+		}
+
+		status, data := apiJSON(t, h, "GET", "/api/auth/status", "", "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"password_set": true, "mfa_required": false, "passkey_login_available": true, "display_language": "zh"})
 	})
 
 	t.Run("an armed factor answers 200 with mfa_required true", func(t *testing.T) {
@@ -211,7 +224,7 @@ func TestHandleAuthStatusApiAuthStatusGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, map[string]any{"password_set": true, "mfa_required": true, "passkey_login_available": true})
+		apiWantBody(t, data, map[string]any{"password_set": true, "mfa_required": true, "passkey_login_available": true, "display_language": ""})
 	})
 
 	t.Run("passkey sign-in is offered on a domain and on localhost at the listening port only, never on an IP address", func(t *testing.T) {
@@ -230,7 +243,7 @@ func TestHandleAuthStatusApiAuthStatusGet(t *testing.T) {
 			if status != 200 {
 				t.Fatalf("%s: want 200, got %d (%v)", host, status, data)
 			}
-			apiWantBody(t, data, map[string]any{"password_set": true, "mfa_required": false, "passkey_login_available": want})
+			apiWantBody(t, data, map[string]any{"password_set": true, "mfa_required": false, "passkey_login_available": want, "display_language": ""})
 		}
 	})
 }

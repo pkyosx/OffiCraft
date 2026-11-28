@@ -2899,6 +2899,7 @@ export const httpApi: Api = {
       passwordSet: wire.password_set,
       mfaRequired: wire.mfa_required ?? false,
       passkeyLoginAvailable: wire.passkey_login_available ?? false,
+      displayLanguage: wire.display_language ?? "",
     };
   },
 

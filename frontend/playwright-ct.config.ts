@@ -14,6 +14,7 @@
 import { defineConfig, devices } from "@playwright/experimental-ct-react";
 import { localTestWorkers } from "./local-test-workers";
 import { NO_SEASONAL_SCHEDULE_ALIAS } from "./seasonal-test-alias";
+import { ZH_DEFAULT_LANGUAGE_ALIAS } from "./default-language-test-alias";
 
 const testWorkers = localTestWorkers();
 
@@ -47,7 +48,7 @@ export default defineConfig({
     // Pinning the port would make the second clone's run die on a port clash and
     // take that capability away.
     ctPort: 5241,
-    ctViteConfig: { resolve: { alias: [NO_SEASONAL_SCHEDULE_ALIAS] } },
+    ctViteConfig: { resolve: { alias: [NO_SEASONAL_SCHEDULE_ALIAS, ZH_DEFAULT_LANGUAGE_ALIAS] } },
     trace: "off",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],

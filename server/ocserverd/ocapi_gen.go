@@ -991,6 +991,9 @@ type AliasUpdateDTO struct {
 //
 // `passkey_login_available` is a fact about the HOST the page was opened on, never about enrolment: whether a passkey exists stays undisclosed before sign-in, so `/api/auth/passkey-login/begin` answers the same either way.
 type AuthStatusDTO struct {
+	// DisplayLanguage The station's display language (the `display.language` setting the signed-in cockpit uses), so the login and first-run screens can render in it before anyone has a token: `zh` or `en`. "" means it has never been chosen, and the client keeps its cached choice or, without one, its default English. Optional for compatibility, like `mfa_required`.
+	DisplayLanguage *string `json:"display_language,omitempty"`
+
 	// MfaRequired Whether an active TOTP secret is enrolled, i.e. whether `/api/login` demands a `code`. Optional for compatibility: a client that does not read it, or an older server that does not send it, behaves exactly as before.
 	MfaRequired *bool `json:"mfa_required,omitempty"`
 
@@ -1098,7 +1101,7 @@ type BootDocumentDTO struct {
 	// HasSeed True when a FACTORY version of this block ships in this binary, i.e. there is something for the reset route to restore. It says nothing about whether what you are holding IS that factory text — is_default answers that. True in every shipped build; served rather than assumed so a build whose seeds were not staged cannot be offered a 還原 button that 404s.
 	HasSeed *bool `json:"has_seed,omitempty"`
 
-	// IsDefault True while nobody has edited this block (or it has been reset), i.e. the text you are reading is the shipped seed. False means you are reading somebody's edit. ``user_language`` has two shipped seeds, Traditional Chinese and English: while it is default it reads the one ``display.language`` picks (``en`` → English, anything else → Chinese), and saving or restoring a text equal to either seed (ignoring leading and trailing whitespace) returns it to the default.
+	// IsDefault True while nobody has edited this block (or it has been reset), i.e. the text you are reading is the shipped seed. False means you are reading somebody's edit. ``user_language`` has two shipped seeds, Traditional Chinese and English: while it is default it reads the one ``display.language`` picks (``zh`` → Chinese, anything else → English), and saving or restoring a text equal to either seed (ignoring leading and trailing whitespace) returns it to the default.
 	IsDefault *bool `json:"is_default,omitempty"`
 
 	// Key The second half of the address. Most kinds serve exactly one key; a kind that serves more does so because the documents genuinely differ, so the key is never a formality — an unknown one is a 404 that names the keys that exist.
@@ -2519,7 +2522,7 @@ type MemberAvatarDTO struct {
 	Mime      *string `json:"mime,omitempty"`
 }
 
-// MemberBootContextDTO A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's lore block (“everyone“ entries and the member's own merged into one list — pinned first, then newest “effective_ts“ first — under one “lore_cap_chars_role“ budget), the User Language block (the “user_language“ boot document — the owner's edit, or while unedited the shipped default for “display.language“: English when it is “en“, Traditional Chinese otherwise — followed by the read-only “term_glossary“ document, the Chinese↔English feature-name table), and the Boot steps for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.
+// MemberBootContextDTO A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's lore block (“everyone“ entries and the member's own merged into one list — pinned first, then newest “effective_ts“ first — under one “lore_cap_chars_role“ budget), the User Language block (the “user_language“ boot document — the owner's edit, or while unedited the shipped default for “display.language“: Traditional Chinese when it is “zh“, English otherwise — followed by the read-only “term_glossary“ document, the Chinese↔English feature-name table), and the Boot steps for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.
 type MemberBootContextDTO struct {
 	Context string `json:"context"`
 }
@@ -4189,7 +4192,7 @@ type SettingsDTO struct {
 	// DiskUsageIntervalSecs How often, in seconds (600 through 86400), each warden measures how much disk OffiCraft uses on its machine, and the server measures its database, backups and old database copies. One measurement walks the whole OffiCraft directory and takes tens of seconds of disk reads, hence the 10-minute floor. Wardens learn the value from their heartbeat reply.
 	DiskUsageIntervalSecs *int `json:"disk_usage_interval_secs,omitempty"`
 
-	// DisplayLanguage The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in: while the `user_language` boot document is unedited, the boot context's User Language block carries its English default when this is `en` and its Traditional Chinese default otherwise ("" included); an edited `user_language` is used whatever this is. It is followed by the read-only `term_glossary` document (the Chinese↔English feature-name table), and a change reaches each member at its next boot. "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
+	// DisplayLanguage The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in: while the `user_language` boot document is unedited, the boot context's User Language block carries its Traditional Chinese default when this is `zh` and its English default otherwise ("" included); an edited `user_language` is used whatever this is. It is followed by the read-only `term_glossary` document (the Chinese↔English feature-name table), and a change reaches each member at its next boot. "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
 	DisplayLanguage *string `json:"display_language,omitempty"`
 
 	// DisplaySeasonalTheme Whether the cockpit takes the built-in seasonal theme while its window is open (a holiday theme shipped with the release, e.g. Halloween; its dates ship with it and are not configurable). true (the default) = show it; false = keep display_theme through the window. Outside every window this has no effect. Same dual-layer contract as display_wide.

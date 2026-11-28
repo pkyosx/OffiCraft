@@ -50,10 +50,10 @@ type bootDocReg struct {
 	ReadOnly bool
 
 	// When set, the shipped default follows display.language: this seed for
-	// "en", SeedFor's otherwise. A write whose text equals either seed is stored
+	// "zh", SeedFor's otherwise. A write whose text equals either seed is stored
 	// as following the default (owner's ruling: back at a default text, it
 	// follows the UI language again).
-	EnSeed string
+	ZhSeed string
 	// Editable with developer mode off, like User additions (owner's ruling:
 	// 「可以改的放使用者自訂」).
 	NoDeveloperModeLock bool
@@ -81,8 +81,8 @@ var bootDocRegistry = []bootDocReg{{
 }, {
 	Kind:    docKindUserLanguage,
 	Keys:    []string{bootDocSingletonKey},
-	SeedFor: func(string) string { return userLanguageSeedZh },
-	EnSeed:  userLanguageSeedEn,
+	SeedFor: func(string) string { return userLanguageSeedEn },
+	ZhSeed:  userLanguageSeedZh,
 	DocName: func(string) string { return "User Language document" },
 	Cap:     func(s *apiServer) int { return s.userLanguageCap() },
 
@@ -234,8 +234,8 @@ func (s *apiServer) bootDocSpecFor(kind, key string) (bootDocSpec, bool) {
 		return bootDocSpec{}, false
 	}
 	seedFile := reg.SeedFor(key)
-	if reg.EnSeed != "" && s.displayLanguageSnapshot() == "en" {
-		seedFile = reg.EnSeed
+	if reg.ZhSeed != "" && s.displayLanguageSnapshot() == "zh" {
+		seedFile = reg.ZhSeed
 	}
 	return bootDocSpec{
 		Kind:     reg.Kind,
@@ -559,10 +559,10 @@ func (s *apiServer) bootDocStoredText(spec bootDocSpec, body string) (string, er
 func (s *apiServer) bootDocRowFor(spec bootDocSpec, text string) (BootDocument, string, error) {
 	row := BootDocument{Kind: spec.Kind, Key: spec.Key, Text: text}
 	reg, _ := bootDocRegFor(spec.Kind)
-	if reg.EnSeed == "" {
+	if reg.ZhSeed == "" {
 		return row, text, nil
 	}
-	for _, seedFile := range []string{reg.SeedFor(spec.Key), reg.EnSeed} {
+	for _, seedFile := range []string{reg.SeedFor(spec.Key), reg.ZhSeed} {
 		seedMD, hasSeed, err := s.root.seedBlockMD(seedFile)
 		if err != nil {
 			return BootDocument{}, "", err

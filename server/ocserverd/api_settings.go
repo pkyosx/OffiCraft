@@ -156,6 +156,7 @@ func (s *apiServer) HandleAuthStatusApiAuthStatusGet(w http.ResponseWriter, r *h
 		PasswordSet:           s.authPasswordHash() != "",
 		MFARequired:           s.authMFAEnrolled(),
 		PasskeyLoginAvailable: passkeyRefusal == "",
+		DisplayLanguage:       s.displayLanguageSnapshot(),
 	})
 }
 

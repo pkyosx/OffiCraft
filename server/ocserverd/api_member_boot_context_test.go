@@ -142,11 +142,11 @@ func TestHandleGetMemberBootContextApiMembersMemberIdBootContextGet(t *testing.T
 		zhContext := "# SYSTEM INTERACTION\n\n# User Language\n\n除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。\n\n" + apiTestUserLanguageGlossary + "\n\n# User additions\n\nOWNER ADDITIONS\n\n# Role: Preview Writer\n\n# Preview role instructions\n\n# Lore\n\n## L-2 own\n\nOWN LORE OF m-writer\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
 		enContext := "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports.\n\n" + apiTestUserLanguageGlossary + "\n\n# User additions\n\nOWNER ADDITIONS\n\n# Role: Preview Writer\n\n# Preview role instructions\n\n# Lore\n\n## L-2 own\n\nOWN LORE OF m-writer\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
 		for _, step := range []struct{ name, settings, want string }{
-			{name: "never set", want: zhContext},
-			{name: "en", settings: `{"display_language":"en"}`, want: enContext},
+			{name: "never set", want: enContext},
 			{name: "zh", settings: `{"display_language":"zh"}`, want: zhContext},
-			{name: "en again", settings: `{"display_language":"en"}`, want: enContext},
-			{name: "cleared", settings: `{"display_language":""}`, want: zhContext},
+			{name: "en", settings: `{"display_language":"en"}`, want: enContext},
+			{name: "zh again", settings: `{"display_language":"zh"}`, want: zhContext},
+			{name: "cleared", settings: `{"display_language":""}`, want: enContext},
 		} {
 			t.Run(step.name, func(t *testing.T) {
 				if step.settings != "" {

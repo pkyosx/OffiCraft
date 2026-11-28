@@ -588,7 +588,7 @@ For the contents of each page and every setting, see [Settings](settings.md). Fo
 ## Avatar menu
 
 - **Profile** — Your name, which you can "Rename".
-- **Preferences** — "Theme" (opens the theme settings: choose a theme, "Switch by time of day", "Background animation", "Show seasonal theme"), "Language" (中文 / English), "Layout" ("Narrow" / "Wide").
+- **Preferences** — "Theme" (opens the theme settings: choose a theme, "Switch by time of day", "Background animation", "Show seasonal theme"), "Language" (中文 / English), "Layout" ("Narrow" / "Wide"). Until a language is chosen the console is in English. The login page and the first-time setup page use the station's language once one is chosen, otherwise the language this browser last used; logging out keeps the language.
 - **Notification email** — The email address push notifications need. This address is given to the push services run by browser vendors; it does not stay only on your server.
 - **Account security** — "Change password", "Two-factor authentication", "Passkeys". See "Account security and sign-in" on this page and [Protect your studio](security.md).
 - **Log out**
