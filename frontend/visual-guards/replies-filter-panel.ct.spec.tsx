@@ -26,7 +26,7 @@
 //   (6) on 請示頁 the three list label chips and the funnel / 顯示方式 hold one
 //       row inside the column at 320, 360, 375, 390, 393 and 1440 in both
 //       languages with 4/1/3 and 99/18/23 cards — short labels below zh 345 /
-//       en 387, no number on any chip — and the selected label's count
+//       en 327, no number on any chip — and the selected label's count
 //       (「N 張請示卡」, 近期已回覆's with 「· 近 24 小時」) on one muted line under
 //       the row at every width, its height held before the count is known, and
 //       no sort wording in the row;
@@ -362,10 +362,10 @@ test("the 篩選 shell adds no spacing of its own: the gap below the label row i
 
 /** Below these widths the labels are the short ones (待回覆／稍後／已回覆,
  * Waiting / Later / Done). */
-const FULL_LABELS_FROM = { zh: 345, en: 387 };
+const FULL_LABELS_FROM = { zh: 345, en: 327 };
 const LABELS = {
   zh: { full: ["等待回覆", "稍後再看", "近期已回覆"], short: ["待回覆", "稍後", "已回覆"] },
-  en: { full: ["Awaiting", "Later", "Recently answered"], short: ["Waiting", "Later", "Done"] },
+  en: { full: ["Awaiting", "Later", "Answered"], short: ["Waiting", "Later", "Done"] },
 };
 const COUNT_LINE = {
   zh: (n: number, answered: boolean) => `${n} 張請示卡${answered ? " · 近 24 小時" : ""}`,
@@ -374,7 +374,7 @@ const COUNT_LINE = {
 type Box = { left: number; right: number; top: number; bottom: number; width: number; height: number };
 
 for (const cards of [[4, 1, 3], [99, 18, 23]] as const) {
-  for (const width of [320, 360, 375, 390, 393, 1440]) {
+  for (const width of [320, 326, 327, 360, 375, 390, 393, 1440]) {
     for (const language of ["zh", "en"] as const) {
       const full = width >= FULL_LABELS_FROM[language];
       test(`width ${width}, ${language}, ${cards.join("/")} cards: the three list label chips, the 篩選 and 顯示方式 buttons hold one row inside the column, ${full ? "full" : "short"} labels whole with no number, separate chips with a gap, and each label's count on one line under the row (近期已回覆's with its 24h note), and the row names no sort`, async ({

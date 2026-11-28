@@ -36,9 +36,9 @@ An outsource group can be set to group members automatically: new outsource memb
 
 When a member reaches something only you can decide (whether to do something, which option to choose, or an action you need to complete first), the member opens a reply card and stops to wait for you. Reply cards appear in the "Ask" tab, in the member's chat, and on the task card; answering in any of these places has the same effect. The number on the "Ask" tab is the number of cards still waiting for your reply, not counting cards for which you pressed "Later".
 
-A card states the background, what you need to do, the impact, and a recommendation, so you can answer from the card alone. A card that belongs to a task shows the task name, priority, and due date at the top. The "Ask" tab lists one label at a time: "Awaiting", "Later" or "Recently answered". When there are many cards, it can filter them by opener, task priority and task due date, and sort the awaiting ones. You can answer by clicking an option or by typing a reply. The option marked "AI pick" is the one the member recommends.
+A card states the background, what you need to do, the impact, and a recommendation, so you can answer from the card alone. A card that belongs to a task shows the task name, priority, and due date at the top. The "Ask" tab lists one label at a time: "Awaiting", "Later" or "Answered". When there are many cards, it can filter them by opener, task priority and task due date, and sort the awaiting ones. You can answer by clicking an option or by typing a reply. The option marked "AI pick" is the one the member recommends.
 
-**To change your answer**: in the "Ask" tab, pick the "Recently answered" label above the list (cards answered in the last 24 hours), then press "Change my decision" on that card. The member receives the new answer.
+**To change your answer**: in the "Ask" tab, pick the "Answered" label above the list (cards answered in the last 24 hours), then press "Change my decision" on that card. The member receives the new answer.
 
 **If you do not want to answer yet**: press "Later" and choose to come back after a number of hours or days. The card moves from the "Awaiting" label to the "Later" label, and moves back to "Awaiting" by itself when the time is up. The member who opened the card is not notified, and any task waiting on this card keeps waiting.
 

@@ -642,7 +642,7 @@ export const en: Dict = {
     tabsLabel: "Reply cards",
     tabWaiting: "Awaiting",
     tabSnoozed: "Later",
-    tabAnswered: "Recently answered",
+    tabAnswered: "Answered",
     tabWaitingShort: "Waiting",
     tabSnoozedShort: "Later",
     tabAnsweredShort: "Done",
