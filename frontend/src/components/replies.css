@@ -139,8 +139,8 @@
   }
 }
 /* Short labels below the width where the full ones stop fitting beside the
- * buttons (measured in CT: zh full from 345, en from 327). */
-@media (max-width: 344px) {
+ * buttons (measured in CT: zh full from 347, en from 327). */
+@media (max-width: 346px) {
   .replies__tabs[data-locale="zh"] .replies__tab-label-full {
     display: none;
   }
