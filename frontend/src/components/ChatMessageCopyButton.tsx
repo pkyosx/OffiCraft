@@ -70,11 +70,15 @@ export function useCopyLabel(state: CopyState): string {
 export function ChatMessageCopyButton({
   state,
   onCopy,
+  idleLabel,
 }: {
   state: CopyState;
   onCopy: () => void;
+  /** Names what this button copies, in place of 複製訊息. */
+  idleLabel?: string;
 }) {
-  const label = useCopyLabel(state);
+  const copyLabel = useCopyLabel(state);
+  const label = state === "idle" && idleLabel ? idleLabel : copyLabel;
   return (
     <button
       type="button"

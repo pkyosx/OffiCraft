@@ -310,7 +310,7 @@ describe("RepliesPage", () => {
     // 2026-09-11:「我不想知道絕對時間 相對時間已經夠了」.
     for (const card of cards) {
       expect(card.querySelector('[data-testid="opened-at"]')).toBeNull();
-      expect(card.textContent).not.toContain("開卡");
+      expect(card.textContent).not.toMatch(/\d{1,2}\/\d{1,2}/);
     }
   });
 
@@ -1032,13 +1032,13 @@ describe("RepliesPage", () => {
   // in the cockpit whose avatar did NOT open the member panel — every other
   // surface (roster row, etc.) already does. Mirrors MemberCard's avatar
   // click semantics + the SAME hash seam (frontend/src/lib/hashRoute.ts).
-  it("clicking the avatar opens that member's detail panel (#office/member/<id>), tagged so 返回 lands back on 請示", async () => {
+  it("clicking the 開卡人 chip opens that member's detail panel (#office/member/<id>), tagged so 返回 lands back on 請示", async () => {
     __injectMockReplyCard(mkCard({}));
     const { findAllByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
     await openCards();
 
-    fireEvent.click(card.querySelector(".reply-card__avatar")!);
+    fireEvent.click(card.querySelector(".reply-card__opener")!);
     // T-a706 owner-acceptance finding: without the /from/replies tag,
     // OfficePage's own 返回 button reset to its default chat view instead of
     // back here — see OfficePage.member-detail-backto.test.tsx for the fix
@@ -1046,29 +1046,32 @@ describe("RepliesPage", () => {
     expect(window.location.hash).toBe("#office/member/mira/from/replies/rc-1");
   });
 
-  it("clicking an outsource asker's avatar opens the worker panel (#office/worker/<id>), not the member one, same 返回 tag", async () => {
+  it("clicking an outsource asker's 開卡人 chip opens the worker panel (#office/worker/<id>), not the member one, same 返回 tag", async () => {
     __injectMockMember({ id: "ow-rel", kind: "outsource", name: "R-2" });
     __injectMockReplyCard(mkCard({ id: "rc-ow", from: "ow-rel" }));
     const { findAllByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
     await openCards();
 
-    expect(card.querySelector(".reply-card__avatar img")?.getAttribute("src")).toBe(
+    expect(card.querySelector(".reply-card__opener img")?.getAttribute("src")).toBe(
       "/api/chat/attachment/ava-worker",
     );
-    fireEvent.click(card.querySelector(".reply-card__avatar")!);
+    fireEvent.click(card.querySelector(".reply-card__opener")!);
     expect(window.location.hash).toBe("#office/worker/ow-rel/from/replies/rc-ow");
   });
 
-  it("the avatar has an accessible name (aria-label) — Avatar's inner glyphs are aria-hidden", async () => {
+  it("the 開卡人 chip is a button named by its action and the asker — Avatar's inner glyphs are aria-hidden", async () => {
     __injectMockReplyCard(mkCard({}));
     const { findAllByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
     await openCards();
 
-    const avatarBtn = card.querySelector(".reply-card__avatar")!;
-    expect(avatarBtn.tagName).toBe("BUTTON");
-    expect(avatarBtn.getAttribute("aria-label")).toBe(zh.office.viewProfile);
+    const opener = card.querySelector(".reply-card__opener")!;
+    expect(opener.tagName).toBe("BUTTON");
+    expect([opener.getAttribute("aria-label"), opener.textContent]).toEqual([
+      `${zh.office.viewProfile} Mira`,
+      "Mira特助",
+    ]);
   });
 
   it("標為過期 double-confirms, closes the card without an answer, and lists it as 已過期 under 近期已回覆", async () => {
@@ -1177,12 +1180,10 @@ describe("RepliesPage", () => {
     expect(ref.textContent).toContain("把開機說明改成座艙可編輯");
   });
 
-  // Owner 2026-08-14, T-ee17 acceptance:「這個不能夠放到最一開始嗎？」— at the
-  // bottom of the card the row only answered WHICH work after the whole ask had
-  // been read. Judged by DOM order, not by geometry: a rendered-later row can
-  // still be painted high by CSS, and then the reading order screen readers and
+  // Judged by DOM order, not by geometry: a rendered-later row can still be
+  // painted high by CSS, and then the reading order screen readers and
   // keyboards follow would disagree with the picture.
-  it("puts the task row at the top of the card, above the head and the summary, on waiting, snoozed and handled cards", async () => {
+  it("leads every card with its first line — the state icon, its own id, the chevron last — then the task box, the title and 開卡人, on waiting, snoozed and handled cards", async () => {
     __injectMockReplyCard(
       mkCard({ id: "rc-w", task: { id: "t-4", typeKey: "review-pr", title: "改設定頁" } }),
     );
@@ -1203,24 +1204,48 @@ describe("RepliesPage", () => {
       }),
     );
     const { findByTestId } = renderPage();
-    for (const [view, testId] of [
-      ["waiting", "waiting-card"],
-      ["snoozed", "snoozed-card"],
-      ["answered", "answered-card"],
+    for (const [view, testId, state, id] of [
+      ["waiting", "waiting-card", "waiting", "rc-w"],
+      ["snoozed", "snoozed-card", "snoozed", "rc-s"],
+      ["answered", "answered-card", "answered", "rc-a"],
     ] as const) {
       await selectRepliesTab(view);
       const card = await findByTestId(testId);
       const ref = card.querySelector('[data-testid="reply-task-ref"]')!;
       const head = card.querySelector(".reply-card__head")!;
       const summary = card.querySelector(".reply-card__summary")!;
-      expect(card.firstElementChild).toBe(ref);
+      const meta = card.querySelector(".reply-card__meta")!;
+      expect(card.firstElementChild).toBe(head);
+      expect(head.nextElementSibling).toBe(ref);
       expect(
-        ref.compareDocumentPosition(head) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ref.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
-      expect(
-        head.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy();
+      expect(summary.nextElementSibling).toBe(meta);
+      const status = head.firstElementChild as HTMLElement;
+      expect([status.dataset.testid, status.dataset.state]).toEqual(["reply-status-icon", state]);
+      expect(status.nextElementSibling?.getAttribute("data-testid")).toBe("reply-card-id");
+      expect(status.nextElementSibling?.textContent).toBe(id);
+      expect(head.querySelector(".reply-card__head-end")?.lastElementChild?.className).toBe("reply-card__fold");
     }
+  });
+
+  it("the card's id chip shows six characters after rc- behind the copy icon, and a click copies the whole id without opening the card", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-83935a1b2c3d" }));
+    renderPage();
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-83935a1b2c3d"]));
+    const card = document.querySelector<HTMLElement>('[data-reply-card-id="rc-83935a1b2c3d"]')!;
+    const chip = card.querySelector<HTMLElement>('[data-testid="reply-card-id"]')!;
+    expect([chip.textContent, chip.getAttribute("aria-label"), chip.title]).toEqual([
+      "rc-83935a",
+      "複製完整請示卡 ID rc-83935a1b2c3d",
+      "複製完整請示卡 ID rc-83935a1b2c3d",
+    ]);
+    await act(async () => {
+      fireEvent.click(chip);
+    });
+    await waitFor(() => expect(clipboard).toEqual(["rc-83935a1b2c3d"]));
+    expect(chip.textContent).toBe("rc-83935a已複製");
+    expect(card.getAttribute("aria-expanded")).toBe("false");
   });
 
   // An empty title leaves the chip alone on the row — the cell is not drawn at
@@ -1255,7 +1280,7 @@ describe("RepliesPage", () => {
     renderPage();
     await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1m", "rc-11m", "rc-23h", "rc-3d"]));
     const pillOf = (id: string) =>
-      within(document.querySelector<HTMLElement>(`[data-reply-card-id="${id}"] .reply-card__head`)!).getByRole("img");
+      document.querySelector<HTMLElement>(`[data-reply-card-id="${id}"] .reply-card__head .reply-card__waited-pill`)!;
     const expected: [string, string, string][] = [
       ["rc-1m", "1m", "已等你 1 分"],
       ["rc-11m", "11m", "已等你 11 分"],
@@ -1281,7 +1306,7 @@ describe("RepliesPage", () => {
     expect(snoozed.getAttribute("title")).toBe("2026/11/6（五） 14:30 回來");
   });
 
-  it("starts every card collapsed — head, task row and 已等你 only, no question and no options", async () => {
+  it("starts every card collapsed — first line, task box, title and 開卡人 only, no question and no options", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(
       mkCard({
@@ -1312,12 +1337,12 @@ describe("RepliesPage", () => {
     }
     expect(cards[0].textContent).not.toContain("先看這一張");
 
-    // What the collapsed row DOES show is the card's own head — the same strip
-    // the open card wears (owner:「折疊起來那一列的內容不要另外設計」): who asked,
-    // their role, both header actions, the task title, and the ticking counter.
+    // What the collapsed card DOES show is the same card without its question
+    // (owner:「折疊起來那一列的內容不要另外設計」): the first line with its
+    // actions and the ticking counter, the task box, who asked and their role.
     const head = cards[0].querySelector(".reply-card__head")!;
-    expect(head.querySelector(".reply-card__name")?.textContent).toBe("Mira");
-    expect(head.querySelector(".reply-card__role")?.textContent).toBe("特助");
+    expect(cards[0].querySelector(".reply-card__opener .reply-card__name")?.textContent).toBe("Mira");
+    expect(cards[0].querySelector(".reply-card__opener .reply-card__role")?.textContent).toBe("特助");
     expect(within(head as HTMLElement).getByRole("button", { name: "跳到原訊息" })).toBeTruthy();
     expect(within(head as HTMLElement).getByRole("button", { name: "標為過期" })).toBeTruthy();
     expect(head.querySelector('[data-testid="waited"]')).toBeTruthy();
@@ -1549,7 +1574,7 @@ describe("RepliesPage", () => {
     localStorage.removeItem("oc_replies_sort");
   });
 
-  it("a card naming a task → one task row at the top, above the head: the number chip (查看任務 → #tasks/<id>), priority, due date in its tone, title", async () => {
+  it("a card naming a task → a box right under the first line: the number chip led by the jump icon (查看任務 → #tasks/<id>, the box's only button) and priority, then the title, then 到期 with the date in its tone", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(
       mkCard({
@@ -1586,23 +1611,34 @@ describe("RepliesPage", () => {
       document.querySelector(`[data-reply-card-id="${id}"] [data-testid="reply-task-ref"]`)!;
 
     const over = rowOf("rc-over");
-    expect(over.className).toBe("reply-card__task reply-card__task--row");
+    expect(over.className).toBe("reply-card__task");
+    expect([...over.children].map((el) => el.className)).toEqual([
+      "reply-card__task-line",
+      "reply-card__task-title",
+      "reply-card__task-due",
+    ]);
     expect(
-      [...over.querySelectorAll(".reply-card__task-chips > *")].map((el) => [
+      [...over.querySelector(".reply-card__task-line")!.children].map((el) => [
         el.getAttribute("data-testid"),
         el.className,
       ])
     ).toEqual([
+      ["reply-task-no", "outsource-row__chip outsource-row__chip--task"],
       ["reply-task-priority", "task-badge task-badge--prio-high"],
-      ["reply-task-due", "task-card__chip task-card__due-chip task-card__due-date--overdue"],
     ]);
-    expect(over.firstElementChild!.getAttribute("data-testid")).toBe("reply-task-no");
     expect(over.querySelector('[data-testid="reply-task-no"]')!.textContent).toBe("T-11");
+    expect(
+      over.querySelector('[data-testid="reply-task-no"] > svg polyline')?.getAttribute("points"),
+      "the jump icon leads the number",
+    ).toBe("15 3 21 3 21 9");
     expect(over.querySelector('[data-testid="reply-task-priority"]')!.textContent).toBe("高");
-    expect(over.querySelector('[data-testid="reply-task-due"]')!.textContent).toMatch(
-      /^2026\/9\/30（三）已逾期 \d+ 天$/
-    );
     expect(over.querySelector(".reply-card__task-title")!.textContent).toBe("修好登入");
+    expect(over.querySelector(".reply-card__task-due")!.textContent).toMatch(
+      /^到期2026\/9\/30（三）已逾期 \d+ 天$/
+    );
+    expect(over.querySelector('[data-testid="reply-task-due"]')!.className).toBe(
+      "task-card__chip task-card__due-chip task-card__due-date--overdue"
+    );
     const jump = over.querySelector<HTMLElement>('[data-testid="reply-task-no"]')!;
     expect(within(over as HTMLElement).getAllByRole("button")).toEqual([jump]);
     expect(within(over as HTMLElement).getByRole("button", { name: "查看任務" })).toBe(jump);
@@ -1611,11 +1647,7 @@ describe("RepliesPage", () => {
     expect(over.textContent).not.toContain("x");
 
     const card = document.querySelector('[data-reply-card-id="rc-over"]')!;
-    const head = card.querySelector(".reply-card__head")!;
-    const summary = card.querySelector(".reply-card__summary")!;
-    expect(card.firstElementChild).toBe(over);
-    expect(over.compareDocumentPosition(head) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(head.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(card.querySelector(".reply-card__head")!.nextElementSibling).toBe(over);
 
     const tone = (id: string) => rowOf(id).querySelector('[data-testid="reply-task-due"]')!.className;
     expect(tone("rc-own-lead")).toBe(
@@ -1631,12 +1663,17 @@ describe("RepliesPage", () => {
     expect(card.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("a task row with no priority or due date draws neither chip", async () => {
+  it("a task box with no priority or due date draws neither, and a card with no task draws no box", async () => {
     __injectMockReplyCard(mkCard({ task: { id: "T-20", typeKey: "", title: "沒排期" } }));
+    __injectMockReplyCard(mkCard({ id: "rc-none", createdTs: Date.now() / 1000 - 7200, task: null }));
     renderPage();
-    await waitFor(() => expect(paneIds("waiting-card")).toHaveLength(1));
-    const chips = document.querySelector(".reply-card__task-chips")!;
-    expect([...chips.children].map((el) => el.getAttribute("data-testid"))).toEqual([]);
+    await waitFor(() => expect(paneIds("waiting-card")).toHaveLength(2));
+    const box = document.querySelector('[data-reply-card-id="rc-1"] [data-testid="reply-task-ref"]')!;
+    expect([...box.children].map((el) => el.className)).toEqual(["reply-card__task-line", "reply-card__task-title"]);
+    expect(
+      [...box.querySelector(".reply-card__task-line")!.children].map((el) => el.getAttribute("data-testid"))
+    ).toEqual(["reply-task-no"]);
+    expect(document.querySelector('[data-reply-card-id="rc-none"] [data-testid="reply-task-ref"]')).toBeNull();
   });
 
   it("稍後再看 → four presets each with its return time, then a custom row; a preset moves the card to 稍後再看 with its time and out of the nav badge", async () => {
@@ -1653,9 +1690,9 @@ describe("RepliesPage", () => {
     const heads = [...document.querySelectorAll(".reply-card__head")].map((h) =>
       [...h.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"))
     );
-    expect(heads.map((h) => h.slice(1))).toEqual([
-      ["複製訊息", "跳到原訊息", "稍後再看", "標為過期"],
-      ["複製訊息", "跳到原訊息", "稍後再看", "標為過期"],
+    expect(heads).toEqual([
+      ["rc-1", "跳到原訊息", "稍後再看", "標為過期", "複製整張卡片內容"],
+      ["rc-2", "跳到原訊息", "稍後再看", "標為過期", "複製整張卡片內容"],
     ]);
     fireEvent.click(card.querySelector('[data-testid="snooze-card"]')!);
     expect(card.getAttribute("aria-expanded")).toBe("false");
@@ -1684,7 +1721,7 @@ describe("RepliesPage", () => {
       [...snoozedCard.querySelectorAll(".reply-card__head button")]
         .slice(1)
         .map((b) => b.textContent || b.getAttribute("aria-label"))
-    ).toEqual(["複製訊息", "跳到原訊息", "取消延後", "標為過期"]);
+    ).toEqual(["跳到原訊息", "取消延後", "標為過期", "複製整張卡片內容"]);
   });
 
   it("稍後再看 custom row → live preview of the return time, 延後 sends it; past 90 days or not a whole number the button is off and says why", async () => {
@@ -1870,7 +1907,7 @@ describe("RepliesPage", () => {
     await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1"]));
     const card = document.querySelector<HTMLElement>('[data-reply-card-id="rc-1"]')!;
     const copy = card.querySelector<HTMLButtonElement>(".reply-card__actions .chat__msg-copy")!;
-    expect(copy.getAttribute("aria-label")).toBe("複製訊息");
+    expect(copy.getAttribute("aria-label")).toBe("複製整張卡片內容");
 
     await act(async () => {
       fireEvent.click(copy);
@@ -1893,7 +1930,7 @@ describe("RepliesPage", () => {
     expect(card.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("a finger held 500ms on a card opens the chat's sheet with the head's actions — 跳到原訊息, plus 稍後再看・標為過期 while it waits, then 複製訊息・選取文字, never 回覆這則 — without folding it; a mouse held as long opens nothing", async () => {
+  it("a finger held 500ms on a card opens the chat's sheet with the head's actions — 跳到原訊息, plus 稍後再看・標為過期 while it waits, then 複製整張卡片內容・選取文字, never 回覆這則 — without folding it; a mouse held as long opens nothing", async () => {
     __injectMockReplyCard(mkCard({ id: "rc-1" }));
     __injectMockReplyCard(
       mkCard({
@@ -1923,7 +1960,7 @@ describe("RepliesPage", () => {
     expect(menuLabels()).toEqual([]);
 
     await hold(summary, 520);
-    expect(menuLabels()).toEqual(["跳到原訊息", "稍後再看", "標為過期", "複製訊息", "選取文字"]);
+    expect(menuLabels()).toEqual(["跳到原訊息", "稍後再看", "標為過期", "複製整張卡片內容", "選取文字"]);
     expect(card.classList.contains("reply-card--pressed")).toBe(true);
     fireEvent.click(summary, { detail: 1 });
     expect(card.getAttribute("aria-expanded"), "the press's own click folded the card").toBe("false");
@@ -1934,7 +1971,7 @@ describe("RepliesPage", () => {
     expect(menuLabels()).toEqual([]);
 
     await hold(document.querySelector('[data-reply-card-id="rc-secret"] .reply-card__summary')!, 520);
-    expect(menuLabels()).toEqual(["跳到原訊息", "稍後再看", "標為過期", "複製訊息", "選取文字"]);
+    expect(menuLabels()).toEqual(["跳到原訊息", "稍後再看", "標為過期", "複製整張卡片內容", "選取文字"]);
     act(() => {
       fireEvent.pointerDown(getByTestId("chat-msg-sheet-backdrop"));
     });
@@ -1943,7 +1980,7 @@ describe("RepliesPage", () => {
     await showHandled();
     await waitFor(() => expect(paneIds("answered-card")).toEqual(["rc-done"]));
     await hold(document.querySelector('[data-reply-card-id="rc-done"] .reply-card__summary')!, 520);
-    expect(menuLabels()).toEqual(["跳到原訊息", "複製訊息", "選取文字"]);
+    expect(menuLabels()).toEqual(["跳到原訊息", "複製整張卡片內容", "選取文字"]);
   });
 
   it("the sheet's 稍後再看 (取消延後 on a snoozed card), 標為過期 and 跳到原訊息 do what the head's buttons do: the same snooze menu, as a sheet; the same unsnooze; the same expire confirmation; the same chat route — and a keyboard's first activation in what the sheet opened is not swallowed", async () => {
@@ -1972,7 +2009,7 @@ describe("RepliesPage", () => {
     await selectRepliesTab("snoozed");
     expect(paneIds("snoozed-card")).toEqual(["rc-1", "rc-s"]);
     await hold(summaryOf("rc-s"), 520);
-    expect(menuLabels()).toEqual(["跳到原訊息", "取消延後", "標為過期", "複製訊息", "選取文字"]);
+    expect(menuLabels()).toEqual(["跳到原訊息", "取消延後", "標為過期", "複製整張卡片內容", "選取文字"]);
     choose("取消延後");
     await waitFor(() => expect(paneIds("snoozed-card")).toEqual(["rc-1"]));
     expect(snoozeSpy).toHaveBeenLastCalledWith("rc-s", null);
@@ -2027,7 +2064,7 @@ describe("RepliesPage", () => {
     await waitFor(() => expect(window.location.hash).toBe("#office/chat/mira/msg/msg-1"));
   });
 
-  it("a card found by its id that, once opened, turns out answered elsewhere offers only 跳到原訊息・複製訊息・選取文字, though the lookup still says it waits", async () => {
+  it("a card found by its id that, once opened, turns out answered elsewhere offers only 跳到原訊息・複製整張卡片內容・選取文字, though the lookup still says it waits", async () => {
     __injectMockReplyCard(mkCard({ id: "rc-1" }));
     const answered = mkCard({
       id: "rc-1",
@@ -2056,7 +2093,7 @@ describe("RepliesPage", () => {
       const card = document.querySelector('[data-reply-card-id="rc-1"]')!;
       expect(card.getAttribute("aria-expanded")).toBe("true");
       await hold(card.querySelector(".reply-card__summary")!, 520);
-      expect(menuLabels()).toEqual(["跳到原訊息", "複製訊息", "選取文字"]);
+      expect(menuLabels()).toEqual(["跳到原訊息", "複製整張卡片內容", "選取文字"]);
     } finally {
       Element.prototype.scrollIntoView = scrollIntoView;
     }

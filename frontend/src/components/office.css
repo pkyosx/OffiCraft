@@ -1337,25 +1337,22 @@
 :is(.chat__msg--selecting, .reply-card--selecting) :is(a, img) {
   -webkit-touch-callout: none;
 }
-/* A card in the mode is its title and question only: its task row, question
- * attachments, errors and options cannot be quoted, and 標為過期 is not done
- * here (nor, on the 請示 page, the head with its asker, stamp and buttons, or a
- * read still loading). Hidden, not unmounted, so a half-written answer is
- * there again after the mode. A chat card's head left with nothing but those
- * goes too: empty, it would still add the card's 12px gap above the title (a
- * card with no task keeps its title in the head). */
+/* A card in the mode is its title and question only: its first line, task
+ * box, 開卡人 and settled rows, question attachments, errors and options cannot
+ * be quoted, and 標為過期 is not done here (nor is a read still loading shown).
+ * Hidden, not unmounted, so a half-written answer is there again after the
+ * mode. */
 :is(.chat__msg--selecting, .reply-card--selecting)
   :is(
     .reply-card__answer-side,
     .reply-card__task,
     .reply-card__icon-btn,
     .reply-card__head,
+    .reply-card__meta,
     .reply-card__hint,
     .reply-card__question-atts,
     .reply-card__error
-  ),
-.chat__msg--selecting
-  .reply-card__chat-head:not(:has(> :not(.reply-card__task, .reply-card__icon-btn))) {
+  ) {
   display: none;
 }
 .chat__select-bar {

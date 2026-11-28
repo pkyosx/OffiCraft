@@ -42,7 +42,8 @@ for (const viewport of [
     ).toBeGreaterThan(0);
 
     const dueStatus = cmp
-      .getByTestId("reply-task-due-1")
+      .getByTestId("reply-task-due")
+      .first()
       .locator(".task-card__due-status");
     await expect(dueStatus).toHaveText(/\S/);
     await expect(dueStatus).not.toHaveAttribute("aria-hidden", "true");

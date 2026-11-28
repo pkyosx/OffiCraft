@@ -150,7 +150,7 @@ for (const viewport of WIDTHS) {
 const LEAD_WIDTHS = [320, 390];
 
 for (const viewport of LEAD_WIDTHS) {
-  test(`${viewport}px: the task row sits at the TOP of the card, above the summary, with 標為過期 at its right end`, async ({
+  test(`${viewport}px: the first line leads the card with 標為過期 at its right end, and the task box sits right under it, above the summary`, async ({
     mount,
     page,
   }) => {
@@ -179,12 +179,11 @@ for (const viewport of LEAD_WIDTHS) {
       "the task row must end before the summary starts",
     ).toBeLessThanOrEqual(summaryBox.y + 1);
 
-    // (2) Nothing else is above it either: it is the card's first content, not
-    // merely somewhere above the summary.
-    expect(
-      rowBox.y - cardBox.y,
-      "the task row must be the first thing in the card",
-    ).toBeLessThanOrEqual(rowBox.height + 2);
+    // (2) Only the first line is above it.
+    const headBox = (await card.locator(".reply-card__head").boundingBox())!;
+    const cardPaddingTop = await card.evaluate((el) => parseFloat(getComputedStyle(el).paddingTop));
+    expect(headBox.y - cardBox.y, "the first line is the first thing in the card").toBeLessThanOrEqual(cardPaddingTop + 1);
+    expect(rowBox.y, "the task box under the first line").toBeGreaterThanOrEqual(headBox.y + headBox.height - 0.5);
 
     // (3) The move must not have cost the row its fit. Same contract as the
     // truncation tests above, re-asserted in its new position and at the
@@ -207,24 +206,15 @@ for (const viewport of LEAD_WIDTHS) {
     const rowOver = await row.evaluate((el) => el.scrollWidth - el.clientWidth);
     expect(rowOver, "the row must not overflow").toBeLessThanOrEqual(1);
 
-    // (4) 標為過期 shares the task row (the card's first row), at its right end.
+    // (4) 標為過期 is on the first line, at its right end before the chevron.
     const expire = card.getByTestId("chat-reply-card-expire");
     await expect(expire).toBeVisible();
     const expireBox = (await expire.boundingBox())!;
     const expireMid = expireBox.y + expireBox.height / 2;
-    expect(expireMid, "標為過期 sits on the task row").toBeGreaterThanOrEqual(rowBox.y);
-    expect(expireMid, "標為過期 sits on the task row").toBeLessThanOrEqual(
-      rowBox.y + rowBox.height,
-    );
-    expect(expireBox.x, "標為過期 sits right of the task row").toBeGreaterThanOrEqual(
-      rowBox.x + rowBox.width - 1,
-    );
-    const cardPaddingRight = await card.evaluate((el) =>
-      parseFloat(getComputedStyle(el).paddingRight),
-    );
-    expect(
-      cardBox.x + cardBox.width - (expireBox.x + expireBox.width),
-      "標為過期 is flush with the card's right padding",
-    ).toBeLessThanOrEqual(cardPaddingRight + 2);
+    expect(expireMid, "標為過期 sits on the first line").toBeGreaterThanOrEqual(headBox.y);
+    expect(expireMid, "標為過期 sits on the first line").toBeLessThanOrEqual(headBox.y + headBox.height);
+    const foldBox = (await card.locator(".reply-card__head .reply-card__fold").boundingBox())!;
+    expect(foldBox.x, "標為過期 before the chevron").toBeGreaterThanOrEqual(expireBox.x + expireBox.width - 0.5);
+    expect(Math.abs(foldBox.x + foldBox.width - (headBox.x + headBox.width)), "the chevron at the first line's right end").toBeLessThanOrEqual(0.5);
   });
 }

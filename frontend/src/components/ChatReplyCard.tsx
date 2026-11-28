@@ -39,10 +39,15 @@ import {
   ReplyCardAnsweredBody,
   ReplyCardExpiredBody,
   ReplyCardLinkComments,
+  ReplyCardHandledRow,
+  ReplyCardIdChip,
   ReplyCardQuestionAttachments,
-  ReplyCardTaskRef,
+  ReplyCardStatusIcon,
+  ReplyCardTaskBox,
   ReplyCardWaitingBody,
 } from "./ReplyCardBody";
+import { useDueSoonLeadMinutes } from "../hooks/useDueSoonLeadMinutes";
+import { formatAbsolute } from "../lib/dateFormat";
 import type { DocCommentRecipient } from "../lib/docComments";
 import { ConfirmModal } from "./ConfirmModal";
 import { ChevronRightIcon } from "./icons";
@@ -390,6 +395,15 @@ export function ChatReplyCard({
     );
   }
 
+  const shownStatus = card?.status ?? initialStatus ?? "waiting";
+  const headState =
+    shownStatus === "waiting" ? (snoozed ? "snoozed" : "waiting") : shownStatus;
+  // undefined: still waiting, no row. null: settled at a time this card does not carry.
+  const handledTs =
+    card && card.status !== "waiting"
+      ? (card.status === "expired" ? card.expiredTs : card.answeredTs) ?? null
+      : undefined;
+
   // The summary is agent-authored free text (markdown), like body.
   const summaryNode = (
     <Markdown
@@ -429,39 +443,46 @@ export function ChatReplyCard({
             }
           }}
         >
-        {/* §3.6 請示 → 任務 (chat surface): the SAME row RepliesPage renders —
-         * one component, so the task-number chip and TITLE can never drift between the two
-         * surfaces. Only the route is ours. It leads the card (owner 2026-08-14,
-         * T-ee17:「這個不能夠放到最一開始嗎？」) — WHICH piece of work this asks
-         * about should not require reading the whole card first. Both surfaces
-         * moved together; a lead row on one and a trailing row on the other is
-         * exactly the drift this shared component exists to prevent. */}
-          {/* 標為過期 sits at the card's top-right, where RepliesPage puts it in
-           * its header row (owner rc-07bbcbcca3cd). This card has no header row,
-           * so it shares the first row with whatever leads the card. */}
-          <div className="reply-card__chat-head">
-            {card?.task ? (
-              <ReplyCardTaskRef
-                task={card.task}
-                onJump={() => setRoute({ page: "tasks", taskId: card.task!.id })}
+        {/* The same first line, task box and title as the 請示 page's card
+         * (shared components). No 開卡人 row: the room is the asker's. */}
+          <header className="reply-card__head">
+            <ReplyCardStatusIcon state={headState} />
+            <ReplyCardIdChip id={replyCardId} />
+            <div className="reply-card__head-end">
+              <div className="reply-card__actions">
+                {card?.status === "waiting" && (
+                  <button
+                    type="button"
+                    className="reply-card__icon-btn"
+                    data-testid="chat-reply-card-expire"
+                    aria-label={t.replies.expire}
+                    title={t.replies.expire}
+                    onClick={() => setExpireConfirmOpen(true)}
+                  >
+                    <ExpireActionIcon size={13} />
+                  </button>
+                )}
+              </div>
+              <span className="reply-card__fold reply-card__fold--open" aria-hidden="true">
+                <ChevronRightIcon size={14} />
+              </span>
+            </div>
+          </header>
+          {card?.task && (
+            <ChatReplyCardTaskBox
+              task={card.task}
+              onJump={() => setRoute({ page: "tasks", taskId: card.task!.id })}
+            />
+          )}
+          {summaryNode}
+          {handledTs !== undefined && (
+            <div className="reply-card__meta">
+              <ReplyCardHandledRow
+                expired={card?.status === "expired"}
+                time={handledTs !== null && card?.kind !== "secret" ? formatAbsolute(handledTs, Date.now() / 1000) : ""}
               />
-            ) : (
-              summaryNode
-            )}
-            {card?.status === "waiting" && (
-              <button
-                type="button"
-                className="reply-card__icon-btn"
-                data-testid="chat-reply-card-expire"
-                aria-label={t.replies.expire}
-                title={t.replies.expire}
-                onClick={() => setExpireConfirmOpen(true)}
-              >
-                <ExpireActionIcon size={13} />
-              </button>
-            )}
-          </div>
-          {card?.task && summaryNode}
+            </div>
+          )}
           {card?.body && (
             <Markdown source={card.body} className="reply-card__body doc-md" />
           )}
@@ -513,4 +534,17 @@ export function ChatReplyCard({
       </>
     </ReplyCardLinkComments>
   );
+}
+
+/** The task box, holding its own read of the workspace's due-soon lead so a
+ * card with no task, or a folded one, subscribes to nothing. */
+function ChatReplyCardTaskBox({
+  task,
+  onJump,
+}: {
+  task: NonNullable<ReplyCard["task"]>;
+  onJump: () => void;
+}) {
+  const workspaceLeadMinutes = useDueSoonLeadMinutes();
+  return <ReplyCardTaskBox task={task} onJump={onJump} workspaceLeadMinutes={workspaceLeadMinutes} />;
 }

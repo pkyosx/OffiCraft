@@ -1357,7 +1357,7 @@ test.describe("touch screen", () => {
       await expect(rowAt(page, "m-mine").getByRole("button", { name: "回覆這則" })).toBeFocused();
     });
 
-    test(`live thread ${width}: on an answered card the selection mode drops the head that holds only its task row and any error line, still copies, and 回覆 is off; after 取消 the card is folded or open as it was before`, async ({
+    test(`live thread ${width}: on an answered card the selection mode drops its first line, task box and 已回覆 row, still copies, and 回覆 is off; after 取消 the card is folded or open as it was before`, async ({
       mount,
       page,
       context,
@@ -1366,13 +1366,15 @@ test.describe("touch screen", () => {
       const first = await mountThread(mount, page, width, height);
       const card = rowAt(page, "m-card-answered");
       const bar = page.getByTestId("chat-select-bar");
-      const head = card.locator(".reply-card__chat-head");
+      const head = card.locator(".reply-card__head");
       await touch(page, await centreOf(card.locator(".reply-card")), { holdMs: 700 });
       await page.getByTestId("chat-msg-menu-select").tap();
       const body = card.locator(".reply-card__body");
       await expect(body).toBeVisible();
       await expect(card.locator(".reply-card__summary")).toBeVisible();
       await expect(head).toHaveCSS("display", "none");
+      await expect(card.getByTestId("reply-task-ref")).toBeHidden();
+      await expect(card.locator(".reply-card__meta")).toBeHidden();
       const thread = page.locator(".chat__messages");
       const clearOfBar = async (state: string) => {
         const rowBottom = (await card.boundingBox())!;
@@ -1510,7 +1512,7 @@ test.describe("touch screen", () => {
       const expire = card.getByTestId("chat-reply-card-expire");
       await expect(expire).toHaveCount(1);
       await expect(expire).toBeHidden();
-      await expect(card.locator(".reply-card__chat-head")).toHaveCSS("display", "none");
+      await expect(card.locator(".reply-card__head")).toHaveCSS("display", "none");
       for (const spot of [body, card.locator(".reply-card__summary")]) await spot.tap();
       const box = (await card.locator(".reply-card").boundingBox())!;
       await page.touchscreen.tap(box.x + box.width - 4, box.y + box.height - 4);
@@ -1563,7 +1565,7 @@ test.describe("touch screen", () => {
       await expectNoZoomOnFocus(page);
     });
 
-    test(`live thread ${width}: a waiting card on no task keeps its title in the head in the selection mode, 標為過期 not displayed, and it is back after`, async ({
+    test(`live thread ${width}: a waiting card on no task keeps its title in the selection mode, its first line and 標為過期 not displayed, and they are back after`, async ({
       mount,
       page,
     }) => {
@@ -1574,7 +1576,8 @@ test.describe("touch screen", () => {
       const expire = card.getByTestId("chat-reply-card-expire");
       await expect(expire).toHaveCount(1);
       await expect(expire).toBeHidden();
-      await expect(card.locator(".reply-card__chat-head .reply-card__summary")).toBeVisible();
+      await expect(card.locator(".reply-card__summary")).toBeVisible();
+      await expect(card.locator(".reply-card__head")).toBeHidden();
       await page.getByTestId("chat-select-cancel").tap();
       await expect(card.locator(".reply-card")).toHaveClass(/reply-card--collapsed/);
       await card.getByTestId("chat-reply-card-expand").tap();

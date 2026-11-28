@@ -82,7 +82,7 @@ for (const viewport of [
 for (const width of [390, 1280]) {
   test.describe(() => {
     test.use({ hasTouch: width <= 720 });
-    test(`${width}px${width <= 720 ? ", touch" : ""}: the chat-card expiry icon button (${width <= 720 ? "26" : "22"}px) sits at the card's top-right, inside the card beside a summary with an unbreakable code block, and its confirmation fits the viewport`, async ({
+    test(`${width}px${width <= 720 ? ", touch" : ""}: the chat-card expiry icon button (${width <= 720 ? "26" : "22"}px) sits on the card's first line just before the chevron at its right end, inside the card above a summary with an unbreakable code block, and its confirmation fits the viewport`, async ({
       mount,
       page,
     }) => {
@@ -119,15 +119,15 @@ for (const width of [390, 1280]) {
         parseFloat(getComputedStyle(el).paddingRight),
       );
       if (!summaryBox) throw new Error("chat-card summary has no layout box");
-      expect(expireBox.y, "expiry shares the summary's first row").toBeLessThan(
-        summaryBox.y + summaryBox.height,
+      expect(expireBox.y + expireBox.height, "expiry on the first line, above the summary").toBeLessThanOrEqual(
+        summaryBox.y + 1,
       );
-      expect(expireBox.x, "expiry sits right of the summary, not over it").toBeGreaterThanOrEqual(
-        summaryBox.x + summaryBox.width - 1,
-      );
+      const foldBox = (await card.locator(".reply-card__head .reply-card__fold").boundingBox())!;
+      expect(Math.abs(expireBox.y + expireBox.height / 2 - (foldBox.y + foldBox.height / 2)), "expiry on the chevron's line").toBeLessThanOrEqual(1);
+      expect(foldBox.x - (expireBox.x + expireBox.width), "expiry just before the chevron").toBeLessThanOrEqual(9);
       expect(
-        cardBox.x + cardBox.width - (expireBox.x + expireBox.width),
-        "expiry is flush with the card's right padding",
+        cardBox.x + cardBox.width - (foldBox.x + foldBox.width),
+        "the chevron is flush with the card's right padding",
       ).toBeLessThanOrEqual(cardPaddingRight + 2);
       const codeOver = await card
         .locator(".reply-card__summary pre")

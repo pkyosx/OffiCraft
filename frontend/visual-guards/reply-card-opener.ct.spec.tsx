@@ -1,4 +1,5 @@
-// GUARD (T-a706) — 請示頁卡片 header avatar is a real click + keyboard target.
+// GUARD (T-a706) — the 請示 card's 開卡人 chip (avatar, name, role) is a real
+// click + keyboard target that opens the profile.
 //
 // Owner (2026-07-21 screenshot): the 請示 page card avatar was the one place
 // in the cockpit whose avatar did NOT open the member panel. jsdom (vitest)
@@ -10,7 +11,7 @@
 // a focused <button>, which jsdom does not implement).
 //
 // MUTANT (verified red→green, see task conclusion doc): delete the `onClick`
-// prop wiring in ReplyCardAvatarButton.tsx → every test below goes red
+// prop wiring in ReplyCardOpenerChip.tsx → every test below goes red
 // (click and keyboard alike, since both ultimately fire the same handler).
 // Deleting `aria-label` alone (title still set) leaves click/keyboard green
 // and reddens ONLY the aria-label assertion below — checked via the raw
@@ -20,18 +21,18 @@
 // — a role-name assertion here would have been unfalsifiable against exactly
 // the regression it claims to catch).
 import { test, expect } from "@playwright/experimental-ct-react";
-import { ReplyCardAvatarStory } from "./stories/ReplyCardAvatarStory";
+import { ReplyCardOpenerStory } from "./stories/ReplyCardOpenerStory";
 import { zh } from "../src/i18n/locales/zh";
 
 for (const width of [1280, 390]) {
-  test(`width ${width}: clicking the avatar opens the profile`, async ({
+  test(`width ${width}: clicking the opener chip opens the profile`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width, height: 800 });
-    const cmp = await mount(<ReplyCardAvatarStory />);
+    const cmp = await mount(<ReplyCardOpenerStory />);
     await expect(cmp.getByTestId("open-count")).toHaveText("0");
-    await cmp.locator(".reply-card__avatar").click();
+    await cmp.locator(".reply-card__opener").click();
     await expect(cmp.getByTestId("open-count")).toHaveText("1");
   });
 
@@ -54,13 +55,13 @@ for (const width of [1280, 390]) {
   // drop the "first Tab lands here" positional assumption); the owner ruled to
   // stop it. Re-enabling is a fresh decision, not a revert.
   // eslint-disable-next-line playwright/no-skipped-test
-  test.skip(`width ${width}: the avatar is keyboard-reachable (Tab) and Enter/Space both activate it`, async ({
+  test.skip(`width ${width}: the opener chip is keyboard-reachable (Tab) and Enter/Space both activate it`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width, height: 800 });
-    const cmp = await mount(<ReplyCardAvatarStory />);
-    const avatarBtn = cmp.locator(".reply-card__avatar");
+    const cmp = await mount(<ReplyCardOpenerStory />);
+    const avatarBtn = cmp.locator(".reply-card__opener");
 
     await page.keyboard.press("Tab");
     await expect(avatarBtn).toBeFocused();
@@ -73,19 +74,19 @@ for (const width of [1280, 390]) {
   });
 }
 
-test("the avatar carries aria-label (Avatar's inner glyphs are aria-hidden, so the button's OWN label is the only accessible name)", async ({
+test("the opener chip carries aria-label (Avatar's inner glyphs are aria-hidden, so the button's OWN label is the only accessible name)", async ({
   mount,
 }) => {
-  const cmp = await mount(<ReplyCardAvatarStory />);
+  const cmp = await mount(<ReplyCardOpenerStory />);
   const ariaLabel = await cmp
-    .locator(".reply-card__avatar")
+    .locator(".reply-card__opener")
     .getAttribute("aria-label");
-  expect(ariaLabel).toBe(zh.office.viewProfile);
+  expect(ariaLabel).toBe(`${zh.office.viewProfile} Mira`);
   // Independent confirmation the real accessibility tree resolves the SAME
   // name (not required for the mutant to redden — see comment above — but a
   // second, real-Chromium-computed signal that the name is actually exposed).
   await expect(
-    cmp.getByRole("button", { name: zh.office.viewProfile })
+    cmp.getByRole("button", { name: `${zh.office.viewProfile} Mira` })
   ).toBeVisible();
 });
 
@@ -108,14 +109,14 @@ test("the avatar carries aria-label (Avatar's inner glyphs are aria-hidden, so t
 // sampling once. This test no longer covers "the button is reachable by Tab" —
 // that was already stopped by the owner on 2026-08-06 (see the skip above), not
 // given up here.
-// INVARIANT THIS GUARDS: a keyboard-focused avatar button paints a VISIBLE
+// INVARIANT THIS GUARDS: a keyboard-focused opener chip paints a VISIBLE
 // focus ring. Without it a keyboard user cannot see where they are in the card
 // header — and the ring is the only affordance that says so.
-test("focus-visible paints a non-transparent ring on the avatar button", async ({
+test("focus-visible paints a non-transparent ring on the opener chip", async ({
   mount,
 }) => {
-  const cmp = await mount(<ReplyCardAvatarStory />);
-  const btn = cmp.locator(".reply-card__avatar");
+  const cmp = await mount(<ReplyCardOpenerStory />);
+  const btn = cmp.locator(".reply-card__opener");
   await btn.focus();
   // Asserted separately so a future Chromium that stops applying
   // :focus-visible to programmatic focus fails HERE, naming itself, instead of
@@ -125,7 +126,7 @@ test("focus-visible paints a non-transparent ring on the avatar button", async (
     .toBe(true);
   await expect
     .poll(() => btn.evaluate((el) => getComputedStyle(el).boxShadow), {
-      message: "focused avatar paints a box-shadow ring",
+      message: "focused opener chip paints a box-shadow ring",
     })
     .not.toBe("none");
 });

@@ -56,22 +56,6 @@ const HEAD_BUTTONS = {
   en: { jump: "View in chat", snooze: "Later", expire: "Mark expired", unsnooze: "Bring back now" },
 };
 
-/** Whether anything in the name column paints into the strip between it and
- * the card's right edge: the strip is captured with the column shown and with
- * it hidden, and the two only match when every line of it is cut at the
- * column's edge. The buttons and the stamp are hidden in both captures.
- * ⚠️ Toggling the column's visibility can re-raster the buttons' icons a few
- * levels differently when the head straddles a raster tile edge (at 390 with a
- * mouse, rc-desk-long-name's head crosses y=512 under CPU load), which reads
- * as the column drawing past its edge though it draws nothing there. */
-async function nameColumnDrawsPastItsEdge(page: Page, w: Box, cardRight: number): Promise<boolean> {
-  const clip = { x: w.right + 1, y: w.top, width: Math.max(1, cardRight - w.right - 2), height: w.bottom - w.top };
-  const others = ".reply-card__actions, .reply-card__waited, .reply-card__answered-at";
-  const shown = await page.screenshot({ clip, animations: "disabled", style: `${others} { visibility: hidden !important; }` });
-  const hidden = await page.screenshot({ clip, animations: "disabled", style: `${others}, .reply-card__who { visibility: hidden !important; }` });
-  return !shown.equals(hidden);
-}
-
 /** Whether a cut line ends in 「…」: the line is captured as drawn and again
  * with its ellipsis switched off (a clamped block: the clamp off, held to the
  * same height), and the two only differ when 「…」 was drawn. */
@@ -97,12 +81,12 @@ async function drawsEllipsis(line: Locator): Promise<boolean> {
 
 const isCut = (l: Locator) => l.evaluate((el) => el.scrollWidth > el.clientWidth + 0.5 || el.scrollHeight > el.clientHeight + 1);
 
-/** Every line of the name column — name, role, an outsource asker's task line
+/** Every line of the 開卡人 value — name, role, an outsource asker's task line
  * (chip and type) and task title — that is too long for it ends in 「…」, and
  * its whole text is on hover. Returns the texts that had to be cut. */
-async function expectNameColumnCutWithEllipsis(head: Locator, what: string, oneLine: boolean): Promise<string[]> {
+async function expectOpenerCutWithEllipsis(meta: Locator, what: string, oneLine: boolean): Promise<string[]> {
   const cutTexts: string[] = [];
-  for (const line of await head.locator(".reply-card__name, .reply-card__role, .outsource-row__task-line, .outsource-row__chip, .outsource-row__type, .current-task-title").all()) {
+  for (const line of await meta.locator(".reply-card__name, .reply-card__role, .outsource-row__task-line, .outsource-row__chip, .outsource-row__type, .current-task-title").all()) {
     const text = (await line.textContent()) ?? "";
     if (oneLine) expect(await textLines(line), `${what}: 「${text}」 on one line`).toBe(1);
     if (!(await isCut(line))) continue;
@@ -110,43 +94,43 @@ async function expectNameColumnCutWithEllipsis(head: Locator, what: string, oneL
     // The task line's words are its type's (the chip's title names its
     // action, and its number is the task's id, drawn whole elsewhere).
     const typeEl = (await line.evaluate((el) => el.matches(".outsource-row__task-line, .outsource-row__chip")))
-      ? head.locator(".outsource-row__type")
+      ? meta.locator(".outsource-row__type")
       : line;
     expect(await typeEl.getAttribute("title"), `${what}: 「${text}」 whole on hover`).toBe(await typeEl.textContent());
-    // ⚠️ A task line narrower than its chip cannot end in 「…」: the chip is
-    // one unbreakable box, and a line keeps its first box whole-or-clipped
-    // rather than leave nothing but 「…」. Only a 320px phone with a mouse
-    // (four buttons and the pill leave the column narrower than the chip)
-    // gets there; the line is still clipped at the column's edge (checked by
-    // the caller).
-    const chip = head.locator(".outsource-row__chip");
-    if ((await line.evaluate((el) => el.matches(".outsource-row__task-line, .outsource-row__chip"))) && (await chip.count()) > 0) {
-      const chipWidth = await chip.evaluate((el) => el.scrollWidth);
-      const lineWidth = await head.locator(".reply-card__who").evaluate((el) => el.clientWidth);
-      if (lineWidth < chipWidth) {
-        expect(line.page().viewportSize()!.width, `${what}: only at 320 is the column narrower than the task chip`).toBe(320);
-        continue;
-      }
-    }
     expect(await drawsEllipsis(line), `${what}: 「${text}」 ends in 「…」`).toBe(true);
   }
   return cutTexts;
 }
 
-/** What a card head is on every device: avatar, name column, the buttons
- * (drawn only with a mouse; on touch they are in the long-press menu and stay
- * in the accessibility tree) and the stamp, all on the avatar's line, the
- * stamp at the head's right end. A waiting or snoozed card's stamp is the
- * 64px pill with no words beside it; an answered or expired one is its words.
- * Nothing in the name column reaches the buttons or the stamp, and every line
- * of it that is cut ends in 「…」. Returns the texts that had to be cut and
- * the stamp's box. */
-async function expectHeadLine(card: Locator, what: string, mode: "touch" | "mouse"): Promise<{ cut: string[]; stamp: Box }> {
+/** What a card's first line is on every device: the state icon, then the
+ * card's own id, then at the head's right end the buttons (drawn only with a
+ * mouse; on touch they are in the long-press menu and stay in the
+ * accessibility tree), the stamp (the 64px pill on a waiting or snoozed card,
+ * none on a settled one) and the chevron, last. That right end shares the id's
+ * line, or on a card too narrow for both takes a line of its own, whole and
+ * still at the right. Under it, the 開卡人 chip and an outsource asker's task
+ * stay inside the card, every cut line ending in 「…」. Returns the texts that
+ * had to be cut and the boxes of the stamp (when there is one) and chevron. */
+async function expectHeadLine(card: Locator, what: string, mode: "touch" | "mouse"): Promise<{ cut: string[]; stamp: Box | null; fold: Box }> {
   const head = card.locator(".reply-card__head");
   await head.scrollIntoViewIfNeeded();
   const h = await box(head);
-  const avatar = await box(head.locator(".reply-card__avatar"));
-  const w = await box(head.locator(".reply-card__who"));
+  const c = await box(card);
+  const icon = await box(head.getByTestId("reply-status-icon"));
+  const id = await box(head.getByTestId("reply-card-id"));
+  const end = await box(head.locator(".reply-card__head-end"));
+  const fold = await box(head.locator(".reply-card__fold"));
+  const mid = (b: Box) => (b.top + b.bottom) / 2;
+  expect(Math.abs(mid(icon) - mid(id)), `${what}: the state icon and the id share a line`).toBeLessThanOrEqual(1);
+  expect(id.left, `${what}: the id after the state icon`).toBeGreaterThanOrEqual(icon.right);
+  expect(icon.left - h.left, `${what}: the state icon leads the line`).toBeLessThanOrEqual(0.5);
+  expect(await textLines(head.getByTestId("reply-card-id")), `${what}: the id on one line`).toBe(1);
+  expect(Math.abs(end.right - h.right), `${what}: the right end at the head's right end`).toBeLessThanOrEqual(0.5);
+  expect(inside(end, c), `${what}: the right end inside the card`).toBe(true);
+  expect(Math.abs(fold.right - end.right), `${what}: the chevron last`).toBeLessThanOrEqual(0.5);
+  const sameLine = Math.abs(mid(end) - mid(id)) <= 1;
+  if (sameLine) expect(end.left, `${what}: the right end clear of the id`).toBeGreaterThanOrEqual(id.right);
+  else expect(end.top, `${what}: the right end whole on a line under the id`).toBeGreaterThanOrEqual(id.bottom - 0.5);
   let buttonsRight = -Infinity;
   for (const button of await head.locator(".reply-card__actions button").all()) {
     const name = await button.getAttribute("aria-label");
@@ -156,48 +140,39 @@ async function expectHeadLine(card: Locator, what: string, mode: "touch" | "mous
       continue;
     }
     expect(b.right - b.left, `${what}: ${name} drawn`).toBeGreaterThan(1);
-    expect(w.right, `${what}: the name column stops before ${name}`).toBeLessThanOrEqual(b.left + 0.5);
-    const mid = (b.top + b.bottom) / 2;
-    expect(mid > avatar.top && mid < avatar.bottom, `${what}: ${name} on the avatar's line`).toBe(true);
+    expect(Math.abs(mid(b) - mid(end)), `${what}: ${name} on the right end's line`).toBeLessThanOrEqual(1);
     buttonsRight = Math.max(buttonsRight, b.right);
   }
+  if (mode === "touch") expect(sameLine, `${what}: without the buttons the right end shares the id's line`).toBe(true);
   await expect(head.getByRole("button", { name: "跳到原訊息", exact: true }), `${what}: 跳到原訊息 in the accessibility tree`).toHaveCount(1);
-  const stampEl = head.locator(":scope > .reply-card__waited, :scope > .reply-card__answered-at");
-  await expect(stampEl, `${what}: one stamp`).toHaveCount(1);
-  if ((await head.locator(":scope > .reply-card__waited").count()) > 0) {
-    const pill = stampEl.locator(".reply-card__waited-pill");
+  let stamp: Box | null = null;
+  if ((await head.locator(".reply-card__waited").count()) > 0) {
+    const pill = head.locator(".reply-card__waited-pill");
     await expect(pill, `${what}: the pill drawn`).toBeVisible();
     await expect(pill.locator("svg"), `${what}: the pill's icon`).toHaveCount(1);
     expect(await contentFits(pill), `${what}: the pill's content inside it`).toBe(true);
     expect(await textLines(pill), `${what}: the pill on one line`).toBe(1);
-    const p = await box(pill);
-    expect(p.right - p.left, `${what}: the pill 64px wide`).toBeCloseTo(64, 0);
-    const s = await box(stampEl);
-    expect(s.right - s.left, `${what}: the stamp no wider than its pill, no words beside it`).toBeCloseTo(64, 0);
-  } else {
-    expect(await contentFits(stampEl), `${what}: the stamp shows its whole text`).toBe(true);
-    expect(await textLines(stampEl), `${what}: the stamp on one line`).toBe(1);
+    stamp = await box(pill);
+    expect(stamp.right - stamp.left, `${what}: the pill 64px wide`).toBeCloseTo(64, 0);
+    expect(Math.abs(mid(stamp) - mid(end)), `${what}: the pill on the right end's line`).toBeLessThanOrEqual(1);
+    expect(stamp.right, `${what}: the pill before the chevron`).toBeLessThanOrEqual(fold.left + 0.5);
+    if (mode === "mouse") expect(stamp.left, `${what}: the pill after the buttons`).toBeGreaterThanOrEqual(buttonsRight - 0.5);
   }
-  const s = await box(stampEl);
-  const mid = (s.top + s.bottom) / 2;
-  expect(mid > avatar.top && mid < avatar.bottom, `${what}: the stamp on the avatar's line (stamp ${s.top}–${s.bottom}, avatar ${avatar.top}–${avatar.bottom})`).toBe(true);
-  expect(mid > w.top && mid < w.bottom, `${what}: the stamp on the name column's line`).toBe(true);
-  expect(Math.abs(s.right - h.right), `${what}: the stamp at the head's right end`).toBeLessThanOrEqual(0.5);
-  expect(inside(s, h), `${what}: the stamp inside the head`).toBe(true);
-  expect(w.right, `${what}: the name column stops before the stamp`).toBeLessThanOrEqual(s.left + 0.5);
-  if (mode === "mouse") expect(s.left, `${what}: the stamp after the buttons`).toBeGreaterThanOrEqual(buttonsRight - 0.5);
-  expect(w.top, `${what}: the name beside the avatar, not under it`).toBeLessThan(avatar.bottom);
-  expect(w.left, `${what}: the name right of the avatar`).toBeGreaterThanOrEqual(avatar.right);
-  expect(await nameColumnDrawsPastItsEdge(card.page(), w, s.left), `${what}: the name column's lines stop at its edge`).toBe(false);
+  const meta = card.locator(".reply-card__meta");
+  const value = await box(meta.locator(".reply-card__meta-value"));
+  expect(inside(value, c), `${what}: the 開卡人 value inside the card`).toBe(true);
+  for (const part of await meta.locator(".reply-card__opener, .reply-card__worker-task").all()) {
+    expect(inside(await box(part), value), `${what}: ${await part.textContent()} inside the 開卡人 value`).toBe(true);
+  }
   const phone = (await card.page().viewportSize())!.width <= 720;
-  const cut = await expectNameColumnCutWithEllipsis(head, what, phone);
-  return { cut, stamp: s };
+  const cut = await expectOpenerCutWithEllipsis(meta, what, phone);
+  return { cut, stamp, fold };
 }
 
-/** The task row: the task-number chip (the row's only button, 查看任務), the
- * priority and the title on one line, the title running to the row's (and the
- * card's content) right end, cut with 「…」 when long; a due chip shares that
- * line on a desktop and has a line of its own under it on a phone. */
+/** The task box right under the first line: the task-number chip (the box's
+ * only button, 查看任務, led by the jump icon) and priority on one line, the
+ * title on one line under them, cut with 「…」 when long, and the due date
+ * under that exactly when the task has one. */
 /** The story's cards whose task has a due date. */
 const CARDS_WITH_DUE = new Set(["rc-desk-1", "rc-desk-2"]);
 
@@ -207,46 +182,44 @@ async function expectTaskRow(card: Locator, cardBox: Box) {
   cardBox = await box(card);
   const rowBox = await box(row);
   const id = await card.getAttribute("data-reply-card-id");
-  expect(inside(rowBox, cardBox), `${id}: task row inside the card`).toBe(true);
-  expect(rowBox.bottom, `${id}: task row above the head`).toBeLessThanOrEqual((await box(card.locator(".reply-card__head"))).top);
-  for (const part of await row.locator("[data-testid='reply-task-no'], .reply-card__task-chips > *, .reply-card__task-title").all()) {
-    expect(inside(await box(part), rowBox), `${id}: ${await part.textContent()} inside the task row`).toBe(true);
-  }
-  for (const chip of await row.locator(".reply-card__task-chips > *").all()) {
-    expect(await textLines(chip), `${id}: ${await chip.textContent()} on one line`).toBe(1);
+  expect(inside(rowBox, cardBox), `${id}: task box inside the card`).toBe(true);
+  expect(rowBox.top, `${id}: task box under the first line`).toBeGreaterThanOrEqual((await box(card.locator(".reply-card__head"))).bottom);
+  expect(rowBox.bottom, `${id}: task box above the title`).toBeLessThanOrEqual((await box(card.locator(".reply-card__summary"))).top);
+  for (const part of await row.locator("[data-testid='reply-task-no'], [data-testid='reply-task-priority'], .reply-card__task-title, .reply-card__task-due").all()) {
+    expect(inside(await box(part), rowBox), `${id}: ${await part.textContent()} inside the task box`).toBe(true);
   }
   const jump = row.getByRole("button", { name: "查看任務", exact: true });
-  await expect(row.getByRole("button"), `${id}: the chip is the row's only button (no 查看任務 chevron)`).toHaveCount(1);
+  await expect(row.getByRole("button"), `${id}: the chip is the box's only button`).toHaveCount(1);
   await expect(jump).toHaveAttribute("data-testid", "reply-task-no");
   await expect(jump).toHaveAttribute("title", "查看任務");
   await expect(jump, "named by aria-label, not only by the title fallback").toHaveAttribute("aria-label", "查看任務");
-  await expect(jump.locator("svg")).toHaveCount(0);
+  await expect(jump.locator("svg"), `${id}: the jump icon in the chip`).toHaveCount(1);
   expect(await textLines(jump), `${id}: the task number on one line`).toBe(1);
   const j = await box(jump);
-  expect(j.left - rowBox.left, `${id}: the task number leads the row`).toBeLessThanOrEqual(0.5);
-  const head = await box(card.locator(".reply-card__head"));
+  const svg = await box(jump.locator("svg"));
+  expect(svg.right, `${id}: the jump icon left of the number`).toBeLessThanOrEqual(j.left + (j.right - j.left) / 2);
   const jMid = (j.top + j.bottom) / 2;
-  const phone = card.page().viewportSize()!.width <= 720;
-  const lineParts = row.locator("[data-testid='reply-task-no'], [data-testid='reply-task-priority'], .reply-card__task-title");
-  for (const part of await lineParts.all()) {
-    const p = await box(part);
-    expect(Math.abs((p.top + p.bottom) / 2 - jMid), `${id}: ${await part.textContent()} on the task number's line`).toBeLessThanOrEqual(1);
-  }
-  const due = row.getByTestId("reply-task-due");
-  await expect(due, `${id}: a due chip exactly when the task has a due date`).toHaveCount(CARDS_WITH_DUE.has(id ?? "") ? 1 : 0);
-  if (CARDS_WITH_DUE.has(id ?? "")) {
-    const d = await box(due);
-    if (phone) expect(d.top, `${id}: the due chip on a line of its own under the task line`).toBeGreaterThanOrEqual(j.bottom);
-    else expect(Math.abs((d.top + d.bottom) / 2 - jMid), `${id}: the due chip on the task number's line`).toBeLessThanOrEqual(1);
+  const priority = row.getByTestId("reply-task-priority");
+  if ((await priority.count()) > 0) {
+    const p = await box(priority);
+    expect(Math.abs((p.top + p.bottom) / 2 - jMid), `${id}: the priority on the task number's line`).toBeLessThanOrEqual(1);
   }
   const title = row.locator(".reply-card__task-title");
-  if ((await title.count()) === 0) return;
-  const t = await box(title);
-  expect(await textLines(title), "the task title on one line").toBe(1);
-  expect(Math.abs(t.right - head.right), `${id}: the title runs to the card's content right edge`).toBeLessThanOrEqual(0.5);
-  if (await isCut(title)) {
-    await expect(title, "the cut task title whole on hover").toHaveAttribute("title", (await title.textContent()) ?? "");
-    expect(await drawsEllipsis(title), `${id}: the cut task title ends in 「…」`).toBe(true);
+  let below = j.bottom;
+  if ((await title.count()) > 0) {
+    const t = await box(title);
+    expect(t.top, `${id}: the title under the task number`).toBeGreaterThanOrEqual(j.bottom - 0.5);
+    expect(await textLines(title), "the task title on one line").toBe(1);
+    if (await isCut(title)) {
+      await expect(title, "the cut task title whole on hover").toHaveAttribute("title", (await title.textContent()) ?? "");
+      expect(await drawsEllipsis(title), `${id}: the cut task title ends in 「…」`).toBe(true);
+    }
+    below = t.bottom;
+  }
+  const due = row.locator(".reply-card__task-due");
+  await expect(due, `${id}: a due line exactly when the task has a due date`).toHaveCount(CARDS_WITH_DUE.has(id ?? "") ? 1 : 0);
+  if (CARDS_WITH_DUE.has(id ?? "")) {
+    expect((await box(due)).top, `${id}: the due line under the title`).toBeGreaterThanOrEqual(below - 0.5);
   }
 }
 
@@ -270,7 +243,7 @@ async function noPageOverflow(page: Page) {
   expect(m.scroll, "the page does not scroll sideways").toBeLessThanOrEqual(m.client);
 }
 
-test("width 1440: 複製, 跳到原訊息, 稍後再看 and 標為過期 sit together on one line in the head, 32px apart centre to centre (22px buttons, 10px apart), each icon inside its own button, clear of each other and of the waited stamp, and the task row with its task-number chip and chips stays inside its card", async ({
+test("width 1440: 跳到原訊息, 稍後再看, 標為過期 and 複製整張卡片內容 sit together on one line in the head, 32px apart centre to centre (22px buttons, 10px apart), each icon inside its own button, clear of each other and of the waited stamp, and the task box with its task-number chip stays inside its card", async ({
   mount,
   page,
 }) => {
@@ -282,7 +255,7 @@ test("width 1440: 複製, 跳到原訊息, 稍後再看 and 標為過期 sit tog
   for (const card of await cmp.getByTestId("waiting-card").all()) {
     await card.scrollIntoViewIfNeeded();
     const cardBox = await box(card);
-    const names = ["複製訊息", ...Object.values(HEAD_BUTTONS.zh).filter((n) => n !== "取消延後")];
+    const names = [...Object.values(HEAD_BUTTONS.zh).filter((n) => n !== "取消延後"), "複製整張卡片內容"];
     const waited = await box(card.getByTestId("waited"));
     expect(inside(waited, cardBox), "the waited stamp inside the card").toBe(true);
     const boxes: Box[] = [];
@@ -326,7 +299,7 @@ const HEAD_SCENES = [
 for (const { width, mode } of HEAD_SCENES) {
   test.describe(() => {
     test.use({ hasTouch: mode === "touch" });
-    test(`width ${width}, ${mode}: every card's stamp ends the avatar's line at the head's right end, at the same x on every card — waiting and snoozed cards the 64px pill (an hourglass and one unit, or the clock and MM/DD, the words only in its title), answered ones their words — after the buttons with a mouse, after the name column on touch; the name column stops before them, its cut lines ending in 「…」`, async ({
+    test(`width ${width}, ${mode}: every card's first line leads with its state icon and id and ends at the head's right end with the chevron, at the same x on every card — waiting and snoozed cards with the 64px pill before it (an hourglass and one unit, or the clock and MM/DD, the words only in its title), after the buttons with a mouse; the 開卡人 chip and task stay inside the card, their cut lines ending in 「…」`, async ({
       mount,
       page,
     }) => {
@@ -344,12 +317,14 @@ for (const { width, mode } of HEAD_SCENES) {
       }
 
       const rights: number[] = [];
+      const pillRights: number[] = [];
       const cutByCard = new Map<string, string[]>();
       for (const card of await waiting.all()) {
         const what = `waiting ${await card.getAttribute("data-reply-card-id")}`;
-        const { cut, stamp } = await expectHeadLine(card, what, mode);
+        const { cut, stamp, fold } = await expectHeadLine(card, what, mode);
         const cardBox = await box(card);
-        rights.push(stamp.right);
+        rights.push(fold.right);
+        pillRights.push(stamp!.right);
         cutByCard.set((await card.getAttribute("data-reply-card-id")) ?? "", cut);
         if ((await card.getByTestId("reply-task-ref").count()) > 0) await expectTaskRow(card, cardBox);
       }
@@ -357,8 +332,8 @@ for (const { width, mode } of HEAD_SCENES) {
       if (width <= 390)
         expect(await isCut(cardOf(page, "rc-desk-long-task-row").locator(".reply-card__task-title")), "control: the task row with no due date has its title cut").toBe(true);
       const longTaskCut = cutByCard.get("rc-desk-long-task") ?? [];
-      expect(longTaskCut, "control: the long task title is cut").toContain(LONG_TASK_TITLE);
-      expect(longTaskCut.filter((t) => LONG_TASK_LINE.includes(t) && t.length > 20), "control: the long task line is cut").not.toEqual([]);
+      if (width <= 720) expect(longTaskCut, "control: the long task title is cut").toContain(LONG_TASK_TITLE);
+      if (width <= 720) expect(longTaskCut.filter((t) => LONG_TASK_LINE.includes(t) && t.length > 20), "control: the long task line is cut").not.toEqual([]);
       if (width === 390 && mode === "touch") {
         expect(cutByCard.get("rc-desk-long-name"), "the long name whole beside the pill").not.toContain("GF Eva Rhapsody Inbox");
         await expect(cardOf(page, "rc-desk-long-name").getByText("GF Eva Rhapsody Inbox", { exact: true })).toBeVisible();
@@ -371,13 +346,18 @@ for (const { width, mode } of HEAD_SCENES) {
       await expect(until).toHaveText(/^\d{2}\/\d{2}$/);
       await expect(until).toHaveAttribute("title", /回來$/);
       await expect(until.locator('svg polyline[points="12 7 12 12 15 14"]'), "the 稍後再看 clock").toHaveCount(1);
-      rights.push((await expectHeadLine(snoozed, "snoozed", mode)).stamp.right);
+      const snoozedHead = await expectHeadLine(snoozed, "snoozed", mode);
+      rights.push(snoozedHead.fold.right);
+      pillRights.push(snoozedHead.stamp!.right);
 
       await selectTab(page, "answered", "click");
       const answered = cardOf(page, "rc-desk-done");
       await expect(answered.locator(".reply-card__answered-at")).toHaveText(/^已回覆 /);
-      rights.push((await expectHeadLine(answered, "answered", mode)).stamp.right);
-      expect(Math.max(...rights) - Math.min(...rights), `stamp right edges ${rights}`).toBeLessThanOrEqual(0.5);
+      const answeredHead = await expectHeadLine(answered, "answered", mode);
+      expect(answeredHead.stamp, "an answered card has no pill").toBeNull();
+      rights.push(answeredHead.fold.right);
+      expect(Math.max(...rights) - Math.min(...rights), `chevron right edges ${rights}`).toBeLessThanOrEqual(0.5);
+      expect(Math.max(...pillRights) - Math.min(...pillRights), `pill right edges ${pillRights}`).toBeLessThanOrEqual(0.5);
       await noPageOverflow(page);
     });
   });
@@ -589,7 +569,7 @@ test("width 1440, mouse: 複製 in each card's head writes the whole question an
   await mountDesk(mount, page, 1440, 900);
   const card = cardOf(page, "rc-desk-q");
   const copy = card.locator(".reply-card__actions .chat__msg-copy");
-  await expect(copy).toHaveAttribute("aria-label", "複製訊息");
+  await expect(copy).toHaveAttribute("aria-label", "複製整張卡片內容");
   for (const other of await page.getByTestId("waiting-card").all()) {
     const head = await box(other.locator(".reply-card__head"));
     const c = await box(other.locator(".chat__msg-copy"));
@@ -661,7 +641,7 @@ for (const [width, height] of [
   test.describe(() => {
     test.use({ hasTouch: true });
 
-    test(`width ${width}, touch: a long press on a card opens the chat's sheet with the head's actions, each with its head icon, in the order 跳到原訊息・稍後再看・標為過期・複製訊息・選取文字 on a waiting card and 跳到原訊息・複製訊息・選取文字 on an answered one, never 回覆這則 (the answer box is on the card) — and neither folds the card nor selects its words; an answered card's head draws no buttons, its time at the right end of the avatar's line`, async ({
+    test(`width ${width}, touch: a long press on a card opens the chat's sheet with the head's actions, each with its head icon, in the order 跳到原訊息・稍後再看・標為過期・複製整張卡片內容・選取文字 on a waiting card and 跳到原訊息・複製整張卡片內容・選取文字 on an answered one, never 回覆這則 (the answer box is on the card) — and neither folds the card nor selects its words; an answered card's head draws no buttons`, async ({
       mount,
       page,
     }) => {
@@ -680,7 +660,7 @@ for (const [width, height] of [
 
       await touch(page, await centreOf(card.locator(".reply-card__summary")), { holdMs: 700 });
       await expect(menu).toBeVisible();
-      await expect(menu.getByRole("menuitem")).toHaveText(["跳到原訊息", "稍後再看", "標為過期", "複製訊息", "選取文字"]);
+      await expect(menu.getByRole("menuitem")).toHaveText(["跳到原訊息", "稍後再看", "標為過期", "複製整張卡片內容", "選取文字"]);
       await expect(menu.getByTestId("chat-msg-menu-reply")).toHaveCount(0);
       // The head button's own glyph, not a look-alike.
       for (const [key, name] of [["jump", "跳到原訊息"], ["snooze", "稍後再看"], ["expire", "標為過期"]] as const) {
@@ -709,7 +689,7 @@ for (const [width, height] of [
       await expect(answered).toBeVisible();
       await expectHeadLine(answered, "answered", "touch");
       await touch(page, await centreOf(answered.locator(".reply-card__summary")), { holdMs: 700 });
-      await expect(menu.getByRole("menuitem")).toHaveText(["跳到原訊息", "複製訊息", "選取文字"]);
+      await expect(menu.getByRole("menuitem")).toHaveText(["跳到原訊息", "複製整張卡片內容", "選取文字"]);
       await touch(page, { x: 4, y: 4 }, { holdMs: 50 });
       await expect(menu).toHaveCount(0);
 
@@ -721,7 +701,7 @@ for (const [width, height] of [
       await expect(answer, "the answer box cannot be selected in by a finger").toHaveCSS("user-select", "text");
     });
 
-    test(`width ${width}, touch: 複製訊息 from the sheet writes the question and shows nothing once the sheet closes; a failed read shows 複製失敗 on the card at the right end of the avatar's line, over the pill for the moment it shows, the pill and the name column keeping their places`, async ({
+    test(`width ${width}, touch: 複製整張卡片內容 from the sheet writes the question and shows nothing once the sheet closes; a failed read shows 複製失敗 on the card at the right end of its first line, over the pill for the moment it shows, the pill and the id keeping their places`, async ({
       mount,
       page,
       context,
@@ -741,16 +721,16 @@ for (const [width, height] of [
       await first.unmount();
 
       await mountDesk(mount, page, width, height, { cardReadFails: true });
-      const whoBefore = await box(card.locator(".reply-card__who"));
+      const idBefore = await box(card.getByTestId("reply-card-id"));
       const pillBefore = await box(card.getByTestId("waited-pill"));
       await touch(page, await centreOf(card.locator(".reply-card__summary")), { holdMs: 700 });
       await page.getByTestId("chat-msg-menu-copy").tap();
       const failed = card.locator(".chat__msg-copy-status--failed");
       await expect(failed).toHaveText("複製失敗");
       await expect(failed).toBeVisible();
-      const { stamp: pillDuring } = await expectHeadLine(card, "a failed copy", "touch");
-      const whoDuring = await box(card.locator(".reply-card__who"));
-      expect(whoDuring.right - whoDuring.left, "the name column keeps its width while 複製失敗 shows").toBeCloseTo(whoBefore.right - whoBefore.left, 0);
+      const pillDuring = (await expectHeadLine(card, "a failed copy", "touch")).stamp!;
+      const idDuring = await box(card.getByTestId("reply-card-id"));
+      expect(idDuring.left, "the id keeps its place while 複製失敗 shows").toBeCloseTo(idBefore.left, 0);
       expect(pillDuring.left, "the pill keeps its place while 複製失敗 shows").toBeCloseTo(pillBefore.left, 0);
       const failedBox = await box(failed);
       expect(overlaps(failedBox, pillDuring), "control: 複製失敗 lies on the pill").toBe(true);
@@ -761,10 +741,8 @@ for (const [width, height] of [
       const withoutPill = await page.screenshot({ clip: failedClip, animations: "disabled", style: ".reply-card__waited-pill { visibility: hidden !important; }" });
       expect(withPill.equals(withoutPill), "複製失敗 drawn over the pill, not under it").toBe(true);
       const head = await box(card.locator(".reply-card__head"));
-      const avatar = await box(card.locator(".reply-card__avatar"));
       expect(inside(failedBox, head), "複製失敗 inside the head").toBe(true);
       expect(Math.abs(failedBox.right - head.right), "複製失敗 at the head's right end").toBeLessThanOrEqual(0.5);
-      expect(failedBox.top < avatar.bottom && avatar.top < failedBox.bottom, "複製失敗 on the avatar's line").toBe(true);
       expect(await failed.isVisible(), "control: 複製失敗 still showing when measured").toBe(true);
     });
 
@@ -793,7 +771,7 @@ for (const [width, height] of [
       for (const hidden of [
         "[data-testid='reply-task-ref']",
         ".reply-card__head",
-        ".reply-card__name",
+        ".reply-card__meta",
         "[data-testid='waited']",
         ".reply-card__actions",
         ".reply-card__answer-side",
@@ -943,7 +921,7 @@ for (const [width, height] of [
       await mountDesk(mount, page, width, height);
       const card = cardOf(page, "rc-desk-secret");
       await touch(page, await centreOf(card.locator(".reply-card__summary")), { holdMs: 700 });
-      await expect(page.getByTestId("chat-msg-menu").getByRole("menuitem")).toHaveText(["跳到原訊息", "稍後再看", "標為過期", "複製訊息", "選取文字"]);
+      await expect(page.getByTestId("chat-msg-menu").getByRole("menuitem")).toHaveText(["跳到原訊息", "稍後再看", "標為過期", "複製整張卡片內容", "選取文字"]);
       await touch(page, { x: 4, y: 4 }, { holdMs: 50 });
       await expect(page.getByTestId("chat-msg-menu")).toHaveCount(0);
       await touch(page, await centreOf(card.locator(".reply-card__summary")), { holdMs: 80 });
@@ -994,7 +972,7 @@ for (const [width, height] of [
       const snoozed = page.locator('[data-testid="snoozed-card"][data-reply-card-id="rc-desk-q"]');
       await expect(snoozed).toHaveCount(1);
       await press("rc-desk-q");
-      await expect(menu.getByRole("menuitem")).toHaveText(["跳到原訊息", "取消延後", "標為過期", "複製訊息", "選取文字"]);
+      await expect(menu.getByRole("menuitem")).toHaveText(["跳到原訊息", "取消延後", "標為過期", "複製整張卡片內容", "選取文字"]);
       await page.getByTestId("chat-msg-menu-unsnooze").tap();
       await expect(snoozed).toHaveCount(0);
       await selectTab(page, "waiting", "tap");

@@ -76,8 +76,7 @@ export interface Messages {
   replyWaited: (elapsed: string) => string;
   replyWaitedFull: (seconds: number) => string;
   replyOpenedAt: (time: string) => string;
-  replyAnsweredAt: (time: string) => string;
-  replyExpiredAt: (time: string) => string;
+  replyCopyId: (cardId: string) => string;
   replyExpireConfirmBody: (summary: string) => string;
   replySelectedCount: (n: number) => string;
   replyPickedOptions: (options: string[]) => string;
@@ -445,8 +444,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       return messages.replyWaited(parts.join(" "));
     },
     replyOpenedAt: (time) => `${replies.openedAtLabel} ${time}`,
-    replyAnsweredAt: (time) => `${replies.answeredAtLabel} ${time}`,
-    replyExpiredAt: (time) => `${replies.expiredAtLabel} ${time}`,
+    replyCopyId: (cardId) => `${replies.copyIdLabel} ${cardId}`,
     replyExpireConfirmBody: (summary) =>
       `${replies.expireConfirmBodyLead}${summary}${replies.expireConfirmBodyTail}`,
     // How many options are ticked on a multi-select card. LITERAL spaces on

@@ -194,62 +194,128 @@
 .reply-card[role="button"]:focus-visible {
   box-shadow: 0 0 0 2px var(--color-accent-soft);
 }
+/* The first line: status icon, the card's id, then at the right end the
+ * buttons (with a mouse; on touch there are none), the waited pill and the
+ * chevron. That right end moves to a line of its own, still at the right,
+ * when a narrow card cannot hold it beside the id. */
 .reply-card__head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 6px 8px;
+  min-width: 0;
 }
-/* Avatar → member panel (mirrors .member-card__avatar in office.css): a bare
- * button wrapper, native chrome killed, same soft focus ring so the click
- * target reads consistently across the cockpit. */
-.reply-card__avatar {
+.reply-card__head-end {
   flex: none;
-  display: inline-grid;
-  padding: 0;
-  border: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.reply-card__status-icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--color-text-muted);
+}
+.reply-card__status-icon--waiting {
+  color: var(--color-step-waiting-owner);
+}
+.reply-card__status-icon--answered {
+  color: var(--color-step-done);
+}
+.reply-card__id {
+  min-width: 0;
+}
+.reply-card__fold {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--color-text-muted);
+}
+.reply-card__fold--open svg {
+  transform: rotate(90deg);
+}
+/* 開卡人 and, on a settled card, 已回覆／已過期: label/value rows whose
+ * values share one column. */
+.reply-card__meta {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px 10px;
+  font-size: 12.5px;
+}
+.reply-card__meta-label {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.reply-card__meta-value {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+/* Avatar, name and role in one chip that opens the asker's profile; name and
+ * role give way in proportion to their widths, each ending in 「…」. */
+.reply-card__opener {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 2px 9px 2px 3px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
   background: transparent;
-  border-radius: 11px; /* match .avatar so the ring hugs the glyph */
+  color: inherit;
+  font: inherit;
   cursor: pointer;
   outline: none;
 }
-.reply-card__avatar:hover,
-.reply-card__avatar:focus-visible {
+.reply-card__opener:hover,
+.reply-card__opener:focus-visible {
   box-shadow: 0 0 0 2px var(--color-accent-soft);
 }
-/* Avatar, name column, the buttons (with a mouse; on touch there are none)
- * and the stamp share one line on every width, the stamp at its right end.
- * The head does not wrap and everything else in it is `flex: none`, so the
- * name column (`min-width: 0`) is the one that gives up width; letting the
- * head wrap again would put the buttons and stamp under a long name. */
-.reply-card__who {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-  flex: 1;
+.reply-card__opener .avatar {
+  flex: none;
 }
 .reply-card__name {
-  font-size: 14px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--color-text-strong);
 }
 .reply-card__role {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
   color: var(--color-text-muted);
 }
-/* T-196 — the asking outsource worker's CURRENT TASK, in the slot a 正職's role
- * occupies (an outsource has no role name; that span is empty for one). The two
+/* T-196 — the asking outsource worker's CURRENT TASK, a small block under the
+ * 開卡人 chip: 目前任務 with the rail's task line, then the title. The two
  * lines inside are the office rail's own `.outsource-row__task-line` and
  * `.current-task-title`, drawn by the rail's components and styled by the rail's
  * rules in office.css — including the `+` rule that spaces them. This block only
  * stacks them; it must never restate their appearance, or the two surfaces drift
  * on the next change to either. The two exceptions are about cutting, not
  * looks: the task line becomes one line of text that ends in 「…」 (the rule
- * below), and the phone head cuts the title to one line (the ≤720px block). */
+ * below), and a phone cuts the title to one line (the ≤720px block). */
 .reply-card__worker-task {
   display: flex;
   flex-direction: column;
+  align-self: stretch;
   min-width: 0;
+  font-size: 12px;
 }
 /* The rail's task line (chip + type) inside the name column, which on a
  * narrow head is far narrower than on the rail. As a flex row its chip, an
@@ -257,17 +323,24 @@
  * and the type gets a sliver too thin for 「…」. Laid out as one line of text
  * instead, whatever does not fit ends in a single 「…」: the type's text first,
  * then the chip as a whole. Scoped to this head so the rail keeps its own. */
-.reply-card__head .outsource-row__task-line {
+.reply-card__worker-task-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.reply-card__meta .outsource-row__task-line {
+  min-width: 0;
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.reply-card__head .outsource-row__task-line > .outsource-row__chip {
+.reply-card__meta .outsource-row__task-line > .outsource-row__chip {
   margin-right: 6px;
   vertical-align: middle;
 }
-.reply-card__head .outsource-row__task-line > .outsource-row__type {
+.reply-card__meta .outsource-row__task-line > .outsource-row__type {
   display: inline;
   vertical-align: middle;
 }
@@ -340,7 +413,7 @@
   .replies .reply-card__head {
     position: relative;
   }
-  .replies .reply-card__head > .reply-card__actions:not(:has(:focus-visible)) {
+  .replies .reply-card__head .reply-card__actions:not(:has(:focus-visible)) {
     position: absolute;
     top: 0;
     right: 0;
@@ -349,7 +422,7 @@
   }
   .replies
     .reply-card__head
-    > .reply-card__actions:not(:has(:focus-visible))
+    .reply-card__actions:not(:has(:focus-visible))
     :is(.chat__msg-copy, .reply-card__icon-btn) {
     position: absolute;
     width: 1px;
@@ -404,14 +477,15 @@
   flex: none;
 }
 @media (min-width: 721px) and (hover: hover) {
-  .reply-card__head > .reply-card__actions {
+  .reply-card__head .reply-card__actions {
     gap: 10px;
   }
 }
-.reply-card__answered-at {
-  flex: none;
-  font-size: 12.5px;
-  color: var(--color-text-muted);
+.reply-card__meta-row {
+  display: contents;
+}
+.reply-card__meta-time {
+  color: var(--color-text);
   white-space: nowrap;
 }
 
@@ -878,23 +952,12 @@
 .reply-card__answer-side {
   display: contents;
 }
-.reply-card__chat-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-.reply-card__chat-head > :first-child {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
 @media (max-width: 720px) {
   .reply-card {
     padding: 14px;
   }
-  /* Name, role and an outsource asker's task title: one line each, ending in
-   * 「…」 when cut, like the task line above the title on every width. */
-  .reply-card__head :is(.reply-card__name, .reply-card__role, .current-task-title) {
+  /* An outsource asker's task title: one line, ending in 「…」 when cut. */
+  .reply-card__meta .current-task-title {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -914,77 +977,57 @@
   }
 }
 
-/* ---- §3.6 請示 → 任務: the task row on an ask that names a task (the
- * task-number chip that jumps to it + title; on the 請示 page also the
- * priority and due chips). ---- */
+/* ---- §3.6 請示 → 任務: the task an ask is about, in a faint box under the
+ * first line — its id (the only control in it) and priority, the title on one
+ * line ending in 「…」, then the due date. ---- */
 .reply-card__task {
+  box-sizing: border-box;
   display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 2px;
+  flex-direction: column;
+  gap: 4px;
+  width: min(100%, 440px);
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
 }
-/* The task's own title (T-ee17). It is the only free-length thing on this row,
- * so it is the one that shrinks; the ellipsis says a title was cut rather than
- * ending mid-word as if that were the whole name. The chips keep their width.
- *
- * `overflow: hidden` is doing TWO jobs and both are load-bearing: it clips the
- * text, AND it is what lets this flex item go below its content width at all
- * (a flex item's automatic minimum size is only `auto` while its overflow is
- * `visible`). The obvious companion `min-width: 0` was here and has been
- * REMOVED: with overflow hidden it changes nothing, and a declaration no
- * mutant can kill is a decoration that reads like a safeguard. Verified by
- * measurement, not by reasoning — dropping it left every assertion in
- * visual-guards/reply-task-title-truncate.ct.spec.tsx green. */
+.reply-card__task-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.reply-card__task-line > * {
+  flex: none;
+}
 .reply-card__task-title {
-  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+/* The due date as a line of text, not the task card's chip: the full date and
+ * its state are about as wide as a phone card, so it has to be able to wrap. */
+.reply-card__task-due {
   font-size: 12px;
+}
+.reply-card__task-due-label {
+  margin-right: 6px;
   color: var(--color-text-muted);
 }
-.reply-card__task > .outsource-row__chip {
-  flex: none;
+.reply-card__task .task-card__due-chip {
+  display: inline;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font-size: 12px;
 }
-
-/* The 請示 page's task row: the card's top line, ruled off from the head below
- * it. Task number, priority and title are one line on every width: the chips
- * are row items of their own, and the title's zero basis means it never pushes
- * anything onto a next line — it takes what is left and ends in 「…」. */
-.reply-card__task--row {
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  margin: 0;
-  padding: 0 0 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
-}
-.reply-card__task-chips {
-  display: contents;
-}
-.reply-card__task--row .reply-card__task-title {
-  flex: 1 1 0;
-  font-size: 13px;
-  color: var(--color-text);
-}
-/* A phone's due chip is a line of its own under that line: its full date and
- * state (「2026/11/24（二） 12:15 · 已逾期 2 天」) is about as wide as a 320px
- * card, so it cannot share the line with the title, and cutting it would hide
- * whether the task is overdue. A desktop keeps it beside the priority. */
-@media (max-width: 720px) {
-  /* The zero-height full-width break before it; its own line would add a
-   * second row gap, so the gap is the chip's margin instead. */
-  .reply-card__task--row:has(> .reply-card__task-chips > .task-card__due-chip) {
-    row-gap: 0;
-  }
-  .reply-card__task--row:has(> .reply-card__task-chips > .task-card__due-chip)::after {
-    content: "";
-    order: 1;
-    flex-basis: 100%;
-  }
-  .reply-card__task--row .task-card__due-chip {
-    order: 2;
-    margin-top: 6px;
-  }
+.reply-card__task .task-card__due-remaining {
+  margin-left: 4px;
+  font-size: 12px;
 }
 
 /* ---- 稍後再看 ---- */

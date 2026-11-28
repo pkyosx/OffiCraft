@@ -1,6 +1,6 @@
 // HOTSPOT — T-196: the asking outsource worker's current-task line, the THIRD
 // surface of `CurrentTaskTitle` (after the office rail row and the worker chat
-// header) and the first one that sits inside a flex ROW next to other controls.
+// header), under the 開卡人 chip of a reply card.
 //
 // jsdom resolves no -webkit-line-clamp box, no ellipsis and no layout, so every
 // property below is invisible to the unit tests that pin the line's CONTENT:
@@ -8,8 +8,8 @@
 //     rule reaches this surface only because RepliesPage imports office.css.
 //     Someone removing that import as an unused-looking tidy-up reddens
 //     nothing in vitest.
-//   · on a phone (≤720px) the reply head cuts it to one line ending in 「…」
-//     (replies.css), so the head keeps the buttons beside the name.
+//   · on a phone (≤720px) the card cuts it to one line ending in 「…」
+//     (replies.css).
 //   · a long title must not push the card into horizontal scroll, and must not
 //     push the head's own controls (跳到原訊息 / 已等你) out of the card.
 //

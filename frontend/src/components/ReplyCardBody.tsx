@@ -63,8 +63,11 @@ import { ReplyComposer } from "./ReplyComposer";
 import { useReplyCardQuoteTarget } from "./ChatSelectionReply";
 import { MentionText } from "./MentionText";
 import { useMentionRosterContext } from "../hooks/useMentionComposer";
-import { ChevronRightIcon } from "./icons";
-import { TaskIdChip } from "./TaskChips";
+import { ChevronRightIcon, CircleCheckIcon, UserClockIcon } from "./icons";
+import { ExpireActionIcon, SnoozeActionIcon } from "./replyCardActionIcons";
+import { CopyIdChip } from "./IdChips";
+import { TaskDueChip, TaskIdChip, TaskPriorityBadge } from "./TaskChips";
+import { effectiveLeadMinutes } from "../lib/dueDate";
 import "./replies.css";
 import { autosizeTextarea } from "../lib/autosize";
 import { SecretValueInput } from "./SecretValueInput";
@@ -329,32 +332,109 @@ export function ReplyCardQuestionAttachments({
  * 請示 page passes `lead` — the priority and due chips after the number. The
  * typeKey is never shown. The jump is a callback so this stays presentational
  * (each surface owns its own router). */
-export function ReplyCardTaskRef({
+/** The card's own id as its first-line chip: six characters after `rc-`, a
+ * click copies the whole id. */
+export function ReplyCardIdChip({ id }: { id: string }) {
+  const { t, msg } = useI18n();
+  return (
+    <CopyIdChip
+      value={id}
+      text={id.startsWith("rc-") ? id.slice(0, 9) : id}
+      label={msg.replyCopyId(id)}
+      copiedLabel={t.replies.idCopied}
+      className="task-card__id-badge task-card__id-badge--copy reply-card__id"
+      copiedClassName="task-card__id-badge-copied"
+      testId="reply-card-id"
+      copiedTestId="reply-card-id-copied"
+    />
+  );
+}
+
+/** 已回覆／已過期 and when, as a label/value row of `.reply-card__meta`. A
+ * secret card has no time (owner), so `time` is empty there. */
+export function ReplyCardHandledRow({ expired, time }: { expired: boolean; time: string }) {
+  const { t } = useI18n();
+  return (
+    <div className="reply-card__meta-row reply-card__answered-at" data-testid="reply-card-handled-at">
+      <span className="reply-card__meta-label">
+        {expired ? t.replies.expiredAtLabel : t.replies.answeredAtLabel}
+      </span>
+      {time && (
+        <>
+          {" "}
+          <span className="reply-card__meta-time">{time}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
+export type ReplyCardState = "waiting" | "snoozed" | "answered" | "expired";
+
+/** The icon that leads the first line and says where the card stands. */
+export function ReplyCardStatusIcon({ state }: { state: ReplyCardState }) {
+  const { t } = useI18n();
+  const label = {
+    waiting: t.tasks.replyWaitingTag,
+    snoozed: t.tasks.replySnoozedTag,
+    answered: t.tasks.replyAnsweredTag,
+    expired: t.replies.expiredTag,
+  }[state];
+  return (
+    <span
+      className={`reply-card__status-icon reply-card__status-icon--${state}`}
+      role="img"
+      aria-label={label}
+      title={label}
+      data-testid="reply-status-icon"
+      data-state={state}
+    >
+      {state === "waiting" ? (
+        <UserClockIcon size={16} />
+      ) : state === "snoozed" ? (
+        <SnoozeActionIcon size={16} />
+      ) : state === "answered" ? (
+        <CircleCheckIcon size={16} />
+      ) : (
+        <ExpireActionIcon size={16} />
+      )}
+    </span>
+  );
+}
+
+/** The task a card asks about, in a faint box under the first line: its id
+ * (the box's only control, it jumps to the task) and priority, then its title
+ * on one line, then its due date. */
+export function ReplyCardTaskBox({
   task,
   onJump,
-  lead,
+  workspaceLeadMinutes,
 }: {
   task: NonNullable<ReplyCard["task"]>;
   onJump: () => void;
-  lead?: ReactNode;
+  workspaceLeadMinutes: number;
 }) {
   const { t } = useI18n();
   return (
-    <div
-      className={`reply-card__task${lead ? " reply-card__task--row" : ""}`}
-      data-testid="reply-task-ref"
-    >
-      <TaskIdChip
-        taskNo={task.id}
-        label={t.replies.openTask}
-        onOpen={onJump}
-        testId="reply-task-no"
-      />
-      {lead}
+    <div className="reply-card__task" data-testid="reply-task-ref">
+      <div className="reply-card__task-line">
+        <TaskIdChip taskNo={task.id} label={t.replies.openTask} onOpen={onJump} testId="reply-task-no" />
+        {task.priority && <TaskPriorityBadge priority={task.priority} testId="reply-task-priority" />}
+      </div>
       {task.title && (
-        <span className="reply-card__task-title" title={task.title}>
+        <div className="reply-card__task-title" title={task.title} data-testid="reply-task-title">
           {task.title}
-        </span>
+        </div>
+      )}
+      {task.dueTs != null && (
+        <div className="reply-card__task-due">
+          <span className="reply-card__task-due-label">{t.replies.taskDueLabel}</span>
+          <TaskDueChip
+            dueTs={task.dueTs}
+            leadMinutes={effectiveLeadMinutes(task.dueSoonLeadMinutes, workspaceLeadMinutes)}
+            testId="reply-task-due"
+          />
+        </div>
       )}
     </div>
   );

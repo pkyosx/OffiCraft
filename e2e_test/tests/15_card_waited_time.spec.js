@@ -135,19 +135,20 @@ test.describe('C2 · reply cards stamp the WAIT as a relative counter, with no a
     const order = await waiting.evaluate((el) => {
       const head = el.querySelector('.reply-card__head');
       if (!head) return null;
-      const kids = [...head.children];
+      const expire = head.querySelector('[data-testid="expire-card"]');
+      const waited = head.querySelector('[data-testid="waited"]');
       return {
-        expire: kids.findIndex(
-          (k) =>
-            k.dataset.testid === 'expire-card' ||
-            k.querySelector('[data-testid="expire-card"]') !== null,
-        ),
-        waited: kids.findIndex((k) => k.dataset.testid === 'waited'),
+        expire: expire !== null,
+        waited: waited !== null,
+        after:
+          expire !== null &&
+          waited !== null &&
+          (expire.compareDocumentPosition(waited) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
       };
     });
     expect(order, 'the card must draw its head even while collapsed').not.toBeNull();
     expect(
-      order.expire >= 0 && order.waited > order.expire,
+      order.expire && order.waited && order.after,
       `已等你 must sit in the head, to the right of 標為過期 (got ${JSON.stringify(order)})`,
     ).toBe(true);
   });

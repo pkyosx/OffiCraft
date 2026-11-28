@@ -96,10 +96,11 @@ import { useHashRoute } from "../lib/hashRoute";
 import { isSyntheticSender } from "../lib/syntheticSender";
 import { docCommentRecipient } from "../lib/docComments";
 import { avatarKindForMember } from "../lib/avatarKind";
-import { ReplyCardAvatarButton } from "./ReplyCardAvatarButton";
+import { ReplyCardOpenerChip } from "./ReplyCardOpenerChip";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
 import { OutsourceTaskLine } from "./OutsourcePanel";
 import {
+  ChevronRightIcon,
   CopyIcon,
   HourglassIcon,
   TextCursorIcon,
@@ -115,7 +116,6 @@ import { IdFilterInput } from "./IdFilterInput";
 import { MultiSelectFilter, type MultiSelectOption } from "./MultiSelectFilter";
 import { ConfirmModal } from "./ConfirmModal";
 import { DisplayOptions } from "./DisplayOptions";
-import { TaskDueChip, TaskPriorityBadge } from "./TaskChips";
 import { ReplySnoozeMenu, type SnoozeOutcome } from "./ReplySnoozeMenu";
 import {
   ChatSelectionModeBar,
@@ -140,9 +140,13 @@ import {
   ReplyCardAnsweredBody,
   ReplyCardExpiredBody,
   ReplyCardLinkComments,
+  ReplyCardHandledRow,
+  ReplyCardIdChip,
   ReplyCardQuestionAttachments,
-  ReplyCardTaskRef,
+  ReplyCardStatusIcon,
+  ReplyCardTaskBox,
   ReplyCardWaitingBody,
+  type ReplyCardState,
 } from "./ReplyCardBody";
 import { formatDurationShort } from "../lib/duration";
 import { snoozeBackShort } from "../lib/replySnooze";
@@ -990,7 +994,7 @@ export function RepliesPage({
       ...cardActions,
       {
         key: "copy",
-        label: t.chat.copyMessage,
+        label: t.replies.copyWholeCard,
         icon: <CopyIcon size={13} />,
         onSelect: () => copyCard(row),
       },
@@ -1234,31 +1238,17 @@ export function RepliesPage({
     );
   }
 
-  // §3.6 請示 → 任務: an ask that names a task shows the task row at the very
-  // top of the card, above the head — #number, priority, due date, title, and
-  // the jump. The route carries the task id so the tasks page can locate
+  // §3.6 請示 → 任務: an ask that names a task shows it in a box right under
+  // the first line. The route carries the task id so the tasks page can locate
   // the card. A pure chat ask renders nothing here.
   function renderTaskRef(row: ReplyCardRow) {
     const task = row.task;
     if (!task) return null;
     return (
-      <ReplyCardTaskRef
+      <ReplyCardTaskBox
         task={task}
         onJump={() => setRoute({ page: "tasks", taskId: task.id })}
-        lead={
-          <span className="reply-card__task-chips">
-            {task.priority && (
-              <TaskPriorityBadge priority={task.priority} testId="reply-task-priority" />
-            )}
-            {task.dueTs != null && (
-              <TaskDueChip
-                dueTs={task.dueTs}
-                leadMinutes={effectiveLeadMinutes(task.dueSoonLeadMinutes, workspaceLeadMinutes)}
-                testId="reply-task-due"
-              />
-            )}
-          </span>
-        }
+        workspaceLeadMinutes={workspaceLeadMinutes}
       />
     );
   }
@@ -1438,13 +1428,16 @@ export function RepliesPage({
     const bound = Boolean(worker.taskNo);
     return (
       <span className="reply-card__worker-task">
-        {bound && (
-          <OutsourceTaskLine
-            worker={worker}
-            onOpenTask={(taskId) => setRoute({ page: "tasks", taskId })}
-            idPrefix={`reply-card-${row.id}`}
-          />
-        )}
+        <span className="reply-card__worker-task-head">
+          <span className="reply-card__meta-label">{t.replies.askerTaskLabel}</span>
+          {bound && (
+            <OutsourceTaskLine
+              worker={worker}
+              onOpenTask={(taskId) => setRoute({ page: "tasks", taskId })}
+              idPrefix={`reply-card-${row.id}`}
+            />
+          )}
+        </span>
         <CurrentTaskTitle
           title={worker.taskTitle ?? ""}
           clamp
@@ -1454,73 +1447,88 @@ export function RepliesPage({
     );
   }
 
-  /** The card's head — and, since owner 2026-09-11, the COLLAPSED ROW itself:
-   * 「折疊起來那一列的內容不要另外設計」. It is drawn from the LIGHT ROW, so it
-   * costs no read: avatar, name + role, 跳到原訊息, 標為過期, then the stamp. */
+  /** The card's first line, drawn from the LIGHT ROW so it costs no read:
+   * where the card stands, its own id, then at the right end 跳到原訊息,
+   * 稍後再看 (or 取消延後), 標為過期 and 複製整張卡片內容 with a mouse, the
+   * waited pill, and the chevron. */
   function renderHead(
     row: ReplyCardRow,
+    state: ReplyCardState,
+    open: boolean,
     stampNode?: ReactNode,
     expirable = false,
     actions?: ReactNode
   ) {
-    const who = whoOf(row);
-    const asker = members.find((x) => x.id === row.from);
     return (
       <header className="reply-card__head">
-        <ReplyCardAvatarButton
-          onClick={() => openProfile(row)}
-          src={
-            (asker?.kind === "outsource" ? undefined : asker?.avatarUrl) ??
-            workerAvatarUrls.get(row.from)
-          }
-          kind={avatarKindForMember(
-            asker ?? { id: row.from }
-          )}
-        />
-        <div className="reply-card__who">
-          <span className="reply-card__name" title={who.name}>
-            {who.name}
-          </span>
-          {who.role && (
-            <span className="reply-card__role" title={who.role}>
-              {who.role}
-            </span>
-          )}
-          {renderAskerCurrentTask(row)}
-        </div>
-        <div className="reply-card__actions">
-          <span className="reply-card__copy">
-            <ChatMessageCopyButton
-              state={messageCopy.stateOf(row.id)}
-              onCopy={() => copyCard(row)}
-            />
-            <ChatMessageCopyStatus state={messageCopy.stateOf(row.id)} />
-          </span>
-          <button
-            type="button"
-            className="reply-card__icon-btn"
-            aria-label={t.replies.jumpToChat}
-            title={t.replies.jumpToChat}
-            onClick={() => void jumpToChat(row)}
-          >
-            <JumpToMessageIcon size={13} />
-          </button>
-          {actions}
-          {expirable && (
+        <ReplyCardStatusIcon state={state} />
+        <ReplyCardIdChip id={row.id} />
+        <div className="reply-card__head-end">
+          <div className="reply-card__actions">
             <button
               type="button"
               className="reply-card__icon-btn"
-              data-testid="expire-card"
-              aria-label={t.replies.expire}
-              title={t.replies.expire}
-              onClick={() => setExpireTarget(row)}
+              aria-label={t.replies.jumpToChat}
+              title={t.replies.jumpToChat}
+              onClick={() => void jumpToChat(row)}
             >
-              <ExpireActionIcon size={13} />
+              <JumpToMessageIcon size={13} />
             </button>
-          )}
+            {actions}
+            {expirable && (
+              <button
+                type="button"
+                className="reply-card__icon-btn"
+                data-testid="expire-card"
+                aria-label={t.replies.expire}
+                title={t.replies.expire}
+                onClick={() => setExpireTarget(row)}
+              >
+                <ExpireActionIcon size={13} />
+              </button>
+            )}
+            <span className="reply-card__copy">
+              <ChatMessageCopyButton
+                state={messageCopy.stateOf(row.id)}
+                onCopy={() => copyCard(row)}
+                idleLabel={t.replies.copyWholeCard}
+              />
+              <ChatMessageCopyStatus state={messageCopy.stateOf(row.id)} />
+            </span>
+          </div>
+          {stampNode}
+          <span className={`reply-card__fold${open ? " reply-card__fold--open" : ""}`} aria-hidden="true">
+            <ChevronRightIcon size={14} />
+          </span>
         </div>
-        {stampNode}
       </header>
+    );
+  }
+
+  /** 開卡人 (with an outsource asker's current task under the chip), and on a
+   * settled card when it was answered or expired. */
+  function renderMeta(row: ReplyCardRow, handled?: ReactNode) {
+    const who = whoOf(row);
+    const asker = members.find((x) => x.id === row.from);
+    const askerTask = renderAskerCurrentTask(row);
+    return (
+      <div className="reply-card__meta">
+        <span className="reply-card__meta-label">{t.replies.openerLabel}</span>
+        <div className="reply-card__meta-value">
+          <ReplyCardOpenerChip
+            onClick={() => openProfile(row)}
+            name={who.name}
+            role={who.role}
+            src={
+              (asker?.kind === "outsource" ? undefined : asker?.avatarUrl) ??
+              workerAvatarUrls.get(row.from)
+            }
+            kind={avatarKindForMember(asker ?? { id: row.from })}
+          />
+          {askerTask}
+        </div>
+        {handled}
+      </div>
     );
   }
 
@@ -1547,7 +1555,9 @@ export function RepliesPage({
     opts: {
       testId: string;
       className: string;
-      stamp: ReactNode;
+      state: ReplyCardState;
+      stamp?: ReactNode;
+      handled?: ReactNode;
       expirable?: boolean;
       actions?: ReactNode;
       notice?: ReactNode;
@@ -1581,8 +1591,8 @@ export function RepliesPage({
               onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => onCardToggleKeyDown(e, row.id),
             })}
       >
+        {renderHead(row, opts.state, open, opts.stamp, opts.expirable, opts.actions)}
         {renderTaskRef(row)}
-        {renderHead(row, opts.stamp, opts.expirable, opts.actions)}
         {opts.notice}
         {/* The ask's TITLE, drawn once and in ONE place — always visible, above
           * the fold of a collapsed card. It is the third line of the head strip
@@ -1594,6 +1604,7 @@ export function RepliesPage({
           * through Markdown; the light row carries it, so this costs no read. */}
         <ReplyCardLinkComments from={row.from} recipientFor={docCommentRecipientFor}>
           <Markdown source={row.summary} className="reply-card__summary doc-md" />
+          {renderMeta(row, opts.handled)}
           {open &&
             (card ? (
               <ReplyCardMentionProvider
@@ -1625,6 +1636,7 @@ export function RepliesPage({
     return renderCard(row, {
       testId: asSnoozed ? "snoozed-card" : "waiting-card",
       className: asSnoozed ? "reply-card reply-card--snoozed" : "reply-card",
+      state: asSnoozed ? "snoozed" : "waiting",
       // ONE stamp, at the head's right edge, AFTER 標為過期 (owner 2026-09-11).
       // 🔴 No absolute 開卡 stamp beside it — owner saw one on this very head and
       // answered「我不想知道絕對時間 相對時間已經夠了」. A snoozed card says when it
@@ -1718,22 +1730,15 @@ export function RepliesPage({
       className: `reply-card ${
         expired ? "reply-card--expired" : "reply-card--answered"
       }`,
-      // Absolute date+time (7/13 09:05) — the bare hh:mm was ambiguous the
-      // moment a card aged past midnight. This is the ONE absolute stamp left
-      // on the page: 「不想知道絕對時間」 was about the waiting card's 開卡 stamp,
-      // and a handled card has no ticking counter to say it instead.
-      stamp:
-        ts !== null ? (
-          <span className="reply-card__answered-at">
-            {row.kind === "secret"
-              ? expired
-                ? t.replies.expiredTag
-                : t.tasks.replyAnsweredTag
-              : expired
-                ? msg.replyExpiredAt(formatAbsolute(ts, nowTs))
-                : msg.replyAnsweredAt(formatAbsolute(ts, nowTs))}
-          </span>
-        ) : undefined,
+      state: expired ? "expired" : "answered",
+      // Absolute date+time (7/13 09:05): a handled card has no ticking counter
+      // to say it instead. A secret card shows no time (owner).
+      handled: (
+        <ReplyCardHandledRow
+          expired={expired}
+          time={ts !== null && row.kind !== "secret" ? formatAbsolute(ts, nowTs) : ""}
+        />
+      ),
       body: (card) => (
         <>
           {card.body && (
