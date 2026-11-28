@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
@@ -327,15 +329,19 @@ func TestHandleListShareLinksApiShareLinksGet(t *testing.T) {
 			`{"before":"`+before+`","after":"`+after+`","label_before":"old"}`))
 		reversed := apiShareLinkID(apiMintShareLink(t, h, "/api/diff/share-link", owner,
 			`{"before":"`+after+`","after":"`+before+`"}`))
+		sameBefore := apiShareLinkID(apiMintShareLink(t, h, "/api/diff/share-link", owner,
+			`{"before":"`+before+`","after":"`+second+`"}`))
+		sameAfter := apiShareLinkID(apiMintShareLink(t, h, "/api/diff/share-link", owner,
+			`{"before":"`+second+`","after":"`+after+`"}`))
 		expired := apiShareLinkID(apiMintShareLink(t, h, apiAttachmentLinkTarget(first), owner, ""))
 		apiExpireShareLinkNow(t, d, expired)
 
-		apiWantIDs(t, "every live link", apiShareLinkIDs(t, h, "", owner), a1, b1, diff, reversed)
+		apiWantIDs(t, "every live link", apiShareLinkIDs(t, h, "", owner), a1, b1, diff, reversed, sameBefore, sameAfter)
 		apiWantIDs(t, "one attachment", apiShareLinkIDs(t, h, "?attachment_id="+first, owner), a1)
 		apiWantIDs(t, "one comparison whatever its labels",
 			apiShareLinkIDs(t, h, "?before="+url.QueryEscape(before)+"&after="+url.QueryEscape(after), owner), diff)
 		apiWantIDs(t, "an empty filter value counts as not given", apiShareLinkIDs(t, h, "?attachment_id=", owner),
-			a1, b1, diff, reversed)
+			a1, b1, diff, reversed, sameBefore, sameAfter)
 		apiWantIDs(t, "a filter matching nothing", apiShareLinkIDs(t, h, "?attachment_id=att-000000000000", owner))
 	})
 
@@ -442,7 +448,8 @@ func TestHandleGetChatAttachmentPreviewLinkApiChatAttachmentsAttachmentIdPreview
 		if parsed.Path != "/api/chat/attachment/"+id || len(q) != 2 || len(q.Get("sig")) != shareSigLen || err != nil {
 			t.Fatalf("url: want the blob path carrying sig and exp only, got %q", data["url"])
 		}
-		if ahead := exp - time.Now().Unix(); ahead < previewLinkTTLSecs-5 || ahead > previewLinkTTLSecs {
+		const oneHour = 60 * 60
+		if ahead := exp - time.Now().Unix(); ahead < oneHour-5 || ahead > oneHour {
 			t.Fatalf("exp is %ds ahead, want one hour", ahead)
 		}
 
@@ -542,27 +549,62 @@ func TestWriteShareLinkGone(t *testing.T) {
 	})
 }
 
-func TestPruneExpiredShareLinks(t *testing.T) {
-	_, h, d, owner := newAPITestServer(t)
-	id := apiShareLinkUpload(t, h, owner)
-	expired := apiShareLinkID(apiMintShareLink(t, h, apiAttachmentLinkTarget(id), owner, ""))
-	live := apiShareLinkID(apiMintShareLink(t, h, apiAttachmentLinkTarget(id), owner, ""))
-	forever := apiShareLinkID(apiMintShareLink(t, h, apiAttachmentLinkTarget(id), owner, `{"expires_ts":null}`))
-	apiExpireShareLinkNow(t, d, expired)
-
-	if n, err := d.PruneExpiredShareLinks(nowSecs()); err != nil || n != 1 {
-		t.Fatalf("PruneExpiredShareLinks = (%d, %v), want (1, nil)", n, err)
-	}
+func apiShareLinkRowIDs(t *testing.T, d *DAL) []string {
+	t.Helper()
 	rows, err := d.rdb.Query(`SELECT id FROM share_link ORDER BY created_ts, id`)
 	if err != nil {
 		t.Fatalf("read rows: %v", err)
 	}
 	defer rows.Close()
-	var left []string
+	ids := []string{}
 	for rows.Next() {
-		var rowID string
-		_ = rows.Scan(&rowID)
-		left = append(left, rowID)
+		var id string
+		_ = rows.Scan(&id)
+		ids = append(ids, id)
 	}
-	apiWantIDs(t, "rows left", left, live, forever)
+	return ids
+}
+
+func TestPruneExpiredShareLinks(t *testing.T) {
+	t.Run("only rows whose expiry has passed are deleted", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		id := apiShareLinkUpload(t, h, owner)
+		expired := apiShareLinkID(apiMintShareLink(t, h, apiAttachmentLinkTarget(id), owner, ""))
+		live := apiShareLinkID(apiMintShareLink(t, h, apiAttachmentLinkTarget(id), owner, ""))
+		forever := apiShareLinkID(apiMintShareLink(t, h, apiAttachmentLinkTarget(id), owner, `{"expires_ts":null}`))
+		apiExpireShareLinkNow(t, d, expired)
+
+		if n, err := d.PruneExpiredShareLinks(nowSecs()); err != nil || n != 1 {
+			t.Fatalf("PruneExpiredShareLinks = (%d, %v), want (1, nil)", n, err)
+		}
+		apiWantIDs(t, "rows left", apiShareLinkRowIDs(t, d), live, forever)
+	})
+
+	t.Run("the background sweep deletes an expired row on its own", func(t *testing.T) {
+		const childEnv = "OFFICRAFT_SHARE_LINK_PRUNE_CADENCE_CHILD"
+		if os.Getenv(childEnv) != "1" {
+			cmd := exec.Command(os.Args[0], "-test.run",
+				"^TestPruneExpiredShareLinks$/^the_background_sweep_deletes_an_expired_row_on_its_own$")
+			cmd.Env = append(os.Environ(), childEnv+"=1")
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("cadence child: %v\n%s", err, output)
+			}
+			return
+		}
+		api, h, d, owner := newAPITestServer(t)
+		id := apiShareLinkUpload(t, h, owner)
+		expired := apiShareLinkID(apiMintShareLink(t, h, apiAttachmentLinkTarget(id), owner, ""))
+		live := apiShareLinkID(apiMintShareLink(t, h, apiAttachmentLinkTarget(id), owner, ""))
+		apiExpireShareLinkNow(t, d, expired)
+
+		api.startSecretCardSweepCadence(5 * time.Millisecond)
+
+		deadline := time.Now().Add(reentryAnswerWithin)
+		for strings.Join(apiShareLinkRowIDs(t, d), ",") != live {
+			if time.Now().After(deadline) {
+				t.Fatalf("no sweep round deleted the expired row; rows %v", apiShareLinkRowIDs(t, d))
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	})
 }

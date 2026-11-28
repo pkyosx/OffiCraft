@@ -282,8 +282,8 @@ func TestHandleGetDiffApiDiffGet(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
-	t.Run("a credential-less request carrying a link for a different comparison answers 410", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+	t.Run("a credential-less request carrying a link for a different comparison, or an expired link, answers 410", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
 		before, after := apiDiffSeededSides(t, h, owner)
 		other := apiDiffUpload(t, h, owner, "third.txt", "a third wording")
 		minted := apiDiffShareQuery(t, h, owner, before, after)
@@ -294,6 +294,17 @@ func TestHandleGetDiffApiDiffGet(t *testing.T) {
 			"/api/diff?before="+before+"&after="+other+"&link="+url.QueryEscape(link), "", "")
 		if status != 410 {
 			t.Fatalf("want 410, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "client_error", shareLinkGoneMsg)
+
+		var id string
+		if err := d.rdb.QueryRow(`SELECT id FROM share_link WHERE token_hash = ?`, shareLinkTokenHash(link)).Scan(&id); err != nil {
+			t.Fatalf("read row: %v", err)
+		}
+		apiExpireShareLinkNow(t, d, id)
+		status, data = apiJSON(t, h, "GET", "/api/diff?"+minted, "", "")
+		if status != 410 {
+			t.Fatalf("expired link: want 410, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "client_error", shareLinkGoneMsg)
 		dashboard.wantFrames()
