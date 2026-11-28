@@ -245,26 +245,32 @@ describe("LorePage — 變灰", () => {
     expect(folded("mid")).toBe(false);
   });
 
-  it("an opened dropped entry with a staged change stays open, frame and ↺ showing, until the change is undone", async () => {
+  it("a card with a staged change folds and opens like any other: staged while folded it stays folded with its frame and ↺, a click opens it, a click folds it back, and 編輯 on it folded opens it into its editor", async () => {
     stubList(page(entries, { capChars: 10000, firstDroppedId: "mid" }));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(5));
+    const row = () => rowById(container, "mid");
 
-    fireEvent.click(rowById(container, "mid"));
-    const row = rowById(container, "mid");
-    fireEvent.click(row.querySelector('[data-testid="lore-state"]')!);
-    fireEvent.click(row.querySelector('[data-testid="lore-state-pinned"]')!);
+    fireEvent.click(row().querySelector('[data-testid="lore-state"]')!);
+    fireEvent.click(row().querySelector('[data-testid="lore-state-pinned"]')!);
+    expect([
+      row().dataset.staged,
+      row().dataset.folded,
+      row().getAttribute("role"),
+      row().querySelector('[data-testid="lore-revert-state"]') !== null,
+      row().querySelector('[data-testid="lore-fold-mark"]') !== null,
+    ]).toEqual(["true", "true", "button", true, true]);
 
-    const staged = rowById(container, "mid");
-    expect(staged.dataset.staged).toBe("true");
-    expect(staged.querySelector('[data-testid="lore-revert-state"]')).not.toBeNull();
-    expect(staged.querySelector('[data-testid="lore-fold-mark"]')).toBeNull();
-    expect(staged.getAttribute("role")).toBeNull();
-    fireEvent.click(staged.querySelector('[data-testid="lore-body"]')!);
-    expect(rowById(container, "mid").dataset.folded).toBeUndefined();
+    fireEvent.click(row().querySelector('[data-testid="lore-body"]')!);
+    expect(row().dataset.folded).toBeUndefined();
+    expect(row().querySelector('[data-testid="lore-body"]')!.classList.contains("lore-row__body--clamped")).toBe(false);
+    fireEvent.click(row().querySelector('[data-testid="lore-body"]')!);
+    expect(row().dataset.folded).toBe("true");
 
-    fireEvent.click(staged.querySelector('[data-testid="lore-revert-state"]')!);
-    expect(rowById(container, "mid").querySelector('[data-testid="lore-fold-mark"]')).not.toBeNull();
+    fireEvent.click(row().querySelector('[data-testid="lore-edit"]')!);
+    expect(row().dataset.folded).toBeUndefined();
+    expect(row().querySelector<HTMLInputElement>('[data-testid="lore-edit-title"]')!.value).toBe("短");
+    expect(row().dataset.staged).toBe("true");
   });
 
   it("編輯 on a folded dropped entry opens it straight into its editor; it has no chevron while its editor is open or its message box holds text, and a click on it does not fold it, so neither can be folded away; one with no message box, or whose author leaves with text still in it, folds as usual", async () => {
@@ -1386,7 +1392,7 @@ describe("LorePage — 可變動作面", () => {
     expect(unsavedIds(container)).toEqual(["L-1"]);
   });
 
-  it("儲存變更 sends every staged change once, then re-reads the whole section in the server's order, folds every entry nobody opened by hand and keeps an opened one open", async () => {
+  it("儲存變更 sends every staged change once, then re-reads the whole section in the server's order, folds every entry nobody opened by hand, a staged one too, and keeps an opened one open, a staged one too", async () => {
     const w = spyWrites();
     const before = page(
       [
@@ -1418,6 +1424,7 @@ describe("LorePage — 可變動作面", () => {
 
     chooseState(container, "P-1", "active");
     chooseType(container, "A-1", "owner_decision");
+    fireEvent.click(rowById(container, "P-1"));
     fireEvent.click(rowById(container, "A-3"));
     const look = () =>
       renderedIds(container).map((id) => [
@@ -1426,7 +1433,7 @@ describe("LorePage — 可變動作面", () => {
         rowById(container, id).getAttribute("data-folded") === "true",
       ]);
     expect(look()).toEqual([
-      ["P-1", "false", true],
+      ["P-1", "false", false],
       ["A-1", "false", true],
       ["A-2", "false", true],
       ["A-3", "true", false],
@@ -1442,7 +1449,7 @@ describe("LorePage — 可變動作面", () => {
     expect(look()).toEqual([
       ["A-1", "false", true],
       ["A-2", "false", true],
-      ["P-1", "true", true],
+      ["P-1", "true", false],
       ["A-3", "true", false],
     ]);
     expect(unsavedIds(container)).toEqual([]);

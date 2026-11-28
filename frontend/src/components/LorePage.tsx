@@ -146,9 +146,9 @@ const DIR_DEFAULT_COLLAPSED: readonly DirGroupKind[] = ["staff", "outsource", "m
 const DIR_COLLAPSED_KEY = "oc_lore_dir_collapsed";
 
 /** 生效期: the start, and for a retired entry whose retire time is known, the
- * end as well. A retired entry bumped after it was retired starts after it
- * ended, so it shows the start alone. */
-/** A retired entry's range may break only after its dash, never inside a time. */
+ * end as well; a retired entry bumped after it was retired starts after it
+ * ended, so it shows the start alone. The range may break only after its
+ * dash, never inside a time. */
 function LoreEffective({ entry }: { entry: LoreEntryView }) {
   const now = Date.now() / 1000;
   const start = formatAbsolute(entry.effectiveTs, now);
@@ -1385,7 +1385,6 @@ function LoreView({
           const ch = staged.get(stored.id);
           const entry = withStaged(stored, ch);
           const dropped = stored.dropped === true;
-          const foldable = !ch;
           const expanded = openOverride.get(entry.id) ?? false;
           return (
             <LoreRow
@@ -1393,7 +1392,7 @@ function LoreView({
                   entry={entry}
                   dimmed={dropped}
                   expanded={expanded}
-                  onToggle={foldable ? () => setEntryOpen(entry.id, !expanded) : null}
+                  onToggle={() => setEntryOpen(entry.id, !expanded)}
                   author={resolveAuthor(entry.authorId)}
                   avatar={authorAvatar(entry.authorId)}
                   scope={resolveScope(entry)}
@@ -1916,10 +1915,9 @@ function LoreRow({
   /** The server left it out of what members read: content greyed, 讀不到 tag. */
   dimmed: boolean;
   expanded: boolean;
-  /** Folds or opens the card; null ⇒ this card stays open (it carries a staged
-   * change). It does not fold either while its editor is open or its message
-   * box holds unsent input. */
-  onToggle: (() => void) | null;
+  /** Folds or opens the card. It does not fold while its editor is open or its
+   * message box holds unsent input. */
+  onToggle: () => void;
   author: AuthorIdentity;
   avatar: { src?: string; kind: AvatarKind } | null;
   /** 屬於, already resolved (resolveScope). `manualKey` non-empty offers the
@@ -2270,7 +2268,7 @@ function LoreRow({
             title={t.lore.actionEdit}
             disabled={expanded && editing}
             onClick={() => {
-              if (!expanded) onToggle?.();
+              if (!expanded) onToggle();
               setEditing(true);
             }}
           >
@@ -2286,8 +2284,8 @@ function LoreRow({
               <ChevronRightIcon size={18} />
             </span>
           ) : (
-            // Holds the chevron's width: staging a change must not rewrap the
-            // tags and change the card's height.
+            // Holds the chevron's width so the tags do not rewrap while the
+            // card cannot fold.
             <span className="lore-row__fold lore-row__fold--held" aria-hidden="true" />
           )}
         </div>
