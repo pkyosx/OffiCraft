@@ -598,7 +598,7 @@ Open it with the gear in the top bar. It opens over the current tab; click any t
 
 - **System update & backup** — Current version, "Check for updates", update settings ("Receive beta versions", "Automatic updates", "Update check interval"), "Backup health".
 - **Security** — "Signing keys".
-- **Global context** — Documents sent to members: "User Language" and "User additions" at the top, and the rest in three groups, BOOT, STOP and TASK EVENTS. While "Developer mode" (in Advanced) is off, every document except "User Language" and "User additions" is locked.
+- **Global context** — Documents sent to members: "User Language" and "User additions" at the top under "User preferences", and the rest in three groups, BOOT, STOP and TASK EVENTS. While "Developer mode" (in Advanced) is off, every document except "User Language" and "User additions" is locked.
 - **Roles** — Each role's Duty and Insight.
 - **Task manuals** — The manual for each kind of task, split into built-in and custom.
 - **General** — The suggested-reply lists and the due-soon lead time.
@@ -610,7 +610,7 @@ For the contents of each page and every setting, see [Settings](settings.md). Fo
 
 ### The ⓘ after a title
 
-In Settings, the avatar menu and their dialogs, a row or a setting whose title does not say everything you need to know (its unit, its range, when a change takes effect, who reads it) has an ⓘ after its title with the explanation. Rows whose title says it all, such as "Session length" or "Account security", have no ⓘ. On a computer, hover over the ⓘ (or move to it with Tab) to read it; on a phone, tap it. An ⓘ inside a row that opens a page is not a Tab stop of its own: a screen reader reads its explanation as the row's description. A tapped explanation stays open until you tap it again, tap anywhere else, press Esc or scroll; tapping an ⓘ inside a row does not open that row. Warnings stay on the page as before, for example "Notifications are not sent until this is set." under Notification email, or "Anything past this number is permanently deleted on the next backup." under Backups kept. In Global context each row shows "editable" (or "not editable") as a small tag beside its name.
+In Settings, the avatar menu and their dialogs, a row or a setting whose title does not say everything you need to know (its unit, its range, when a change takes effect, who reads it) has an ⓘ after its title with the explanation. Rows whose title says it all, such as "Session length" or "Account security", have no ⓘ. On a computer, hover over the ⓘ (or move to it with Tab) to read it; on a phone, tap it. An ⓘ inside a row that opens a page is not a Tab stop of its own: a screen reader reads its explanation as the row's description. A tapped explanation stays open until you tap it again, tap anywhere else, press Esc or scroll; tapping an ⓘ inside a row does not open that row. Warnings stay on the page as before, for example "Notifications are not sent until this is set." under Notification email, or "Anything past this number is permanently deleted on the next backup." under Backups kept. In Global context a document row shows "editable" (or "not editable") as a small tag beside its name; "User Language" and "User additions" are always editable and carry no tag.
 
 ## Avatar menu
 

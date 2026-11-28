@@ -2513,6 +2513,7 @@ export const en: Dict = {
     developerMode: "Developer mode",
     developerModeSub:
       "When on, the boot documents in Global context can be edited. User Language and User additions are always editable.",
+    userPrefsSection: "User preferences",
     globalSection: "BOOT",
     systemName: "System interaction",
     systemSub: "How the system works, read by every member at boot",

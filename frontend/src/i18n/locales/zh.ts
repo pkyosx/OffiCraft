@@ -2554,6 +2554,7 @@ export const zh = {
     // 使用者自訂單獨排在最上面，不在任何一組裡。上線這組依 boot context 的
     // 組裝順序排：系統互動 → 啟動步驟（那一列開的是 claude / codex 兩份文件的索引）。
     // UI 不露檔名。
+    userPrefsSection: "使用者偏好",
     globalSection: "上線（BOOT）",
     systemName: "系統互動",
     systemSub: "每位成員開機時都會讀到的系統運作說明",

@@ -1637,6 +1637,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "settings.upgradeTimeout",
   "settings.userLanguageName",
   "settings.userLanguageSub",
+  "settings.userPrefsSection",
   "settings.viewRelease",
   "settings.wardenCredentialLifetime",
   "settings.wardenCredentialLifetimeSub",

@@ -229,8 +229,9 @@ import {
  * SERVER's answer, arrives on the document's own read (`readOnly`), and is what
  * BootDocPage acts on. A row's group only decides where it is printed.
  *
- * `user` is not one of the three: its rows sit unlabelled at the top beside
- * 使用者自訂, outside the developer-mode lock (owner: 「可以改的放使用者自訂」). */
+ * `user` is not one of the three: its rows sit under 使用者偏好 at the top beside
+ * 使用者自訂, outside the developer-mode lock (owner: 「可以改的放使用者自訂」), and
+ * carry no 可編輯 tag because they are always editable. */
 type BootDocGroup = "user" | "launch" | "stop" | "task";
 
 type BootDocLockedGroup = Exclude<BootDocGroup, "user">;
@@ -415,18 +416,18 @@ export const BOOT_DOC_ROWS: Record<
 function BootDocEntry({
   kind,
   row,
-  editable,
+  editableTag,
   onOpen,
 }: {
   kind: BootDocKind;
   row: (typeof BOOT_DOC_ROWS)[BootDocKind];
-  editable: boolean;
+  editableTag: boolean;
   onOpen: () => void;
 }) {
   const { t } = useI18n();
   const { Icon } = row;
   const id = useId();
-  const tag = editable
+  const tag = editableTag
     ? t.settings.bootDocEditableTag
     : "readOnly" in row && row.readOnly
       ? t.settings.bootDocReadOnlyTag
@@ -3006,6 +3007,7 @@ function GlobalContextSection({
       {error && <div className="set-error">{t.settings.loadError}</div>}
 
       <div>
+        <div className="set-group-label">{t.settings.userPrefsSection}</div>
         <div className="set-entries">
           {/* Boot assembly order: User Language is read before 使用者自訂. */}
           {bootDocRowsIn("user").map(([kind, row]) => (
@@ -3013,7 +3015,7 @@ function GlobalContextSection({
               key={kind}
               kind={kind}
               row={row}
-              editable
+              editableTag={false}
               onOpen={() => !row.index && onOpenBootDoc(kind, row.docKey)}
             />
           ))}
@@ -3021,7 +3023,7 @@ function GlobalContextSection({
             type="button"
             className="set-entry"
             data-testid="boot-doc-entry-custom"
-            aria-labelledby={setEntryLabelledBy(customRowId, t.settings.bootDocEditableTag)}
+            aria-labelledby={setEntryLabelledBy(customRowId, undefined)}
             aria-describedby={`${customRowId}-hint`}
             onClick={onOpenCustom}
           >
@@ -3032,7 +3034,6 @@ function GlobalContextSection({
               id={customRowId}
               name={t.settings.customName}
               hint={t.settings.customSub}
-              tag={t.settings.bootDocEditableTag}
             />
             <ChevronRightIcon size={18} className="set-entry__chev" />
           </button>
@@ -3053,7 +3054,7 @@ function GlobalContextSection({
                 key={kind}
                 kind={kind}
                 row={row}
-                editable={developerMode === true && (row.index || !row.readOnly)}
+                editableTag={developerMode === true && (row.index || !row.readOnly)}
                 onOpen={() =>
                   row.index ? onOpenBootIndex() : onOpenBootDoc(kind, row.docKey)
                 }

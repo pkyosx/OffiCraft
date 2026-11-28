@@ -1638,6 +1638,7 @@ var messageKeys = map[string]bool{
 	"settings.upgradeTimeout":                          true,
 	"settings.userLanguageName":                        true,
 	"settings.userLanguageSub":                         true,
+	"settings.userPrefsSection":                        true,
 	"settings.viewRelease":                             true,
 	"settings.wardenCredentialLifetime":                true,
 	"settings.wardenCredentialLifetimeSub":             true,
