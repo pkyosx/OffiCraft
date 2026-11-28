@@ -1313,7 +1313,7 @@ export const zh = {
     themeImportLinkWorking: "抓取中…",
     themeImportLinkFailed: "抓不到那條連結",
     themeImportLinkShareNote:
-      "拿到這條連結的人都能看到這套主題（包含裡面的私人圖片）。連結不會過期，也無法單獨收回。",
+      "拿到這條連結的人都能看到這套主題（包含裡面的私人圖片），直到連結到期或被收回。",
     themeImportDup: "已經有同一套自訂主題",
     themeImportSeasonalId: "這個 id 保留給內建的應景主題，請改掉主題的 id 再匯入",
     themeImportReadFailed: "讀取檔案失敗",

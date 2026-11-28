@@ -39,7 +39,7 @@ For the setup steps on a phone, see [Use it on your phone](mobile.md).
 
 ## Tab bar
 
-Seven tabs, from left to right:
+Eight tabs, from left to right:
 
 | Tab | Badge | Purpose |
 | --- | --- | --- |
@@ -47,6 +47,7 @@ Seven tabs, from left to right:
 | Ask | Number of reply cards waiting for your answer | Reply cards members open for you |
 | Task | Number of tasks not yet closed; when any task is overdue, a red warning icon appears next to it, and when tasks are only close to their due date it is orange-yellow. Hovering the mouse over it shows, for example, "1 overdue · 2 due soon · 5 open" | Task board |
 | Secrets | None | Account keys for members to use |
+| Sharing | None | Share links that still work, and revoking them |
 | Files | None | Reference files that do not belong to any task and that all members can read and update |
 | Lore | None | Lore entries accumulated by members and task manuals |
 | Monitor | None | Account usage, machines, AI sessions |
@@ -362,7 +363,7 @@ Comparison links that members give you start with `/diff?`. Opening one shows th
 - The heading of each side shows where that side's content comes from: "Revision #N" is a version from the version history; "Default content" is the content that ships with the system; "Current saved content (read … — changes over time)" means that side is the content as it was when read, and it may be different when you open it again later.
 - Click a heading to view that side's original on its own, and press "Back to comparison" to return.
 - When the item on one side has been deleted, the screen says "One side of this comparison is no longer there".
-- By default, you must be signed in to view a comparison link. A link copied with "Copy external link" opens without signing in, never expires, and cannot be revoked on its own. For how to make external links stop working, see "Signing keys" in [Protect your studio](security.md).
+- By default, you must be signed in to view a comparison link. To show it to someone without an account, use the link button at the top of the page to make a share link (see "Sharing" below).
 
 ## Opening a task or reply card by URL
 
@@ -547,6 +548,34 @@ Files in "Files" do not belong to any task, and every member can read and update
 A card a member opens when it needs a value that is not in the list. What you type in the input box is masked by default; press the eye icon to show it. After you submit, it is never shown again, and only the member that opened the card can retrieve it. When the card is collapsed, it shows answered or expired like other reply cards; when expanded, it shows "Provided", "Retrieved" or "No longer valid". You can also reply with a message in the reply box below the card; once you reply, the card is closed.
 
 For how members retrieve secrets, see "How members fetch secrets" in [Architecture and how it works](architecture.md). For how to add secrets and hand them to members, see [Give members your account keys (secrets)](secrets.md).
+
+## Sharing
+
+A share link lets someone without an account open one file or one comparison page without signing in.
+
+**Making a share link**
+
+The link button in the file viewer's title bar, and at the top of a comparison page, opens the share menu (a bottom sheet on a phone):
+
+- **Expiry** — a number (7 by default) and a unit: hours, days or Forever. Choosing Forever disables the number, and the preview shows ∞. Next to it is the time the link will expire. The longest expiry is 365 days; if the number is not allowed, the menu says why.
+- **Create link** — the link button at the end of the row makes a new link and copies it. The button briefly turns into ✓ ("Link copied"). The link is shown only this once; nobody can see it again later, not even in the lists below.
+- **Issued** — the links to this file or comparison that still work, newest first: expiry (∞ for Forever), who created it, and the revoke button. Hover over a row to see when it was created.
+
+Every press makes a separate link with its own expiry, and each one can be revoked on its own. Members can make share links too; when a member does not choose an expiry, the link stops working after 7 days.
+
+**Sharing tab**
+
+Lists every share link that still works, newest first: type (file or comparison), name, who created it, and expiry. The assistant can list and revoke them too.
+
+**Revoking**
+
+The revoke button (in the share menu or on the Sharing tab) asks first. After you confirm, the link stops working at once and leaves the list; this cannot be undone. Only that link is affected: other links to the same file or comparison, sign-ins, and machines keep working. To share again, make a new link.
+
+**Opening a link that no longer works**
+
+A link that has expired, been revoked, or never existed shows "This share link is no longer valid".
+
+The web pages, PDFs and videos you open in the file viewer use links of their own that stop working after one hour. They are not share links: they are not listed and cannot be revoked.
 
 ## Monitor
 

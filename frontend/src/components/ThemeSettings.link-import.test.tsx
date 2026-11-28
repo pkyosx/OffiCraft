@@ -274,7 +274,7 @@ describe("ThemeSettings · import from a link", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("warns that anyone holding a share link can read the theme, and that the link never expires and cannot be withdrawn", async () => {
+  it("warns that anyone holding a share link can read the theme until the link expires or is revoked", async () => {
     // The person pasting a link here is the one who can still decide whether
     // the theme should be readable by anyone holding the URL, so this warning
     // has to be on THIS screen — it is worth nothing in a doc they will not
@@ -284,7 +284,7 @@ describe("ThemeSettings · import from a link", () => {
     fireEvent.click(utils.getByText(p.themeImport));
     const note = utils.container.querySelector(".ts-link-note");
     expect(note?.textContent).toBe(
-      "拿到這條連結的人都能看到這套主題（包含裡面的私人圖片）。連結不會過期，也無法單獨收回。"
+      "拿到這條連結的人都能看到這套主題（包含裡面的私人圖片），直到連結到期或被收回。"
     );
   });
 });

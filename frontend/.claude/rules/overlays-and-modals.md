@@ -39,7 +39,9 @@ paths:
   - "src/lib/contentKind.ts"
   - "src/lib/formatContent.ts"
   - "src/hooks/useVersionPayload.ts"
-  - "src/hooks/useShareHref.ts"
+  - "src/hooks/usePreviewHref.ts"
+  - "src/components/ShareLinkMenu*"
+  - "src/lib/shareLinkExpiry.ts"
   - "src/components/TaskArtifactVersions*"
   - "src/components/task-artifact-versions.css"
   - "src/lib/escapeLayers.ts"
@@ -57,13 +59,13 @@ paths:
 
 「這個檔案是什麼」只有一個答案：`lib/contentKind.ts` 的 `contentKindOf(mime, filename)`（markdown、json、xml、yaml、csv、text、html、image、video、pdf、binary）。mime 先說話；mime 是空的、`application/octet-stream` 或 `text/plain`（server 把 .yaml/.py/.sql 存成 text/plain）時才看副檔名，副檔名清單是封閉的。HTML 只認 served mime 是 `text/html`，因為頁面是讓 frame 去載 serve route。`isInlineDisplayableMime` 不併進來：它是 server `isPreviewableAttachment` 的鏡像，回答的是另一個問題。
 
-畫 body 的只有 `ContentView`：markdown 渲染（`.md-preview__md.doc-md`）、JSON 縮排（原生 JSON.parse）、XML 縮排（原生 DOMParser，混排內容與命名空間照寫）、YAML 與其他文字照原樣、CSV 排成表格（RFC 4180；解析失敗或超過 `CSV_MAX_ROWS`／`CSV_MAX_CHARS` 時照原樣加一行說明）、HTML 是 sandbox iframe 載分享連結、PDF 是不帶 sandbox 屬性的 iframe 載分享連結（Chromium 不在 sandbox frame 裡畫 PDF；擋 script 的是 server 對非 HTML 回應一律加的 CSP sandbox）、影片是原生控制列的 `<video>` 載 mint 出來的 `?sig=` 分享連結（不用 `?token=` 位址：投放與 AirPlay 會把媒體位址交給另一台裝置），下方一排播放速度 0.5×／1×／1.25×／1.5×／2×，換來源時回到 1×、在瀏覽器原生控制列改速度時按鈕跟著變，瀏覽器播不了時改顯示宿主的 `unavailable`、overlay 不把影片 bytes 當文字讀（serve route 對每個附件都接 Range 回 206，Safari 播影片與拖動進度條靠它）、其他檔指向「在新頁面顯示」。不加任何語法上色或解析依賴。用它的面：全幅閱覽 overlay、檔案庫檔案頁、兩個版本閱讀器（經 `VersionContent`）、DocumentHistoryModal 的內容分頁、DocCard 閱讀模式與唯讀上半、任務手冊 SOP、Insight 卡（後三者傳 `padded` 保留 `.doc-md` 自己的 padding）。外殼（下載、分享、註解、縮放、pager、Esc）留在各自的面。class 名沿用 `md-preview__` 前綴，由 md-preview.css 擁有、ContentView 自己 import。
+畫 body 的只有 `ContentView`：markdown 渲染（`.md-preview__md.doc-md`）、JSON 縮排（原生 JSON.parse）、XML 縮排（原生 DOMParser，混排內容與命名空間照寫）、YAML 與其他文字照原樣、CSV 排成表格（RFC 4180；解析失敗或超過 `CSV_MAX_ROWS`／`CSV_MAX_CHARS` 時照原樣加一行說明）、HTML 是 sandbox iframe 載預覽連結、PDF 是不帶 sandbox 屬性的 iframe 載預覽連結（Chromium 不在 sandbox frame 裡畫 PDF；擋 script 的是 server 對非 HTML 回應一律加的 CSP sandbox）、影片是原生控制列的 `<video>` 載 mint 出來的預覽連結（不用 `?token=` 位址：投放與 AirPlay 會把媒體位址交給另一台裝置），下方一排播放速度 0.5×／1×／1.25×／1.5×／2×，換來源時回到 1×、在瀏覽器原生控制列改速度時按鈕跟著變，瀏覽器播不了時改顯示宿主的 `unavailable`、overlay 不把影片 bytes 當文字讀（serve route 對每個附件都接 Range 回 206，Safari 播影片與拖動進度條靠它）、其他檔指向「在新頁面顯示」。不加任何語法上色或解析依賴。用它的面：全幅閱覽 overlay、檔案庫檔案頁、兩個版本閱讀器（經 `VersionContent`）、DocumentHistoryModal 的內容分頁、DocCard 閱讀模式與唯讀上半、任務手冊 SOP、Insight 卡（後三者傳 `padded` 保留 `.doc-md` 自己的 padding）。外殼（下載、分享、註解、縮放、pager、Esc）留在各自的面。class 名沿用 `md-preview__` 前綴，由 md-preview.css 擁有、ContentView 自己 import。
 
-🔴 frame 的位址永遠是 mint 出來的 `?sig=` 分享連結（`hooks/useShareHref.ts`），不是帶 `?token=` 的 `authedAttachmentUrl`——後者會把 owner 的 token 放進 agent 寫的頁面看得到的地方。PDF 也不用 token 位址嵌入。
+🔴 frame 的位址永遠是 mint 出來的 1 小時預覽連結（`?sig=&exp=`，`hooks/usePreviewHref.ts` → `GET /api/chat/attachments/{id}/preview-link`），不是帶 `?token=` 的 `authedAttachmentUrl`——後者會把 owner 的 token 放進 agent 寫的頁面看得到的地方。PDF 也不用 token 位址嵌入。預覽連結不是分享連結：不進 `share_link` 表、不列在清單、不能收回，否則每開一次預覽清單就多一列。
 
 ## 全幅閱覽
 
-MarkdownPreviewOverlay 是唯一的全幅面，props 是互斥的 url+attachmentId、source、imageSrc 或 diffParams（diffParams 是一份比較，由 /diff 網址的兩個位址指名）。url 自己 fetch，保留下載與以 att- blob id mint 的分享連結；text/html 例外，不 fetch 內容，而是把 mint 到的分享連結（`?sig=`）放進 body 裡的 iframe（`referrerpolicy="no-referrer"`），iframe 的 sandbox 與 server 對 sig-only HTML 加的 CSP sandbox 都只給 `allow-scripts allow-popups allow-popups-to-escape-sandbox`——兩者取交集，CSP 少了 popups 頁面裡的連結就開不了新分頁；不給 allow-same-origin，否則 agent 寫的 script 會跑在 studio 的 origin、拿得到 owner 存的 token；連結還在 mint 時是載入中，mint 失敗是「無法預覽」；source 是聊天本文，不 fetch、不可下載或分享；imageSrc 是尚未上傳的圖片 bytes，只能下載。
+MarkdownPreviewOverlay 是唯一的全幅面，props 是互斥的 url+attachmentId、source、imageSrc 或 diffParams（diffParams 是一份比較，由 /diff 網址的兩個位址指名）。url 自己 fetch，保留下載與以 att- blob id 開的分享選單（`ShareLinkMenu`）；text/html 例外，不 fetch 內容，而是把 mint 到的預覽連結放進 body 裡的 iframe（`referrerpolicy="no-referrer"`），iframe 的 sandbox 與 server 對「網址只帶它自己那一份憑證」的 HTML（`?link=`、`?sig=` 或 `?sig=&exp=`）加的 CSP sandbox 都只給 `allow-scripts allow-popups allow-popups-to-escape-sandbox`——兩者取交集，CSP 少了 popups 頁面裡的連結就開不了新分頁；不給 allow-same-origin，否則 agent 寫的 script 會跑在 studio 的 origin、拿得到 owner 存的 token；連結還在 mint 時是載入中，mint 失敗是「無法預覽」；source 是聊天本文，不 fetch、不可下載或分享；imageSrc 是尚未上傳的圖片 bytes，只能下載。
 
 分頁（pager）是 optional，而且「下一張是誰」永遠由呼叫端回答，overlay 自己不猜：它只收到 index、total 與 onGo，換到哪一張是呼叫端重新 render 的結果。呼叫端要翻的那份清單，就是使用者當下看得見的那一份 —— 例如相簿面板翻的是套完 tab 與上傳者篩選後的結果，附件列翻的是那一列的完整顯示順序（圖片與下載列一起，因為畫面上的計數要對得上使用者數得出來的東西）。清單只有一項時不要傳 pager：傳一個 1/1 會畫出兩顆永遠按不動的控制項，還會白掛一組方向鍵監聽。⚠️ 相簿面板今天還沒有照這一句做（它無條件傳 pager），所以**不要拿它當這一句的參考實作**；那是 T-123 記下來、還沒有人去修的落差，不是這一句寫錯了。方向鍵只在圖片模式生效，文字內容的方向鍵留給捲動，兩顆 chevron 則兩種模式都能翻。
 
@@ -114,15 +116,15 @@ token 標亮只在兩側有共同非空白 token 時做，每側有上限；顏�
 
 ## 比較的對外連結
 
-一份比較有兩種網址：沒有簽章的內部連結要登入才打得開，帶 `?sig=` 的對外連結誰都打得開。簽章只由 server 現鑄（`GET /api/diff/share-link`），回的是 server-relative path，由瀏覽器補 origin——跟附件分享連結同一套 `lib/shareLink.ts`。呼叫端手上原本的 `sig` 一律不回送：簽章是這個呼叫的產出，不是輸入。
+一份比較有兩種網址：不帶憑證的內部連結要登入才打得開，帶 `?link=` 的對外連結（分享連結）誰都打得開，直到它到期或被收回。分享連結只由 server 現鑄（`POST /api/diff/share-link`，body 帶 `expires_ts`），每按一次就是一條新連結；回的 `url` 是 server-relative path，只出現這一次，由瀏覽器補 origin——跟附件分享連結同一套 `lib/shareLink.ts`。呼叫端手上原本的 `link` 一律不回送：憑證是這個呼叫的產出，不是輸入。改版前發出的 `?sig=` 連結仍由 server 判斷能不能開（`lib/diffLink.ts` 照樣把它當帶憑證的網址）。
 
-複製這條連結的控制項是 `DiffShareLinkButton`，圖示、沒有可見文字，三種狀態三個圖示；成功才說成功，鑄造或剪貼簿失敗要畫成看得出來的失敗，不可以退回閒置圖示。
+產生這條連結的控制項是 `DiffShareLinkButton`，它只是把比較的兩個位址交給 `ShareLinkMenu`：鏈結圖示打開選單（桌面浮動、手機底部面板，沿用 `ReplySnoozeMenu` 的外殼），第一行選有效期（數字＋小時／天／永久，預設 7 天，最長 365 天；選永久時數字欄停用，預覽顯示 ∞，算法在 `lib/shareLinkExpiry.ts`），按鈕產生並複製；下半「已發出」列出這個對象還有效的連結，每列可收回（先確認）。成功才說成功，鑄造或剪貼簿失敗要畫成看得出來的失敗，不可以退回閒置圖示。
 
-**這個控制項只畫在「確定有 session」的地方**，因為 mint route 跟其他 route 一樣要授權：studio 裡的 modal 是結構性的（`DiffModalHost` 在 AuthGate 內，獨立頁不掛這個 overlay）；獨立頁以 `params.sig === undefined` 當閘——main.tsx 把帶簽章的網址掛在 AuthGate 之前，那位讀者可能根本沒有帳號，不能給他一個按了會失敗、又能重鑄連結的按鈕。
+**這個控制項只畫在「確定有 session」的地方**，因為 mint、清單、收回的 route 都要授權：studio 裡的 modal 是結構性的（`DiffModalHost` 在 AuthGate 內，獨立頁不掛這個 overlay）；獨立頁以 `carriesShareCredential(params)` 為假當閘——main.tsx 把帶憑證的網址掛在 AuthGate 之前，那位讀者可能根本沒有帳號，不能給他一個按了會失敗、又能重鑄連結的按鈕。分享連結失效時 `/api/diff` 回 410，畫面顯示「這個分享連結已失效」。
 
 ## 產物版本閱讀器
 
-TaskArtifactVersionsModal 是任務產物「被換過幾次、換掉的是什麼」的唯一讀面；內容分頁經 `VersionContent` 走 ContentView（md 渲染、JSON/XML 縮排、CSV 表格、HTML 以那一版自己的分享連結開 frame），讀取在 `hooks/useVersionPayload.ts`，檔案庫的版本紀錄共用同一支，形狀沿用 DocumentHistoryModal（左版本清單、右內容／差異），由產物列在 versionCount > 1 時的入口開啟。它 portal 到 document.body，所以產物 popover 的 click-outside 述詞要認得它的 root，跟 .md-preview 同一格。
+TaskArtifactVersionsModal 是任務產物「被換過幾次、換掉的是什麼」的唯一讀面；內容分頁經 `VersionContent` 走 ContentView（md 渲染、JSON/XML 縮排、CSV 表格、HTML 以那一版自己的預覽連結開 frame），讀取在 `hooks/useVersionPayload.ts`，檔案庫的版本紀錄共用同一支，形狀沿用 DocumentHistoryModal（左版本清單、右內容／差異），由產物列在 versionCount > 1 時的入口開啟。它 portal 到 document.body，所以產物 popover 的 click-outside 述詞要認得它的 root，跟 .md-preview 同一格。
 
 「目前版本」一律在開啟時向 server 讀（listTaskArtifacts——T-92 之後 getTask 只回 artifact_count，一列都不回，拿不到版本讀面要的 kind／url／mime），不得改讀 popover 手上的 SSE 快取——差異說的話必須等於伺服器現在的狀態，這條與文件閱讀器同一條判準。server 說產物已不在任務上就照實講，不拿手上最後知道的那份當現況。
 

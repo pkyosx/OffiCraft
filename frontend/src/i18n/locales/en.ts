@@ -1220,7 +1220,7 @@ export const en: Dict = {
     themeImportLinkWorking: "Fetching…",
     themeImportLinkFailed: "Could not fetch that link",
     themeImportLinkShareNote:
-      "Anyone who has this link can see the theme, including any private images inside it. The link never expires and cannot be withdrawn on its own.",
+      "Anyone who has this link can see the theme, including any private images inside it, until the link expires or is revoked.",
     themeImportDup: "This custom theme already exists",
     themeImportSeasonalId: "This id is reserved for a built-in seasonal theme. Change the theme's id and import again.",
     themeImportReadFailed: "Could not read that file",

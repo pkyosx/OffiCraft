@@ -69,7 +69,7 @@
 //
 // THE CONTENT PANE IS ContentView, the same body every other file surface
 // draws: a markdown report is read rendered, JSON/XML indented, a CSV as a
-// table, an HTML page in the sandboxed frame at its minted share link. The
+// table, an HTML page in the sandboxed frame at its minted preview link. The
 // 差異 pane stays the raw-text DiffView.
 
 import { useEffect, useMemo, useRef, useState } from "react";

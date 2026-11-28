@@ -22,10 +22,10 @@ From top to bottom:
 
 - **Current version** and **Update settings** (Receive beta versions, Automatic updates, Update check interval, Let the assistant tell me about new-version features) — For checking for updates, upgrading, and the purpose and default of each field, see "Advanced: upgrade settings" in [Install, upgrade, and uninstall](install.md).
 - **Backup health** — Whether scheduled backups keep producing restore points: "Backups are healthy", "Backups are failing", "Cannot tell". The card lists the latest scheduled backup, how long the failure has lasted, the freshness window, and the server diagnostic. "Cannot tell" does not mean there is no problem. For what each status means and how backup and restore work, see "Backup and restore" in [Troubleshooting and FAQ](troubleshooting.md).
-- **Signing keys** — The keys the server uses to issue login credentials and share links, at the bottom of this page. Login credentials for the console, members, and machines, and the links made by "Copy share link" (for files) and "Copy external link" (for comparisons), are all signed with a signing key. For more, see "Signing keys" in [Protect your studio](security.md).
+- **Signing keys** — The keys the server uses to issue login credentials, at the bottom of this page. Login credentials for the console, members, and machines are all signed with a signing key. Share links do not depend on it: each one stops working when it expires or is revoked on the "Sharing" tab. For more, see "Signing keys" in [Protect your studio](security.md).
   - The card lists how many keys there are now: the one marked "In use" issues new credentials; one marked "Old key (still valid)" no longer issues any, but credentials and links signed with it remain valid.
   - "Create a new key": the new key takes over signing immediately. Nobody who is logged in is logged out, and no restart is needed. After that, every online machine automatically switches to credentials signed with the new key; offline machines switch once they come online.
-  - "Remove": there is no undo, and it takes effect immediately. Every login credential signed with this key stops working, and console tabs using one must log in again; every share link made with this key stops working, and people holding the links are not notified; machines that have not yet switched to the new key disconnect immediately.
+  - "Remove": there is no undo, and it takes effect immediately. Every login credential signed with this key stops working, and console tabs using one must log in again; share links made before share links had an expiry and signed with this key stop working, and people holding them are not notified (other share links are not affected); machines that have not yet switched to the new key disconnect immediately.
 
 ## Global context
 
@@ -214,7 +214,7 @@ When you add a theme, the system makes a copy based on Office · Dark (no backgr
 - **Fonts** — "Body font" and "Title font" are each picked from a built-in list of safe fonts (including Chinese fonts such as Kaiti, Heiti, Songti, and rounded fonts); choose "Default (theme font)" to keep the original font.
 - **Avatars** — Staff avatar, Outsource avatar, CEO avatar, Assistant avatar; one image can be uploaded for each (PNG, JPEG, WEBP, max 64 KB).
 - **Studio logo** — The logo at the top left of the top bar (PNG, JPEG, WEBP, max 64 KB).
-- **Navigation icons** — Icons for the seven tabs Office, Ask, Tasks, Secrets, Files, Lore, and Monitor; one image can be uploaded for each (PNG, JPEG, WEBP, max 64 KB). Older theme files may still carry a User guide icon; they import as usual, but that icon is not shown anywhere, and it is removed without notice when you press Save in the theme editor.
+- **Navigation icons** — Icons for the eight tabs Office, Ask, Tasks, Secrets, Sharing, Files, Lore, and Monitor; one image can be uploaded for each (PNG, JPEG, WEBP, max 64 KB). Older theme files may still carry a User guide icon; they import as usual, but that icon is not shown anywhere, and it is removed without notice when you press Save in the theme editor.
 - **Outer canvas** — An image laid over the base color (PNG, JPEG, WEBP, max 1 MB), with three layouts:
   - **Tile** — Repeats to fill the frame on both sides of the content column.
   - **Sides** — Places one copy of the same image on each side, without mirroring.
