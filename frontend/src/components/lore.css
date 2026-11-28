@@ -663,6 +663,9 @@ button.lore-section__name--link:hover {
   opacity: 0.55;
 }
 
+.lore-row[role="button"] {
+  cursor: pointer;
+}
 /* Folded: one line, no strike-through and no coloured edge (owner
  * c-1301314e3efa); a dropped entry greys only its title, as on the opened card. */
 .lore-row.lore-row--folded {
@@ -671,7 +674,6 @@ button.lore-section__name--link:hover {
   gap: 8px;
   padding-block: 10px;
   min-width: 0;
-  cursor: pointer;
 }
 .lore-row--folded .lore-row__id-badge {
   cursor: inherit;
@@ -692,21 +694,7 @@ button.lore-section__name--link:hover {
   justify-content: center;
   color: var(--color-text-muted);
 }
-button.lore-row__fold {
-  margin: 0;
-  padding: 2px;
-  border: none;
-  border-radius: var(--radius-pill);
-  background: none;
-  cursor: pointer;
-}
-button.lore-row__fold:hover {
-  color: var(--color-accent);
-}
-button.lore-row__fold:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-}
+.lore-row__fold--open,
 .lore-row__fold--held {
   width: 20px;
   height: 20px;

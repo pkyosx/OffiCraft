@@ -73,6 +73,7 @@ import { formatAbsolute } from "../lib/dateFormat";
 import { autosizeTextarea } from "../lib/autosize";
 import { registerUnsavedWork } from "../lib/unsavedInput";
 import { enterShouldSend } from "../lib/composerKeys";
+import { isCardToggleClick, isCardToggleKey } from "../lib/cardToggle";
 import {
   formatHash,
   navigateHash,
@@ -1190,10 +1191,10 @@ function LoreView({
   // keeps it dropped keeps it as the reader left it. A highlighted entry opens
   // itself.
   const [openOverride, setOpenOverride] = useState<Map<string, boolean>>(() => new Map());
-  const focusAfterToggle = useRef<{ id: string; open: boolean } | null>(null);
+  const focusAfterToggle = useRef<string | null>(null);
   function setEntryOpen(id: string, open: boolean) {
     if (openOverride.get(id) === open) return;
-    focusAfterToggle.current = { id, open };
+    focusAfterToggle.current = id;
     setOpenOverride((prev) => (prev.get(id) === open ? prev : new Map(prev).set(id, open)));
   }
   useEffect(() => {
@@ -1220,11 +1221,7 @@ function LoreView({
     const f = focusAfterToggle.current;
     if (!f) return;
     focusAfterToggle.current = null;
-    const row = rowElement(scrollRef.current, f.id);
-    const target = f.open
-      ? row?.querySelector<HTMLElement>('[data-testid="lore-collapse"]')
-      : row;
-    target?.focus({ preventScroll: true });
+    rowElement(scrollRef.current, f)?.focus({ preventScroll: true });
   }, [openOverride]);
 
   // ── render helpers ──────────────────────────────────────────────────────
@@ -1792,8 +1789,9 @@ function loreTypeLabel(t: ReturnType<typeof useI18n>["t"], lt: LoreType): string
   }
 }
 
-/** ONE 傳承 row, open: the body in full, and a chevron that folds it back to
- * its LoreFoldedRow. */
+/** ONE 傳承 row, open: the body in full. A click on the card (not on one of
+ * its controls, not ending a text selection), Enter or Space folds it back to
+ * its LoreFoldedRow, as on 任務卡; the chevron only marks that state. */
 function LoreRow({
   entry,
   dimmed,
@@ -1927,8 +1925,22 @@ function LoreRow({
       data-entry-id={entry.id}
       data-dimmed={dimmed ? "true" : "false"}
       data-staged={staged ? "true" : "false"}
-      // Focusable from code only: a highlighted entry lands here.
-      tabIndex={-1}
+      {...(collapse
+        ? {
+            role: "button",
+            tabIndex: 0,
+            "aria-expanded": true,
+            "aria-label": t.lore.collapseEntry,
+            // The message box's padding around its textarea is still the box.
+            onClick: (e: React.MouseEvent<HTMLElement>) => {
+              if (isCardToggleClick(e, ".lore-row__message")) collapse();
+            },
+            onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
+              if (isCardToggleKey(e)) collapse();
+            },
+          }
+        : // Focusable from code only: a highlighted entry lands here.
+          { tabIndex: -1 })}
     >
       <div className="lore-row__head">
         <div className="lore-row__badges">
@@ -2199,17 +2211,14 @@ function LoreRow({
             <span>{t.lore.actionEdit}</span>
           </button>
           {collapse ? (
-            <button
-              type="button"
+            <span
               className="lore-row__fold lore-row__fold--open"
-              data-testid="lore-collapse"
-              aria-expanded={true}
-              aria-label={t.lore.collapseEntry}
+              data-testid="lore-fold-mark"
+              aria-hidden="true"
               title={t.lore.collapseEntry}
-              onClick={collapse}
             >
               <ChevronRightIcon size={16} />
-            </button>
+            </span>
           ) : (
             // Holds the chevron's width: staging a change must not rewrap the
             // tags and change the card's height.
@@ -2277,9 +2286,9 @@ function LoreRow({
 }
 
 /** An entry, folded: id, title and one tag (讀不到 on a dropped entry, its
- * type otherwise) on one line. Any click, Enter or Space opens the full card in
- * its place. The id and tag are drawn, not buttons, so the whole row stays one
- * control. */
+ * type otherwise) on one line. A click (not one ending a text selection), Enter
+ * or Space opens the full card in its place. The id and tag are drawn, not
+ * buttons, so the whole row stays one control. */
 function LoreFoldedRow({
   entry,
   dropped,
@@ -2304,12 +2313,11 @@ function LoreFoldedRow({
       role="button"
       tabIndex={0}
       aria-expanded={false}
-      onClick={onExpand}
+      onClick={(e) => {
+        if (isCardToggleClick(e)) onExpand();
+      }}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onExpand();
-        }
+        if (isCardToggleKey(e)) onExpand();
       }}
     >
       <span className="lore-row__id-badge" data-testid="lore-entry-id">

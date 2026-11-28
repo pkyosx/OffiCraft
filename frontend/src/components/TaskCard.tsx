@@ -74,6 +74,7 @@ import { api } from "../api";
 // different sentences; see that function.
 import { isHttpStatus } from "../api/errors";
 import { formatDuration } from "../lib/duration";
+import { isCardToggleClick, isCardToggleKey } from "../lib/cardToggle";
 import { copyText } from "../lib/clipboard";
 import { resolveStepBadge } from "../lib/stepBadge";
 import { autosizeTextarea } from "../lib/autosize";
@@ -554,30 +555,13 @@ export function TaskCard({
   const [stepScrollPending, setStepScrollPending] = useState(false);
   const rootRef = useRef<HTMLElement>(null);
 
-  // Whole-card toggle with an interaction filter: clicks that land on (or
-  // inside) any interactive element — the 狀態/優先權 dropdowns, the meta chips (chat /
-  // type-settings / 識別鍵 links), the message composer (paperclip / textarea
-  // / 送出), embedded reply-card controls, attachment thumbnails
-  // (img[role=button] → Lightbox, T-5e8a), markdown links, modals — must do
-  // their own job, never flip the card. closest() covers them all without
-  // sprinkling stopPropagation over every child. The [role='button'] entry
-  // ALSO matches the card itself (the article carries role=button), so a hit
-  // only vetoes the toggle when it is NOT the card — otherwise every card-body
-  // click would be swallowed (review fix on c891881). An in-progress text
-  // selection (a drag that ends on the card) is not a toggle intent either.
+  // Whole-card toggle with an interaction filter (isCardToggleClick): clicks
+  // that land on any interactive element — the 狀態/優先權 dropdowns, the meta
+  // chips (chat / type-settings / 識別鍵 links), the message composer, embedded
+  // reply-card controls, attachment thumbnails (img[role=button] → Lightbox,
+  // T-5e8a), markdown links, modals — do their own job, never flip the card.
   function onCardToggleClick(e: React.MouseEvent<HTMLElement>) {
-    const target = e.target as HTMLElement;
-    const hit = target.closest(
-      "button, a, textarea, input, select, [role='button'], [role='menu'], [role='dialog'], [role='listbox']"
-    );
-    if (hit && hit !== e.currentTarget) return;
-    // A non-collapsed selection at click time means the click ended a drag-
-    // selection (a plain click collapses any prior selection first) — reading
-    // is not a toggle intent. isCollapsed over toString(): jsdom implements
-    // the former faithfully, and an all-whitespace drag still counts.
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0 && !sel.isCollapsed) return;
-    setExpanded((v) => !v);
+    if (isCardToggleClick(e)) setExpanded((v) => !v);
   }
 
   // 🔴 T-6630 ③ — collapsing the WHOLE task must leave you looking at that task.
@@ -620,11 +604,7 @@ export function TaskCard({
   // Only keys on the card ITSELF toggle — an Enter bubbling out of the
   // message textarea (send) or any nested control must never flip the card.
   function onCardToggleKeyDown(e: React.KeyboardEvent<HTMLElement>) {
-    if (e.target !== e.currentTarget) return;
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      setExpanded((v) => !v);
-    }
+    if (isCardToggleKey(e)) setExpanded((v) => !v);
   }
 
   // ── heavy detail (steps + description): the list is the LIGHT projection, so

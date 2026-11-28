@@ -1349,7 +1349,7 @@ describe("RepliesPage", () => {
     ).toHaveLength(2);
   });
 
-  it("when 近期已回覆 cannot load it shows only the error; an expiry read from the server stays where it was opened until the label changes, and under 近期已回覆 after 24h", async () => {
+  it("when 近期已回覆 cannot load it shows only the error, and an empty 稍後再看 still says it is empty; an expiry read from the server stays where it was opened until the label changes, and under 近期已回覆 after 24h", async () => {
     const staleTs = Date.now() / 1000 - 25 * 3600;
     const serverCard = mkCard({ id: "rc-expired", body: "寄出後無法撤回", createdTs: staleTs });
     __injectMockReplyCard(serverCard);
@@ -1363,6 +1363,9 @@ describe("RepliesPage", () => {
       document.querySelector('[data-testid="replies-empty"]'),
       "no 「沒有已回覆」 claim about a list that never loaded"
     ).toBeNull();
+    await selectRepliesTab("snoozed");
+    expect(getByTestId("replies-empty").textContent).toBe("沒有稍後再看的請示卡");
+    expect(document.querySelector('[data-testid="handled-load-error"]')).toBeNull();
     await selectRepliesTab("waiting");
     const [card] = await findAllByTestId("waiting-card");
 

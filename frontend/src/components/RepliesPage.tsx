@@ -146,6 +146,7 @@ import {
 import { formatDurationShort } from "../lib/duration";
 import { snoozeBackShort } from "../lib/replySnooze";
 import { formatAbsolute } from "../lib/dateFormat";
+import { isCardToggleClick, isCardToggleKey } from "../lib/cardToggle";
 import "./office.css"; // chat composer classes the ReplyComposer reuses, AND
 // the rail's `.outsource-row__*` / `.current-task-title` rules the asker's
 // current-task line is drawn with (T-196) — removing this import as an
@@ -740,34 +741,18 @@ export function RepliesPage({
     });
   }
 
-  // Whole-card toggle with an interaction filter, copied from `TaskCard`
-  // (`onCardToggleClick` there): a click that lands on any interactive thing
-  // inside the card — 跳到原訊息 / 標為過期, the option chips, the composer and its
-  // paperclip, an attachment thumbnail (img[role=button] → Lightbox), a markdown
-  // link, a modal — must do its own job and never flip the card. `closest()`
-  // covers them all without sprinkling stopPropagation over every child; the
-  // `hit !== currentTarget` guard is there because the article itself carries
-  // role="button" and would otherwise veto every click on its own body. A click
-  // that ended a text selection is not a toggle intent either.
+  // Whole-card toggle with the same interaction filter as `TaskCard`
+  // (isCardToggleClick): 跳到原訊息 / 標為過期, the option chips, the composer and
+  // its paperclip, an attachment thumbnail, a markdown link, a modal do their
+  // own job and never flip the card.
   function onCardToggleClick(e: React.MouseEvent<HTMLElement>, id: string) {
-    const target = e.target as HTMLElement;
-    const hit = target.closest(
-      "button, a, textarea, input, select, [role='button'], [role='menu'], [role='dialog'], .reply-composer"
-    );
-    if (hit && hit !== e.currentTarget) return;
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0 && !sel.isCollapsed) return;
-    toggleCard(id);
+    if (isCardToggleClick(e, ".reply-composer")) toggleCard(id);
   }
 
   /** Keyboard operability (repo convention for clickable surfaces). Only keys on
    * the card ITSELF toggle — an Enter bubbling out of the composer must not. */
   function onCardToggleKeyDown(e: React.KeyboardEvent<HTMLElement>, id: string) {
-    if (e.target !== e.currentTarget) return;
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      toggleCard(id);
-    }
+    if (isCardToggleKey(e)) toggleCard(id);
   }
 
   // The row's own version stamp. It is what decides that a card ALREADY READ is

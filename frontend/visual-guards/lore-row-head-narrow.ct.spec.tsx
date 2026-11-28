@@ -106,8 +106,8 @@ async function measure(page: any): Promise<{
           head: r(row.querySelector(".lore-row__head")),
           row: r(row),
           actions: r(row.querySelector(".lore-row__actions")),
-          actionButtons: [...row.querySelectorAll(".lore-row__actions button")].map((b) => ({
-            text: (b.textContent ?? "").trim() || b.getAttribute("aria-label") || "",
+          actionButtons: [...row.querySelectorAll(".lore-row__actions > *")].map((b) => ({
+            text: (b.textContent ?? "").trim() || b.getAttribute("title") || "",
             cls: b.className.toString(),
             svg: b.querySelector("svg") !== null,
             height: b.getBoundingClientRect().height,
@@ -219,9 +219,9 @@ function assertHeadContained(width: number, row: RowGeom) {
   if (input) expect.soft(input.box.right - input.box.left, `${tag} message input too narrow`).toBeGreaterThanOrEqual(150);
   const send = row.composerItems.find((c) => c.id === "lore-msg-send");
   if (send) expect.soft(send.box.bottom - send.box.top, `${tag} 送出 wraps`).toBeLessThanOrEqual(40);
-  // Open: the body shows in full and the row itself is not a toggle.
+  // Open: the body shows in full and the card itself is the fold toggle.
   expect.soft(row.bodyOverflows, `${tag} body missing or clipped`).toBe(false);
-  expect.soft(row.toggle, `${tag} row is a toggle`).toBe(false);
+  expect.soft(row.toggle, `${tag} card is not the fold toggle`).toBe(true);
   expect.soft(row.actions, `${tag} actions missing`).not.toBeNull();
   // 編輯 at every width, the app's own edit button: pencil + label, and the
   // 30px .doc-btn box (proves settings.css styles it, not a bare <button>);
@@ -472,7 +472,7 @@ for (const width of [390, 1440]) {
     const id = rows[0].id;
     await cmp.locator(`[data-testid="lore-row"][data-entry-id="${id}"]`).click();
     const opened = cmp.locator(`[data-testid="lore-row"][data-entry-id="${id}"]`);
-    await expect(opened.locator('[data-testid="lore-collapse"]')).toBeVisible();
+    await expect(opened.locator('[data-testid="lore-fold-mark"]')).toBeVisible();
     const g = await measure(page);
     const row = g.rows.find((r) => r.id === id)!;
     expect.soft(row.folded, `[${width}px] ${id} still folded`).toBe(false);
@@ -482,7 +482,7 @@ for (const width of [390, 1440]) {
     assertNoHScroll(width, g);
   });
 
-  test(`a read card's 收合 folds it to id, title, type and chevron on one line inside the card, the cards below move up, and a click opens it again @${width}px`, async ({ mount, page }) => {
+  test(`a click on a read card's body folds it to id, title, type and chevron on one line inside the card, the cards below move up, and a click opens it again @${width}px`, async ({ mount, page }) => {
     const cmp = await mountAt(mount, page, width, false, MIRA);
     const open = cmp.locator('[data-testid="lore-row"]:not([data-folded]):not([data-dimmed="true"])');
     const card = open.first();
@@ -498,7 +498,7 @@ for (const width of [390, 1440]) {
       },
       [`[data-testid="lore-row"][data-entry-id="${id}"]`],
     );
-    await row.locator('[data-testid="lore-collapse"]').click();
+    await row.locator('[data-testid="lore-body"]').click();
     await expect(row).toHaveAttribute("data-folded", "true");
     const f = await page.evaluate(
       ([rowSel]) => {
@@ -538,7 +538,7 @@ for (const width of [390, 1440]) {
 
     await row.click();
     await expect(row).not.toHaveAttribute("data-folded", "true");
-    await expect(row.locator('[data-testid="lore-collapse"]')).toBeFocused();
+    await expect(row).toBeFocused();
     const g = await measure(page);
     const reopened = g.rows.find((r) => r.id === id)!;
     assertHeadContained(width, reopened);
