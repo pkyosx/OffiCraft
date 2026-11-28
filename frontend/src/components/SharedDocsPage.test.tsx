@@ -127,7 +127,7 @@ function openEditFromPreview(row: HTMLElement) {
 }
 
 function cellTexts(row: HTMLElement): string[] {
-  return Array.from(row.querySelectorAll("td")).map((td) => td.textContent ?? "");
+  return Array.from(row.children).map((cell) => cell.textContent ?? "");
 }
 
 beforeEach(() => {
@@ -145,7 +145,7 @@ afterEach(() => {
 });
 
 describe("SharedDocsPage", () => {
-  it("lists every doc under ID, 檔案, 最後修改 and 操作, the ID cell showing the id then the type, the file block the name and the description under it", async () => {
+  it("lists every doc as its own card in the list, no table: the ID with the type, the name with the description under it, 最後修改, then the actions", async () => {
     const boardId = await api.createSharedDoc({
       kind: "link",
       name: "Board",
@@ -161,12 +161,13 @@ describe("SharedDocsPage", () => {
     const api規格 = row("sd-0c41e97a2b58");
     const review = row("sd-3f9a2c71b0e4");
     const now = Math.floor(Date.now() / 1000);
-    expect(Array.from(container.querySelectorAll("thead th")).map((th) => th.textContent)).toEqual([
-      "ID",
-      "檔案",
-      "最後修改",
-      "操作",
-    ]);
+    expect(container.querySelector("table")).toBeNull();
+    const list = within(container).getByRole("list");
+    expect(Array.from(list.children)).toEqual(rows(container));
+    for (const card of rows(container)) {
+      expect(card.getAttribute("role")).toBe("listitem");
+      expect(card.classList.contains("lore-row")).toBe(true);
+    }
     expect(cellTexts(api規格)).toEqual([
       "#sd-0c41e97a2b58連結",
       "API 規格GitHub 上的 spec/openapi.json，改 wire 前先讀",
@@ -180,7 +181,7 @@ describe("SharedDocsPage", () => {
       "",
     ]);
     const idCell = (id: string) =>
-      Array.from(row(id).querySelector("td")!.querySelectorAll("[data-testid]")).map((el) => el.getAttribute("data-testid"));
+      Array.from(row(id).firstElementChild!.querySelectorAll("[data-testid]")).map((el) => el.getAttribute("data-testid"));
     expect(idCell("sd-3f9a2c71b0e4")).toEqual(["shared-doc-id", "shared-doc-kind-file"]);
     expect(idCell("sd-0c41e97a2b58")).toEqual(["shared-doc-id", "shared-doc-kind-link"]);
     expect(idCell(shotId)).toEqual(["shared-doc-id", "shared-doc-kind-image"]);
@@ -219,7 +220,7 @@ describe("SharedDocsPage", () => {
     ]);
   });
 
-  it("the ID cell's one button copies the id and shows a check", async () => {
+  it("the ID's one button copies the id and shows a check", async () => {
     const { container } = renderPage();
     const [, review] = await waitRows(container, 2);
     const badge = within(review!).getByTestId("shared-doc-id");
@@ -230,7 +231,7 @@ describe("SharedDocsPage", () => {
     await waitFor(() => expect(iconPaths()).toEqual(["M20 6 9 17l-5-5"]));
     expect(badge.textContent).toBe("#sd-3f9a2c71b0e4");
     expect(
-      Array.from(review!.querySelectorAll("td")[0]!.querySelectorAll("button")).map((b) => b.dataset.testid),
+      Array.from(review!.firstElementChild!.querySelectorAll("button")).map((b) => b.dataset.testid),
     ).toEqual(["shared-doc-id"]);
   });
 

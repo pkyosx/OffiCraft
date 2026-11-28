@@ -1,5 +1,5 @@
 // SharedDocsPage — 檔案庫: documents not tied to any task that every member
-// reads by `sd-` id. The list is a table; #shared-docs/<id> opens one document.
+// reads by `sd-` id. The list is one card per document, like 傳承; #shared-docs/<id> opens one document.
 
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useI18n } from "../i18n";
@@ -107,7 +107,7 @@ function KindChip({ doc }: { doc: SharedDocView }) {
   );
 }
 
-/** The 檔案 cell: the name opens the content itself — a link in a new tab,
+/** The card's name block: the name opens the content itself — a link in a new tab,
  * anything stored in the preview overlay — and the pencil after it opens the
  * name/description dialog. */
 function FileBlock({
@@ -712,74 +712,63 @@ function SharedDocList({ actorName }: { actorName: (id: string) => string }) {
       )}
 
       {docs.length > 0 && (
-        <div className="shared-docs__card shared-docs__table-wrap">
-          <table className="shared-docs__table" data-testid="shared-docs-table">
-            <thead>
-              <tr>
-                <th className="shared-docs__col-id">{d.colId}</th>
-                <th className="shared-docs__col-file">{d.colFile}</th>
-                <th className="shared-docs__col-updated">{d.colUpdated}</th>
-                <th className="shared-docs__col-actions">{d.colActions}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {docs.map((doc) => (
-                <tr
-                  key={doc.id}
-                  className="shared-docs__row"
-                  data-testid="shared-doc-row"
-                  data-doc-id={doc.id}
-                >
-                  <td className="shared-docs__col-id">
-                    <span className="shared-docs__id-cell">
-                      <button
-                        type="button"
-                        className="lore-row__id-badge"
-                        data-testid="shared-doc-id"
-                        aria-label={msg.sharedDocCopyId(doc.id)}
-                        title={msg.sharedDocCopyId(doc.id)}
-                        onClick={async () => {
-                          if (await copyText(doc.id)) flash(`id:${doc.id}`);
-                        }}
-                      >
-                        {flashed === `id:${doc.id}` ? <CheckIcon size={13} /> : <LayersIcon size={13} />}#
-                        {doc.id}
-                      </button>
-                      <KindChip doc={doc} />
-                    </span>
-                  </td>
-                  <td className="shared-docs__col-file">
-                    <FileBlock
-                      doc={doc}
-                      onPreview={setPreview}
-                      onEditInfo={(target) => {
-                        setActionError("");
-                        setInfoId(target.id);
-                      }}
-                    />
-                  </td>
-                  <td className="shared-docs__updated">
-                    <UpdatedButton
-                      text={msg.sharedDocUpdated(actorName(doc.updatedBy), formatAbsolute(doc.updatedTs, nowSecs))}
-                      onOpen={() => setHistoryId(doc.id)}
-                    />
-                  </td>
-                  <td className="shared-docs__col-actions">
-                    <RowActions
-                      doc={doc}
-                      isOwner={isOwner}
-                      busy={uploading.includes(doc.id)}
-                      onUpload={() => pick({ mode: "replace", doc })}
-                      onDelete={() => {
-                        setDeleteError("");
-                        setDeleteTarget(doc);
-                      }}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="lore-section__body" role="list" data-testid="shared-docs-list">
+          {docs.map((doc) => (
+            <div
+              key={doc.id}
+              role="listitem"
+              className="lore-row shared-docs__row"
+              data-testid="shared-doc-row"
+              data-doc-id={doc.id}
+            >
+              <div className="shared-docs__col-id">
+                <span className="shared-docs__id-cell">
+                  <button
+                    type="button"
+                    className="lore-row__id-badge"
+                    data-testid="shared-doc-id"
+                    aria-label={msg.sharedDocCopyId(doc.id)}
+                    title={msg.sharedDocCopyId(doc.id)}
+                    onClick={async () => {
+                      if (await copyText(doc.id)) flash(`id:${doc.id}`);
+                    }}
+                  >
+                    {flashed === `id:${doc.id}` ? <CheckIcon size={13} /> : <LayersIcon size={13} />}#
+                    {doc.id}
+                  </button>
+                  <KindChip doc={doc} />
+                </span>
+              </div>
+              <div className="shared-docs__col-file">
+                <FileBlock
+                  doc={doc}
+                  onPreview={setPreview}
+                  onEditInfo={(target) => {
+                    setActionError("");
+                    setInfoId(target.id);
+                  }}
+                />
+              </div>
+              <div className="shared-docs__updated">
+                <UpdatedButton
+                  text={msg.sharedDocUpdated(actorName(doc.updatedBy), formatAbsolute(doc.updatedTs, nowSecs))}
+                  onOpen={() => setHistoryId(doc.id)}
+                />
+              </div>
+              <div className="shared-docs__col-actions">
+                <RowActions
+                  doc={doc}
+                  isOwner={isOwner}
+                  busy={uploading.includes(doc.id)}
+                  onUpload={() => pick({ mode: "replace", doc })}
+                  onDelete={() => {
+                    setDeleteError("");
+                    setDeleteTarget(doc);
+                  }}
+                />
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

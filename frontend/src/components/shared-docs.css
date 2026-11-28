@@ -1,5 +1,5 @@
-/* 檔案庫 page (`.shared-docs*`): the list table, one document's page and the
- * replace dialog's extras. Buttons and fields reuse secrets.css, the id
+/* 檔案庫 page (`.shared-docs*`): the list cards, one document's page and the
+ * replace dialog's extras. Buttons and fields reuse secrets.css, the card and id
  * badge lore.css, the copy-link button office.css, the ✓/✗ inline-edit.css —
  * each importer pulls those sheets itself. Theme tokens only. */
 
@@ -55,48 +55,33 @@
   color: var(--color-text-muted);
 }
 
-/* ── list ── */
-.shared-docs__table-wrap {
-  overflow-x: auto;
-  padding: 4px 8px;
-}
-.shared-docs__table {
-  width: 100%;
-  min-width: 820px;
-  table-layout: fixed;
-  border-collapse: collapse;
+/* ── list: one lore card (.lore-row in .lore-section__body) per document ──
+ * ID, kind and actions, then name, description and 最後修改. Doubled class:
+ * SharedDocDetail pulls this sheet in before lore.css, so a tie would lose to
+ * .lore-row's display: flex. */
+.lore-row.shared-docs__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "id actions"
+    "file file"
+    "updated updated";
+  align-items: center;
+  min-width: 0;
   font-size: 13px;
   color: var(--color-text);
 }
-.shared-docs__table th {
-  padding: 10px 10px;
-  text-align: left;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
-}
-.shared-docs__table td {
-  padding: 6px 10px;
-  vertical-align: middle;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 4%, transparent);
-}
-.shared-docs__table tr:last-child td {
-  border-bottom: none;
-}
-/* Fixed so a copy (✓ swapped for the glyph) never shifts the columns. */
 .shared-docs__col-id {
-  width: 270px;
+  grid-area: id;
+  min-width: 0;
 }
-.shared-docs__col-updated {
-  width: 230px;
+.shared-docs__col-file {
+  grid-area: file;
+  min-width: 0;
 }
-/* Fixed so 編輯 | 上傳新版本 | 永久刪除 line up down the column whatever a
- * row's kind; a member, who has no 永久刪除, sees the same two on every row. */
 .shared-docs__col-actions {
-  width: 132px;
-  text-align: left;
+  grid-area: actions;
+  align-self: start;
 }
 .shared-docs__actions {
   display: inline-flex;
@@ -111,11 +96,11 @@
   color: var(--color-text-muted);
   border-color: var(--color-border);
 }
-.shared-docs__table th.shared-docs__col-actions {
-  text-align: left;
-}
+/* Like the lore card's badge row: a kind chip that does not fit beside the
+ * ID (320px) moves whole to the next line instead of under the actions. */
 .shared-docs__id-cell {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   white-space: nowrap;
@@ -221,6 +206,9 @@
   color: var(--color-accent);
 }
 .shared-docs__updated {
+  grid-area: updated;
+  min-width: 0;
+  font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -241,66 +229,6 @@
 .shared-docs__updated-open:hover {
   color: var(--color-accent);
   text-decoration: underline;
-}
-
-/* Phone: each row is a block of its own, in the lore card's order — ID, kind
- * and actions, then name, description and 最後修改 — instead of a table
- * scrolled sideways to its ID column. */
-@media (max-width: 720px) {
-  .shared-docs__table {
-    display: block;
-    min-width: 0;
-  }
-  .shared-docs__table thead {
-    display: none;
-  }
-  .shared-docs__table tbody {
-    display: block;
-  }
-  .shared-docs__row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "id actions"
-      "file file"
-      "updated updated";
-    align-items: center;
-    column-gap: 10px;
-    row-gap: 6px;
-    padding: 10px 2px;
-    border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 4%, transparent);
-  }
-  .shared-docs__row:last-child {
-    border-bottom: none;
-  }
-  .shared-docs__table td {
-    display: block;
-    width: auto;
-    min-width: 0;
-    padding: 0;
-    border-bottom: none;
-  }
-  .shared-docs__table td.shared-docs__col-file {
-    grid-area: file;
-  }
-  .shared-docs__table td.shared-docs__col-actions {
-    grid-area: actions;
-    align-self: start;
-  }
-  .shared-docs__table td.shared-docs__col-id {
-    grid-area: id;
-  }
-  /* Like the lore card's badge row: a kind chip that does not fit beside the
-   * ID (320px) moves whole to the next line instead of under the actions. */
-  .shared-docs__id-cell {
-    display: flex;
-    flex-wrap: wrap;
-    row-gap: 6px;
-  }
-  .shared-docs__table td.shared-docs__updated {
-    grid-area: updated;
-    font-size: 12px;
-  }
 }
 
 /* ── one document ── */
