@@ -1623,7 +1623,18 @@ describe("TasksPage", () => {
     expect(fields[3].contains(getByTestId("filter-status"))).toBe(true);
     expect(getByTestId("tasks-filter-applied").textContent).toBe("已套用 1 個條件");
 
+    const realCount = api.getTaskPageCount.bind(api);
+    let releaseCount!: () => void;
+    const countGate = new Promise<void>((res) => {
+      releaseCount = res;
+    });
+    vi.spyOn(api, "getTaskPageCount").mockImplementationOnce((q) =>
+      countGate.then(() => realCount(q))
+    );
     toggleFilter("filter-status", "done");
+    await act(async () => {});
+    expect(queryByTestId("tasks-filter-summary")).toBeNull();
+    releaseCount();
     await findByText("收工的");
     await waitFor(() => expect(getByTestId("tasks-filter-summary").textContent).toBe("2 個任務"));
     toggleFilter("filter-type", "adhoc");

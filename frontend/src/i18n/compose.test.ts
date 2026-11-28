@@ -156,6 +156,7 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "taskCountSummary", [3, 0, 4], "已逾期 3 · 進行中 4"],
     ["zh", "taskCountSummary", [0, 0, 4], "進行中 4"],
     ["zh", "taskListedCount", [5], "5 個任務"],
+    ["zh", "taskListedCount", [1234], "1,234 個任務"],
     // T-60 — the artifact version reader's four. The count is the `sp` case
     // again (zh runs the characters together, en needs the space), and it is
     // only ever printed for n > 1, so there is no singular rendering to pin.
@@ -192,6 +193,7 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "loreScopeAgent", ["Mira"], "建立者：Mira"],
     ["zh", "loreEntryCount", [14], "14 筆"],
     ["zh", "loreListedCount", [5], "5 筆傳承"],
+    ["zh", "loreListedCount", [1200], "1,200 筆傳承"],
     ["zh", "loreChars", [6240], "6,240 字"],
     ["zh", "loreDropped", [4], "4 筆讀不到"],
     ["zh", "loreLegendNumber", [1131], "1,131"],
@@ -212,6 +214,7 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "secretDeleteConfirmBody", ["部署權杖"], "要刪除「部署權杖」嗎？刪除後無法復原。"],
     ["zh", "sharedDocCopyId", ["sd-0c41e97a2b58"], "複製檔案 ID sd-0c41e97a2b58"],
     ["zh", "sharedDocListedCount", [4], "4 份檔案"],
+    ["zh", "sharedDocListedCount", [1200], "1,200 份檔案"],
     ["zh", "sharedDocDeleteConfirmBody", ["Review Rule"], "要永久刪除「Review Rule」嗎？檔案與所有版本都會刪除，無法復原。"],
     ["zh", "sharedDocEditHint", [], "下載後在電腦上修改，再用「上傳新版本」換上去。"],
     ["zh", "sharedDocUpdated", ["Mira", "11/17 16:05"], "Mira · 11/17 16:05"],
@@ -385,6 +388,7 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "taskCountSummary", [0, 0, 4], "4 open"],
     ["en", "taskListedCount", [1], "1 task"],
     ["en", "taskListedCount", [5], "5 tasks"],
+    ["en", "taskListedCount", [1234], "1,234 tasks"],
     ["en", "replyWaited", ["3 小時"], "Waiting 3 小時"],
     ["en", "replyWaitedFull", [23 * 3600 + 59 * 60], "Waiting 23 hours 59 minutes"],
     ["en", "replyWaitedFull", [86400 + 3600 + 60], "Waiting 1 day 1 hour 1 minute"],
@@ -413,6 +417,7 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "loreEntryCount", [14], "14 entries"],
     ["en", "loreListedCount", [1], "1 entry"],
     ["en", "loreListedCount", [5], "5 entries"],
+    ["en", "loreListedCount", [1200], "1,200 entries"],
     ["en", "loreChars", [6240], "6,240 chars"],
     ["en", "loreDropped", [4], "4 not read"],
     ["en", "loreLegendNumber", [1131], "1,131"],
@@ -434,6 +439,7 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "sharedDocCopyId", ["sd-0c41e97a2b58"], "Copy file ID sd-0c41e97a2b58"],
     ["en", "sharedDocListedCount", [1], "1 file"],
     ["en", "sharedDocListedCount", [4], "4 files"],
+    ["en", "sharedDocListedCount", [1200], "1,200 files"],
     ["en", "sharedDocDeleteConfirmBody", ["Review Rule"], "Permanently delete \u201cReview Rule\u201d? The file and every version are deleted. This cannot be undone."],
     ["en", "sharedDocEditHint", [], "Download it, edit it on your computer, then put it back with \u201cUpload new version\u201d."],
     ["en", "sharedDocUpdated", ["Mira", "11/17 16:05"], "Mira · 11/17 16:05"],
