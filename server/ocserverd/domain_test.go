@@ -1591,28 +1591,16 @@ func timelineOf(kept, fresh []TaskStep) []TaskStep {
 }
 
 func TestValidatePlanParallelShape(t *testing.T) {
-	t.Run("a plain sequential plan and a well-formed parallel group are both legal", func(t *testing.T) {
+	t.Run("a plain sequential plan and a well-formed parallel group holding a gate are both legal", func(t *testing.T) {
 		fresh := []TaskStep{
 			{Name: "a"},
 			{Name: "b", ParallelGroup: "g1"},
-			{Name: "c", ParallelGroup: "g1"},
+			{Name: "c", ParallelGroup: "g1", IsGate: true},
 			{Name: "join"},
 			{Name: "gate", IsGate: true},
 		}
 		if msg := ValidatePlanParallelShape(fresh, fresh); msg != "" {
 			t.Fatalf("ValidatePlanParallelShape(legal plan) = %q, want the empty string", msg)
-		}
-	})
-
-	t.Run("a gate inside a parallel group is refused and the message names the step", func(t *testing.T) {
-		fresh := []TaskStep{
-			{Name: "lane a", ParallelGroup: "g1"},
-			{Name: "ask the owner", ParallelGroup: "g1", IsGate: true},
-		}
-		want := "step 'ask the owner': a gate step cannot sit inside a parallel group — " +
-			"put the gate on its own step after the group's join step"
-		if msg := ValidatePlanParallelShape(fresh, fresh); msg != want {
-			t.Fatalf("ValidatePlanParallelShape(gate in a group):\n got %q\nwant %q", msg, want)
 		}
 	})
 

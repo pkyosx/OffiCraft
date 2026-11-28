@@ -1007,17 +1007,10 @@ func RecomputeTaskStatus(t *Task, steps []TaskStep) {
 }
 
 // ValidatePlanParallelShape: the FE folds CONSECUTIVE steps sharing a
-// parallel_group into one stage, and an armed gate flips the whole task to
-// waiting_owner. timeline is the full step list exactly as it will be stored;
-// fresh is the subset this write adds. Do not rebuild timeline as kept+fresh:
-// insert_step puts its row in the middle.
+// parallel_group into one stage. timeline is the full step list exactly as it
+// will be stored; fresh is the subset this write adds. Do not rebuild timeline
+// as kept+fresh: insert_step puts its row in the middle.
 func ValidatePlanParallelShape(timeline, fresh []TaskStep) string {
-	for _, st := range fresh {
-		if st.IsGate && st.ParallelGroup != "" {
-			return "step '" + st.Name + "': a gate step cannot sit inside a parallel group — " +
-				"put the gate on its own step after the group's join step"
-		}
-	}
 	lastIdx := map[string]int{}
 	count := map[string]int{}
 	for i, st := range timeline {

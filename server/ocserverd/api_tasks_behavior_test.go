@@ -1537,9 +1537,8 @@ func TestSubmitPlanRelistingDoneStepsDoesNotDuplicate(t *testing.T) {
 
 // ── submit_plan: parallel (fork-join) shape guards ───────────────────────────
 
-// TestSubmitPlanParallelShapeGuards pins the three 400s of the parallel write
-// gate (gate-in-group / split group / one-lane group) plus the legal
-// fork-join round-trip. Plans WITHOUT any parallel_group are untouched by the
+// TestSubmitPlanParallelShapeGuards pins the two 400s of the parallel write
+// gate (split group / one-lane group) plus the legal fork-join round-trip. Plans WITHOUT any parallel_group are untouched by the
 // gate — every other test in this file keeps pinning that.
 func TestSubmitPlanParallelShapeGuards(t *testing.T) {
 	api := newTasksTestServer(t)
@@ -1553,15 +1552,7 @@ func TestSubmitPlanParallelShapeGuards(t *testing.T) {
 		return rec
 	}
 
-	// 1. A gate inside a parallel group is refused.
-	if rec := post([]map[string]any{
-		{"name": "lane a", "dod": "d", "parallel_group": "pg"},
-		{"name": "approve", "dod": "d", "parallel_group": "pg", "is_gate": true},
-	}); rec.Code != http.StatusBadRequest {
-		t.Fatalf("gate-in-group: want 400, got %d %s", rec.Code, rec.Body.String())
-	}
-
-	// 2. A split group (same key, not consecutive) is refused.
+	// 1. A split group (same key, not consecutive) is refused.
 	if rec := post([]map[string]any{
 		{"name": "lane a", "dod": "d", "parallel_group": "pg"},
 		{"name": "solo", "dod": "d"},
@@ -1570,7 +1561,7 @@ func TestSubmitPlanParallelShapeGuards(t *testing.T) {
 		t.Fatalf("split group: want 400, got %d %s", rec.Code, rec.Body.String())
 	}
 
-	// 3. A one-lane group is refused (parallel means at least two).
+	// 2. A one-lane group is refused (parallel means at least two).
 	if rec := post([]map[string]any{
 		{"name": "lonely", "dod": "d", "parallel_group": "pg"},
 		{"name": "join", "dod": "d"},
@@ -1583,11 +1574,12 @@ func TestSubmitPlanParallelShapeGuards(t *testing.T) {
 		t.Fatalf("refused plans must not write: %v %v", steps, err)
 	}
 
-	// A legal fork-join plan (two groups + join + trailing gate) lands whole.
+	// A legal fork-join plan (two groups, one holding a gate, + join + trailing
+	// gate) lands whole.
 	rec := post([]map[string]any{
 		{"name": "spec", "dod": "d"},
 		{"name": "lane a", "dod": "d", "parallel_group": "pg"},
-		{"name": "lane b", "dod": "d", "parallel_group": "pg"},
+		{"name": "lane b", "dod": "d", "parallel_group": "pg", "is_gate": true},
 		{"name": "join", "dod": "d"},
 		{"name": "check a", "dod": "d", "parallel_group": "verify"},
 		{"name": "check b", "dod": "d", "parallel_group": "verify"},
@@ -1609,6 +1601,9 @@ func TestSubmitPlanParallelShapeGuards(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("parallel_group round-trip: want %v, got %v", want, got)
 		}
+	}
+	if !view.Steps[2].IsGate || view.Steps[1].IsGate {
+		t.Fatalf("is_gate round-trip inside group pg: %+v", view.Steps[1:3])
 	}
 }
 
@@ -1665,6 +1660,31 @@ func TestSubmitPlanParallelReplanValidatesTheCombinedTimeline(t *testing.T) {
 	if len(view.Steps) != 3 || view.Steps[0].Status != StepStatusDone ||
 		view.Steps[1].ParallelGroup != "pg" || view.Steps[2].ParallelGroup != "" {
 		t.Fatalf("replanned timeline wrong: %+v", view.Steps)
+	}
+
+	// A card bound to a lane turns it into a gate inside the group; echoing the
+	// plan back exactly as get_task shows it, while that card still waits, lands.
+	card := openCardOnStep(t, api, task.ID, "m-exec", view.Steps[1].ID, "which way?")
+	held := getTaskView(t, api, task.ID)
+	if st := held.Steps[1]; !st.IsGate || st.ParallelGroup != "pg" ||
+		st.ReplyCardID != card.ID || st.Status != StepStatusWaitingOwner {
+		t.Fatalf("bound lane must be a waiting gate inside pg: %+v", st)
+	}
+	echo := make([]map[string]any, 0, len(held.Steps))
+	for _, st := range held.Steps {
+		echo = append(echo, map[string]any{
+			"name": st.Name, "dod": st.DoD,
+			"parallel_group": st.ParallelGroup, "is_gate": st.IsGate,
+		})
+	}
+	if rec := post(echo); rec.Code != http.StatusOK {
+		t.Fatalf("echoing get_task's plan with a waiting gate in a group: %d %s",
+			rec.Code, rec.Body.String())
+	}
+	replanned := getTaskView(t, api, task.ID)
+	if len(replanned.Steps) != 3 || replanned.Steps[1].Name != "lane b2" ||
+		!replanned.Steps[1].IsGate || replanned.Steps[1].ParallelGroup != "pg" {
+		t.Fatalf("echoed plan must keep lane b2 as a gate inside pg: %+v", replanned.Steps)
 	}
 }
 

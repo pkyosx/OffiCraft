@@ -802,8 +802,8 @@ pass_stage
 # STAGE D — parallel_group fork-join (matrix §2.5 D1-D6; wire §C.2 + §D fork-join)
 # ===========================================================================
 
-# ── D2 first (API-only negatives, cheap): 3 illegal plan shapes → 400 ───────
-stage "D2. parallel_group illegal plan shapes → HTTP 400 (gate-in-group / split-group / one-lane) via EXECUTOR token"
+# ── D2 first (API-only negatives, cheap): 2 illegal plan shapes → 400 ───────
+stage "D2. parallel_group illegal plan shapes → HTTP 400 (split-group / one-lane) via EXECUTOR token"
 # The plan endpoint checks its caller guard BEFORE shape validation, so the POSTs
 #   below must come from a caller the guard admits or they 403 before reaching the
 #   400. That guard is callerMayDriveTask (api_tasks.go), which admits the
@@ -811,7 +811,7 @@ stage "D2. parallel_group illegal plan shapes → HTTP 400 (gate-in-group / spli
 #   it; this stage drives the plan as the executor because the executor is the
 #   identity the product path uses, not because the owner is refused.
 #   So create an AD-HOC task whose executor_member_id = $TEST_AGENT, mint THAT
-#   member's agent token, and POST the 3 illegal plans as that token → assert 400 each.
+#   member's agent token, and POST the 2 illegal plans as that token → assert 400 each.
 #   (Zero worker spawn — API only.)
 D2_TASK_BODY="$(py -c '
 import json, sys
@@ -837,7 +837,7 @@ D2_EXEC_TOKEN="$(printf '%s' "$D2_MINT" | json_field token)"
 #   to do with the shape it claims to test — and 400 == 400, so the stage went
 #   green with ValidatePlanParallelShape never executed once. Deleting that
 #   function outright would not have reddened anything here. Matching the sentence
-#   is what makes these three cases assertions rather than decoration.
+#   is what makes these cases assertions rather than decoration.
 post_plan_as_exec() {
   local json="$1" want="$2" label="$3" must="${4:-}" resp code body msg
   resp="$(post_as_token "$D2_EXEC_TOKEN" "/api/tasks/$D2_TID/plan" "$json")"
@@ -868,18 +868,7 @@ print((d.get("error") or {}).get("message") or "")
   return 0
 }
 
-# illegal #1: a gate step INSIDE a parallel_group (is_gate=true & parallel_group!="").
-D2_GATE_IN_GROUP="$(py -c '
-import json
-print(json.dumps({"steps": [
-  {"name": "laneA", "dod": "lane A is done", "parallel_group": "pg-1"},
-  {"name": "gate-inside", "dod": "the gate is answered", "parallel_group": "pg-1", "is_gate": True},
-]}))
-')"
-post_plan_as_exec "$D2_GATE_IN_GROUP" 400 "D2.gate-in-group" "a gate step cannot sit inside a parallel group" \
-  || fail_stage "gate-in-group plan was NOT rejected 400 BY ValidatePlanParallelShape rule 1 (see the warn above: a 400 from the DoD gate does not count)"
-
-# illegal #2: a SPLIT group — same key non-consecutive (separated by another step).
+# illegal #1: a SPLIT group — same key non-consecutive (separated by another step).
 D2_SPLIT_GROUP="$(py -c '
 import json
 print(json.dumps({"steps": [
@@ -889,9 +878,9 @@ print(json.dumps({"steps": [
 ]}))
 ')"
 post_plan_as_exec "$D2_SPLIT_GROUP" 400 "D2.split-group" "must sit next to each other" \
-  || fail_stage "split-group plan was NOT rejected 400 BY ValidatePlanParallelShape rule 2 (see the warn above: a 400 from the DoD gate does not count)"
+  || fail_stage "split-group plan was NOT rejected 400 BY ValidatePlanParallelShape contiguity (see the warn above: a 400 from the DoD gate does not count)"
 
-# illegal #3: a ONE-LANE group — same key appears only once (<2 lanes).
+# illegal #2: a ONE-LANE group — same key appears only once (<2 lanes).
 D2_ONE_LANE="$(py -c '
 import json
 print(json.dumps({"steps": [
@@ -900,8 +889,8 @@ print(json.dumps({"steps": [
 ]}))
 ')"
 post_plan_as_exec "$D2_ONE_LANE" 400 "D2.one-lane-group" "holds only one step" \
-  || fail_stage "one-lane-group plan was NOT rejected 400 BY ValidatePlanParallelShape rule 3 (see the warn above: a 400 from the DoD gate does not count)"
-log "all 3 illegal parallel_group shapes rejected 400 by the SHAPE gate (message matched per rule) ✓"
+  || fail_stage "one-lane-group plan was NOT rejected 400 BY ValidatePlanParallelShape two-lane floor (see the warn above: a 400 from the DoD gate does not count)"
+log "both illegal parallel_group shapes rejected 400 by the SHAPE gate (message matched per rule) ✓"
 pass_stage
 
 # ── D1: legal plan (3 consecutive lanes + a join step) → 200, roundtrips ─────

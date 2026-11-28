@@ -902,14 +902,13 @@ describe("TasksPage", () => {
     expect(await findAllByTestId("step-marker")).toHaveLength(3);
   });
 
-  it("renders legacy dirty parallel data defensively: gate-in-group keeps its shield, a split group folds into two separate stages", async () => {
-    // submit_plan now refuses these shapes (400), but rows written before the
-    // gate landed are never rewritten — the timeline must stay honest, not crash.
+  it("renders a gate inside a parallel group with its shield, and folds a legacy split group into two separate stages", async () => {
+    // submit_plan refuses a split group (400), but rows written before that
+    // check landed are never rewritten — the timeline must stay honest, not crash.
     __injectMockTask(
       mkTask({
         title: "髒資料",
         steps: [
-          // A gate INSIDE a parallel group (pre-gate legacy).
           mkStep({ name: "lane", status: "in_progress", parallelGroup: "pg-x", orderIdx: 0 }),
           mkStep({ name: "approve", status: "pending", parallelGroup: "pg-x", isGate: true, replyCardId: "", orderIdx: 1 }),
           // The SAME group key split by a plain step: two stages, each with
