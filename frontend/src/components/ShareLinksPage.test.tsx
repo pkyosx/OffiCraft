@@ -65,6 +65,20 @@ describe("ShareLinksPage", () => {
     expect(screen.queryByTestId("share-links-revoke-confirm")).toBeNull();
   });
 
+  it("drops a link someone else already revoked instead of reporting a failure", async () => {
+    const keep = await api.createAttachmentShareLink("att-0123456789ab", null);
+    const drop = await api.createAttachmentShareLink("att-0123456789ab", null);
+
+    renderPage();
+    await waitFor(() => expect(rowIds()).toEqual([drop.link.id, keep.link.id]));
+    await api.revokeShareLink(drop.link.id);
+    fireEvent.click(within(screen.getAllByTestId("share-link-row")[0]).getByTestId("share-link-revoke"));
+    fireEvent.click(screen.getByTestId("share-links-revoke-confirm-btn"));
+
+    await waitFor(() => expect(rowIds()).toEqual([keep.link.id]));
+    expect(screen.queryByTestId("share-links-revoke-confirm")).toBeNull();
+  });
+
   it("says so when no link is in force", async () => {
     renderPage();
     expect((await screen.findByTestId("share-links-empty")).textContent).toBe(zh.shareLinks.empty);

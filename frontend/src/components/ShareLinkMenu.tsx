@@ -10,7 +10,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { useOwnerDisplayName } from "../hooks/useOwnerName";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { formatAbsolute } from "../lib/dateFormat";
-import { serverMessageOf } from "../api/errors";
+import { ApiError, serverMessageOf } from "../api/errors";
 import { api } from "../api";
 import {
   listShareLinksFor,
@@ -24,7 +24,7 @@ import {
 } from "../lib/shareLinkExpiry";
 import type { ShareLinkView } from "../types";
 import { ConfirmModal } from "./ConfirmModal";
-import { AlertTriangleIcon, CheckIcon, InfinityIcon, LinkIcon, UnlinkIcon } from "./icons";
+import { AlertTriangleIcon, CheckIcon, CopyIcon, InfinityIcon, LinkIcon, UnlinkIcon } from "./icons";
 import "./replies.css";
 import "./share-links.css";
 
@@ -57,6 +57,7 @@ export function ShareLinkMenu({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<"copied" | "copyFailed" | null>(null);
   const [error, setError] = useState("");
+  const [uncopiedUrl, setUncopiedUrl] = useState<string | null>(null);
   const [links, setLinks] = useState<ShareLinkView[] | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<ShareLinkView | null>(null);
@@ -66,6 +67,7 @@ export function ShareLinkMenu({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const timer = useRef<number | undefined>(undefined);
+  const uncopiedRef = useRef<HTMLInputElement>(null);
   const titleId = useId();
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
@@ -83,6 +85,7 @@ export function ShareLinkMenu({
   useEffect(() => {
     setOpen(false);
     setRevokeTarget(null);
+    setUncopiedUrl(null);
   }, [targetKey]);
 
   useEffect(() => {
@@ -113,6 +116,7 @@ export function ShareLinkMenu({
     if (revokeTarget) return;
     setOpen(false);
     setError("");
+    setUncopiedUrl(null);
     setPos(null);
     if (refocus) triggerRef.current?.focus();
   }
@@ -146,6 +150,7 @@ export function ShareLinkMenu({
       if (menuRef.current?.contains(node) || triggerRef.current?.contains(node)) return;
       setOpen(false);
       setError("");
+      setUncopiedUrl(null);
       setPos(null);
     };
     document.addEventListener("pointerdown", onDown, true);
@@ -163,6 +168,7 @@ export function ShareLinkMenu({
     setBusy(true);
     setError("");
     setResult(null);
+    setUncopiedUrl(null);
     try {
       const created = await mintShareLink(targetRef.current, fresh.expiresTs);
       let copied = true;
@@ -174,14 +180,40 @@ export function ShareLinkMenu({
       }
       if (targetKeyRef.current !== mintedFor) return;
       setLinks((cur) => [created.link, ...(cur ?? [])]);
+      // The URL is shown only this once; a failed copy must not lose it.
+      if (!copied) setUncopiedUrl(created.url);
       setResult(copied ? "copied" : "copyFailed");
       timer.current = window.setTimeout(() => setResult(null), FEEDBACK_MS);
     } catch (e) {
       console.warn("ShareLinkMenu: mint failed", e);
-      setError(serverMessageOf(e) || d.mintFailed);
+      // A comparison that reached this menu already passed the server's address
+      // check, so a 422 here is the expiry window — in practice a device clock
+      // running ahead of the server's.
+      setError(
+        e instanceof ApiError && e.status === 422
+          ? d.expiryRefused
+          : serverMessageOf(e) || d.mintFailed,
+      );
     } finally {
       setBusy(false);
     }
+  }
+
+  async function retryCopy() {
+    if (uncopiedUrl === null) return;
+    window.clearTimeout(timer.current);
+    try {
+      await navigator.clipboard.writeText(uncopiedUrl);
+    } catch (e) {
+      console.warn("ShareLinkMenu: clipboard retry failed", e);
+      uncopiedRef.current?.select();
+      setResult("copyFailed");
+      timer.current = window.setTimeout(() => setResult(null), FEEDBACK_MS);
+      return;
+    }
+    setUncopiedUrl(null);
+    setResult("copied");
+    timer.current = window.setTimeout(() => setResult(null), FEEDBACK_MS);
   }
 
   async function confirmRevoke() {
@@ -194,6 +226,13 @@ export function ShareLinkMenu({
       setRevokeTarget(null);
       setRevokeError("");
     } catch (e) {
+      if (e instanceof ApiError && e.status === 404) {
+        const gone = revokeTarget.id;
+        setLinks((cur) => (cur ?? []).filter((l) => l.id !== gone));
+        setRevokeTarget(null);
+        setRevokeError("");
+        return;
+      }
       console.warn("ShareLinkMenu: revoke failed", e);
       setRevokeError(serverMessageOf(e) || d.revokeFailed);
     } finally {
@@ -277,10 +316,37 @@ export function ShareLinkMenu({
             {error || draftMessage}
           </div>
         )}
+        {uncopiedUrl !== null && (
+          <div className="share-uncopied" data-testid="share-uncopied">
+            <div className="share-uncopied__hint">{d.copyManually}</div>
+            <div className="share-uncopied__row">
+              <input
+                ref={uncopiedRef}
+                type="text"
+                readOnly
+                className="share-uncopied__url"
+                aria-label={d.newLinkLabel}
+                data-testid="share-uncopied-url"
+                value={uncopiedUrl}
+                onFocus={(e) => e.currentTarget.select()}
+              />
+              <button
+                type="button"
+                className="share-act share-act--primary"
+                data-testid="share-uncopied-copy"
+                aria-label={d.copyAgain}
+                title={d.copyAgain}
+                onClick={() => void retryCopy()}
+              >
+                <CopyIcon size={15} />
+              </button>
+            </div>
+          </div>
+        )}
       </form>
       <div className="share-links" data-testid="share-issued">
         <div className="reply-snooze__title">
-          {d.issued} · {links?.length ?? 0}
+          {d.issued} · {links === null && !loadError ? d.loading : (links?.length ?? 0)}
         </div>
         {loadError && <div className="reply-snooze__error">{d.loadFailed}</div>}
         {(links ?? []).map((l) => (

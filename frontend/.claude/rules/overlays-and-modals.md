@@ -118,7 +118,7 @@ token 標亮只在兩側有共同非空白 token 時做，每側有上限；顏�
 
 一份比較有兩種網址：不帶憑證的內部連結要登入才打得開，帶 `?link=` 的對外連結（分享連結）誰都打得開，直到它到期或被收回。分享連結只由 server 現鑄（`POST /api/diff/share-link`，body 帶 `expires_ts`），每按一次就是一條新連結；回的 `url` 是 server-relative path，只出現這一次，由瀏覽器補 origin——跟附件分享連結同一套 `lib/shareLink.ts`。呼叫端手上原本的 `link` 一律不回送：憑證是這個呼叫的產出，不是輸入。改版前發出的 `?sig=` 連結仍由 server 判斷能不能開（`lib/diffLink.ts` 照樣把它當帶憑證的網址）。
 
-產生這條連結的控制項是 `DiffShareLinkButton`，它只是把比較的兩個位址交給 `ShareLinkMenu`：鏈結圖示打開選單（桌面浮動、手機底部面板，沿用 `ReplySnoozeMenu` 的外殼），第一行選有效期（數字＋小時／天／永久，預設 7 天，最長 365 天；選永久時數字欄停用，預覽顯示 ∞，算法在 `lib/shareLinkExpiry.ts`），按鈕產生並複製；下半「已發出」列出這個對象還有效的連結，每列可收回（先確認）。成功才說成功，鑄造或剪貼簿失敗要畫成看得出來的失敗，不可以退回閒置圖示。
+產生這條連結的控制項是 `DiffShareLinkButton`，它只是把比較的兩個位址交給 `ShareLinkMenu`：鏈結圖示打開選單（桌面浮動、手機底部面板，沿用 `ReplySnoozeMenu` 的外殼），第一行選有效期（數字＋小時／天／永久，預設 7 天，最長 365 天；選永久時數字欄停用，預覽顯示 ∞，算法在 `lib/shareLinkExpiry.ts`），按鈕產生並複製；下半「已發出」列出這個對象還有效的連結，每列可收回（先確認）。成功才說成功，鑄造或剪貼簿失敗要畫成看得出來的失敗，不可以退回閒置圖示。網址只出現這一次，所以剪貼簿失敗時網址留在選單裡的唯讀欄位（附「再複製一次」），直到換對象、關選單或再產生一條。
 
 **這個控制項只畫在「確定有 session」的地方**，因為 mint、清單、收回的 route 都要授權：studio 裡的 modal 是結構性的（`DiffModalHost` 在 AuthGate 內，獨立頁不掛這個 overlay）；獨立頁以 `carriesShareCredential(params)` 為假當閘——main.tsx 把帶憑證的網址掛在 AuthGate 之前，那位讀者可能根本沒有帳號，不能給他一個按了會失敗、又能重鑄連結的按鈕。分享連結失效時 `/api/diff` 回 410，畫面顯示「這個分享連結已失效」。
 

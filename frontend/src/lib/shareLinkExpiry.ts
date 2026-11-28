@@ -7,6 +7,10 @@ const UNIT_SECONDS = { hour: 3600, day: 86_400 } as const;
 
 export const SHARE_LINK_MAX_SECONDS = 365 * 86_400;
 
+// The server checks the 365-day cap against its own clock; a device running a
+// little ahead would otherwise have 「365 天」 refused.
+const CLOCK_AHEAD_ALLOWANCE_SECONDS = 60;
+
 export const SHARE_EXPIRY_DEFAULT = { amount: "7", unit: "day" as ShareExpiryUnit };
 
 export type ShareExpiryDraft =
@@ -26,5 +30,6 @@ export function shareExpiryDraft(
   if (amount < 1) return { ok: false, reason: "invalid" };
   const span = amount * UNIT_SECONDS[unit];
   if (span > SHARE_LINK_MAX_SECONDS) return { ok: false, reason: "tooFar" };
-  return { ok: true, expiresTs: Math.floor(nowTs) + span };
+  const sent = Math.min(span, SHARE_LINK_MAX_SECONDS - CLOCK_AHEAD_ALLOWANCE_SECONDS);
+  return { ok: true, expiresTs: Math.floor(nowTs) + sent };
 }

@@ -234,6 +234,11 @@ export const en: Dict = {
     generate: "Create link",
     copied: "Link copied",
     copyFailed: "Link created, but copying failed",
+    copyManually: "Copying did not work. Copy the link below yourself — it is shown only here.",
+    newLinkLabel: "New share link",
+    copyAgain: "Copy again",
+    loading: "Loading…",
+    expiryRefused: "The server did not accept this expiry. Check that this device's clock is right.",
     mintFailed: "Could not create the link. Try again.",
     invalid: "Enter a whole number, 1 or more",
     tooFar: "At most 365 days",
@@ -2354,7 +2359,7 @@ export const en: Dict = {
   signingKeys: {
     title: "Signing keys",
     intro:
-      "Manage the keys used to issue logins and share links. Replacing a key does not affect anyone already logged in.",
+      "Manage the keys used to sign logins and preview links. Replacing a key does not affect anyone already logged in.",
     loading: "Loading…",
     signingBadge: "In use",
     retiredBadge: "Old key (still valid)",
@@ -2367,7 +2372,7 @@ export const en: Dict = {
     removeButton: "Remove",
     removeConfirmTitle: "Remove this key?",
     removeConfirmBody:
-      "Everything this key signed stops working the moment you confirm, with no grace period and no notice to anyone: credentials signed by it are refused, and the share links produced under it — file links and comparison links alike — break too.",
+      "Everything this key signed stops working the moment you confirm, with no grace period and no notice to anyone: credentials signed by it are refused, and cockpit preview links and share links made before this update break too. Links made with the Share link button are not affected; to stop one of those, revoke it on the Sharing tab.",
     removeConfirmWarden:
       "⚠️ Any machine that has not moved to the new key disconnects the moment you remove this one; an offline machine can only move once it comes back online. Make sure every machine has moved to the new key before removing.",
     removeConfirmCancel: "Cancel",

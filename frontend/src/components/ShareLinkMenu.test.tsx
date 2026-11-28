@@ -28,18 +28,23 @@ function link(id: string, expiresTs: number | null): ShareLinkView {
 
 let writeText: ReturnType<typeof vi.fn>;
 
-function mount() {
-  render(
+function menuFor(attachmentId: string) {
+  return (
     <I18nProvider>
       <ShareLinkMenu
-        target={{ kind: "attachment", attachmentId: ATT }}
+        target={{ kind: "attachment", attachmentId }}
         targetName="報告.md"
         className="md-preview__share"
         testId="md-preview-share"
       />
-    </I18nProvider>,
+    </I18nProvider>
   );
+}
+
+function mount() {
+  const view = render(menuFor(ATT));
   fireEvent.click(screen.getByTestId("md-preview-share"));
+  return view;
 }
 
 describe("ShareLinkMenu", () => {
@@ -52,12 +57,15 @@ describe("ShareLinkMenu", () => {
   });
 
   it("lists the target's live links newest first, with ∞ for a permanent one", async () => {
+    let answer!: (links: ShareLinkView[]) => void;
     const list = vi
       .spyOn(api, "listShareLinks")
-      .mockResolvedValue([link("sl-old", null), link("sl-new", 1793255400)]);
+      .mockReturnValue(new Promise((resolve) => (answer = resolve)));
 
     mount();
 
+    expect(screen.getByTestId("share-issued").textContent).toBe("已發出 · 讀取中…");
+    answer([link("sl-old", null), link("sl-new", 1793255400)]);
     await waitFor(() => expect(screen.getAllByTestId("share-issued-row")).toHaveLength(2));
     expect(list).toHaveBeenCalledWith({ attachmentId: ATT });
     const rows = screen.getAllByTestId("share-issued-row");
@@ -124,20 +132,67 @@ describe("ShareLinkMenu", () => {
     expect(mint).not.toHaveBeenCalled();
   });
 
-  it("shows the server's reason when the mint is refused, and copies nothing", async () => {
+  it.each([
+    [422, "expires_ts must be later than now", "伺服器不接受這個到期時間，請確認這台裝置的時間是否正確。"],
+    [404, "attachment 'att-0123456789ab' not found", "attachment 'att-0123456789ab' not found"],
+  ])("says why a %i mint was refused, and copies nothing", async (status, serverText, shown) => {
     vi.spyOn(api, "listShareLinks").mockResolvedValue([]);
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(api, "createAttachmentShareLink").mockRejectedValue(
-      new ApiError("http 422", 422, codeForStatus(422), "expires_ts must be later than now"),
+      new ApiError(`http ${status}`, status, codeForStatus(status), serverText),
     );
 
     mount();
     fireEvent.click(screen.getByTestId("share-generate"));
 
-    expect((await screen.findByTestId("share-error")).textContent).toBe(
-      "expires_ts must be later than now",
-    );
+    expect((await screen.findByTestId("share-error")).textContent).toBe(shown);
     expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("keeps the new URL on screen when copying fails, and copies it on retry", async () => {
+    vi.spyOn(api, "listShareLinks").mockResolvedValue([]);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(api, "createAttachmentShareLink").mockResolvedValue({
+      url: `/api/chat/attachment/${ATT}?link=tok`,
+      link: link("sl-fresh", 1793255400),
+    });
+    writeText.mockRejectedValueOnce(new DOMException("denied", "NotAllowedError"));
+    const url = `${window.location.origin}/api/chat/attachment/${ATT}?link=tok`;
+
+    mount();
+    fireEvent.click(screen.getByTestId("share-generate"));
+
+    const field = (await screen.findByTestId("share-uncopied-url")) as HTMLInputElement;
+    expect(field.value).toBe(url);
+    expect(field.readOnly).toBe(true);
+    expect(screen.getByTestId("share-generate").getAttribute("aria-label")).toBe("已產生連結，但複製失敗");
+    fireEvent.click(screen.getByTestId("share-uncopied-copy"));
+
+    await waitFor(() => expect(screen.queryByTestId("share-uncopied")).toBeNull());
+    expect(writeText).toHaveBeenLastCalledWith(url);
+    expect(screen.getByTestId("share-generate").getAttribute("aria-label")).toBe("已複製連結");
+  });
+
+  it("keeps a link minted for the previous file out of the next file's list", async () => {
+    const list = vi.spyOn(api, "listShareLinks").mockResolvedValue([]);
+    let finishMint!: (created: { url: string; link: ShareLinkView }) => void;
+    vi.spyOn(api, "createAttachmentShareLink").mockReturnValue(
+      new Promise((resolve) => (finishMint = resolve)),
+    );
+
+    const view = mount();
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByTestId("share-generate"));
+    view.rerender(menuFor("att-fedcba987654"));
+    fireEvent.click(screen.getByTestId("md-preview-share"));
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith({ attachmentId: "att-fedcba987654" }));
+    await waitFor(() => expect(screen.getByTestId("share-issued").textContent).toBe("已發出 · 0"));
+
+    finishMint({ url: `/api/chat/attachment/${ATT}?link=tok`, link: link("sl-previous", null) });
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(screen.queryAllByTestId("share-issued-row")).toHaveLength(0);
+    expect(screen.getByTestId("share-issued").textContent).toBe("已發出 · 0");
   });
 
   it("revokes only the confirmed link, after asking", async () => {
@@ -161,5 +216,25 @@ describe("ShareLinkMenu", () => {
     );
     expect(screen.queryByTestId("share-revoke-confirm")).toBeNull();
     expect(screen.getByTestId("share-menu")).toBeTruthy();
+  });
+
+  it("drops a link someone else already revoked instead of reporting a failure", async () => {
+    vi.spyOn(api, "listShareLinks").mockResolvedValue([link("sl-a", null), link("sl-b", 1793255400)]);
+    vi.spyOn(api, "revokeShareLink").mockRejectedValue(
+      new ApiError("http 404", 404, codeForStatus(404), "share link 'sl-a' not found"),
+    );
+
+    mount();
+    const rows = await screen.findAllByTestId("share-issued-row");
+    const rowA = rows.find((r) => r.getAttribute("data-share-link-id") === "sl-a")!;
+    fireEvent.click(within(rowA).getByTestId("share-revoke"));
+    fireEvent.click(screen.getByTestId("share-revoke-confirm-btn"));
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId("share-issued-row").map((r) => r.getAttribute("data-share-link-id")),
+      ).toEqual(["sl-b"]),
+    );
+    expect(screen.queryByTestId("share-revoke-confirm")).toBeNull();
   });
 });

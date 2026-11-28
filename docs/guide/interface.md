@@ -558,7 +558,7 @@ A share link lets someone without an account open one file or one comparison pag
 The link button in the file viewer's title bar, and at the top of a comparison page, opens the share menu (a bottom sheet on a phone):
 
 - **Expiry** — a number (7 by default) and a unit: hours, days or Forever. Choosing Forever disables the number, and the preview shows ∞. Next to it is the time the link will expire. The longest expiry is 365 days; if the number is not allowed, the menu says why.
-- **Create link** — the link button at the end of the row makes a new link and copies it. The button briefly turns into ✓ ("Link copied"). The link is shown only this once; nobody can see it again later, not even in the lists below.
+- **Create link** — the link button at the end of the row makes a new link and copies it. The button briefly turns into ✓ ("Link copied"). The link is shown only this once; nobody can see it again later, not even in the lists below. If the browser does not allow copying, the new link appears in a box under the row so you can copy it yourself, with a button to try copying again.
 - **Issued** — the links to this file or comparison that still work, newest first: expiry (∞ for Forever), who created it, and the revoke button. Hover over a row to see when it was created.
 
 Every press makes a separate link with its own expiry, and each one can be revoked on its own. Members can make share links too; when a member does not choose an expiry, the link stops working after 7 days.
@@ -569,11 +569,11 @@ Lists every share link that still works, newest first: type (file or comparison)
 
 **Revoking**
 
-The revoke button (in the share menu or on the Sharing tab) asks first. After you confirm, the link stops working at once and leaves the list; this cannot be undone. Only that link is affected: other links to the same file or comparison, sign-ins, and machines keep working. To share again, make a new link.
+The revoke button (in the share menu or on the Sharing tab) asks first. After you confirm, the link stops working at once and leaves the list; this cannot be undone. If someone else already revoked it, it simply leaves the list. Only that link is affected: other links to the same file or comparison, sign-ins, and machines keep working. To share again, make a new link.
 
 **Opening a link that no longer works**
 
-A link that has expired, been revoked, or never existed shows "This share link is no longer valid".
+A link that has expired, been revoked, or never existed, or a link to a file the system has since cleaned up, shows "This share link is no longer valid".
 
 The web pages, PDFs and videos you open in the file viewer use links of their own that stop working after one hour. They are not share links: they are not listed and cannot be revoked.
 

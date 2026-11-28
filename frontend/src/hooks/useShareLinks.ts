@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ShareLinkView } from "../types";
 import { api } from "../api";
-import { serverMessageOf } from "../api/errors";
+import { ApiError, serverMessageOf } from "../api/errors";
 
 interface UseShareLinks {
   links: ShareLinkView[];
@@ -48,7 +48,8 @@ export function useShareLinks(loadFailed: string, revokeFailed: string): UseShar
       try {
         await api.revokeShareLink(id);
       } catch (e: unknown) {
-        return serverMessageOf(e) || revokeFailed;
+        const alreadyGone = e instanceof ApiError && e.status === 404;
+        if (!alreadyGone) return serverMessageOf(e) || revokeFailed;
       }
       await reload();
       return "";
