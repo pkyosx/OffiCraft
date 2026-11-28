@@ -29,7 +29,6 @@ import {
   DIFF_PARAM_BEFORE,
   DIFF_PARAM_LABEL_AFTER,
   DIFF_PARAM_LABEL_BEFORE,
-  DIFF_PARAM_LEGACY_SIG,
   DIFF_PARAM_LINK,
   parseDiffSideAddress,
 } from "./diffLink";
@@ -107,7 +106,6 @@ describe("the compare url's spelling", () => {
     ["diffParamLabelBefor", DIFF_PARAM_LABEL_BEFORE],
     ["diffParamLabelAfter", DIFF_PARAM_LABEL_AFTER],
     ["diffParamLink", DIFF_PARAM_LINK],
-    ["diffParamLegacySig", DIFF_PARAM_LEGACY_SIG],
   ])("is the server's own %s", (name, value) => {
     expect(source(), `${SERVER_SOURCE} must declare ${name} = "${value}"`).toContain(
       `${name} = "${value}"`,

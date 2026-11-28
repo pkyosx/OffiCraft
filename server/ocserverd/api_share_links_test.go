@@ -44,6 +44,13 @@ func apiExpireShareLinkNow(t *testing.T, d *DAL, id string) {
 	}
 }
 
+func apiCollectBlob(t *testing.T, d *DAL, id string) {
+	t.Helper()
+	if _, err := d.wdb.Exec(`DELETE FROM chat_attachment WHERE id = ?`, id); err != nil {
+		t.Fatalf("collect %s: %v", id, err)
+	}
+}
+
 func apiShareLinkIDs(t *testing.T, h http.Handler, query, credential string) []string {
 	t.Helper()
 	status, data := apiJSON(t, h, "GET", "/api/share-links"+query, credential, "")
@@ -536,6 +543,20 @@ func TestWriteShareLinkGone(t *testing.T) {
 		apiWantError(t, data, "client_error", shareLinkGoneMsg)
 	})
 
+	t.Run("a link to an attachment the blob collector deleted answers 410 and leaves the list", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		id := apiShareLinkUpload(t, h, owner)
+		data := apiMintShareLink(t, h, apiAttachmentLinkTarget(id), owner, `{"expires_ts":null}`)
+		apiCollectBlob(t, d, id)
+
+		status, body := apiJSON(t, h, "GET", data["url"].(string), "", "")
+		if status != http.StatusGone {
+			t.Fatalf("want 410, got %d (%v)", status, body)
+		}
+		apiWantError(t, body, "client_error", shareLinkGoneMsg)
+		apiWantIDs(t, "every live link", apiShareLinkIDs(t, h, "", owner))
+	})
+
 	t.Run("a link minted for one blob does not open another", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		id := apiShareLinkUpload(t, h, owner)
@@ -565,17 +586,20 @@ func apiShareLinkRowIDs(t *testing.T, d *DAL) []string {
 	return ids
 }
 
-func TestPruneExpiredShareLinks(t *testing.T) {
-	t.Run("only rows whose expiry has passed are deleted", func(t *testing.T) {
+func TestPruneDeadShareLinks(t *testing.T) {
+	t.Run("only rows whose expiry has passed or whose attachment was collected are deleted", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
 		id := apiShareLinkUpload(t, h, owner)
+		collectedBlob := apiDiffUpload(t, h, owner, "collected.txt", "collected")
 		expired := apiShareLinkID(apiMintShareLink(t, h, apiAttachmentLinkTarget(id), owner, ""))
 		live := apiShareLinkID(apiMintShareLink(t, h, apiAttachmentLinkTarget(id), owner, ""))
 		forever := apiShareLinkID(apiMintShareLink(t, h, apiAttachmentLinkTarget(id), owner, `{"expires_ts":null}`))
+		apiMintShareLink(t, h, apiAttachmentLinkTarget(collectedBlob), owner, `{"expires_ts":null}`)
 		apiExpireShareLinkNow(t, d, expired)
+		apiCollectBlob(t, d, collectedBlob)
 
-		if n, err := d.PruneExpiredShareLinks(nowSecs()); err != nil || n != 1 {
-			t.Fatalf("PruneExpiredShareLinks = (%d, %v), want (1, nil)", n, err)
+		if n, err := d.PruneDeadShareLinks(nowSecs()); err != nil || n != 2 {
+			t.Fatalf("PruneDeadShareLinks = (%d, %v), want (2, nil)", n, err)
 		}
 		apiWantIDs(t, "rows left", apiShareLinkRowIDs(t, d), live, forever)
 	})
@@ -584,7 +608,7 @@ func TestPruneExpiredShareLinks(t *testing.T) {
 		const childEnv = "OFFICRAFT_SHARE_LINK_PRUNE_CADENCE_CHILD"
 		if os.Getenv(childEnv) != "1" {
 			cmd := exec.Command(os.Args[0], "-test.run",
-				"^TestPruneExpiredShareLinks$/^the_background_sweep_deletes_an_expired_row_on_its_own$")
+				"^TestPruneDeadShareLinks$/^the_background_sweep_deletes_an_expired_row_on_its_own$")
 			cmd.Env = append(os.Environ(), childEnv+"=1")
 			if output, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("cadence child: %v\n%s", err, output)

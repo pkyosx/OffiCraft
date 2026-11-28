@@ -26,7 +26,6 @@ const (
 	diffParamLabelBefor = "label_before"
 	diffParamLabelAfter = "label_after"
 	diffParamLink       = "link"
-	diffParamLegacySig  = "sig"
 )
 
 func diffPageQuery(before, after, labelBefore, labelAfter, link string) string {

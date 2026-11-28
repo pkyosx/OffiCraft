@@ -225,8 +225,8 @@ func previewLinkQuery(kr *keyring, attachmentID string, exp int64) string {
 	return "sig=" + sig + "&" + previewExpParam + "=" + strconv.FormatInt(exp, 10)
 }
 
-func (s *apiServer) pruneExpiredShareLinks(now float64) {
-	if _, err := s.dal.PruneExpiredShareLinks(now); err != nil {
+func (s *apiServer) pruneDeadShareLinks(now float64) {
+	if _, err := s.dal.PruneDeadShareLinks(now); err != nil {
 		log.Printf("[share-link] prune failed (the next tick retries): %v", err)
 	}
 }

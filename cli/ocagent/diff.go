@@ -223,7 +223,7 @@ screen already names in the reader's own language.
 
 --external asks the server to mint a SHARE link instead: it opens with no login
 at all and stops working 7 days later. Each call mints a separate link; the
-owner can revoke any one of them on the Share tab (or with revoke_share_link)
+owner can revoke any one of them on the Sharing tab (or with revoke_share_link)
 without touching the others. The URL is printed once and cannot be fetched
 again. For another expiry, or a link that never expires, call the
 get_diff_share_link tool with expires_ts instead. Mint it only for a reader who

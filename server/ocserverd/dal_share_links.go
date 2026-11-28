@@ -37,9 +37,12 @@ const shareLinkSelect = `SELECT sl.id, sl.kind, sl.token_hash, sl.attachment_id,
 	ca.filename
 	FROM share_link sl LEFT JOIN chat_attachment ca ON ca.id = sl.attachment_id`
 
-// A link whose expires_ts the clock has reached is treated as gone everywhere,
-// whether or not the prune has deleted its row yet.
-const shareLinkLive = `(sl.expires_ts IS NULL OR sl.expires_ts > ?)`
+// A link whose expires_ts the clock has reached, or whose attachment the blob
+// collector has deleted, is treated as gone everywhere, whether or not the
+// prune has deleted its row yet. Blobs are deleted on several paths; this
+// predicate and the prune are what keep share_link in step with all of them.
+const shareLinkLive = `(sl.expires_ts IS NULL OR sl.expires_ts > ?)
+	AND (sl.kind <> 'attachment' OR ca.id IS NOT NULL)`
 
 func scanShareLink(row interface{ Scan(...any) error }) (ShareLink, error) {
 	var l ShareLink
@@ -108,8 +111,11 @@ func deleteShareLinkOn(ex sqlExecer, id string) error {
 	return err
 }
 
-func (d *DAL) PruneExpiredShareLinks(now float64) (int64, error) {
-	res, err := d.wdb.Exec(`DELETE FROM share_link WHERE expires_ts IS NOT NULL AND expires_ts <= ?`, now)
+func (d *DAL) PruneDeadShareLinks(now float64) (int64, error) {
+	res, err := d.wdb.Exec(`DELETE FROM share_link
+		WHERE (expires_ts IS NOT NULL AND expires_ts <= ?)
+		OR (kind = 'attachment' AND NOT EXISTS
+			(SELECT 1 FROM chat_attachment ca WHERE ca.id = share_link.attachment_id))`, now)
 	if err != nil {
 		return 0, err
 	}

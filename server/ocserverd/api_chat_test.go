@@ -2713,15 +2713,21 @@ func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
 				t.Fatalf("%s: want 200 with scripts allowed, got %d (CSP %q)", query, rec.Code, rec.Header().Get("Content-Security-Policy"))
 			}
 		}
-		rec := apiRequest(t, h, "GET", base+"?link="+link+"&x=1", "", "")
-		if rec.Code != 200 {
-			t.Fatalf("link plus another param: want 200, got %d (%s)", rec.Code, rec.Body.String())
+		for _, query := range []string{
+			"?link=" + link + "&x=1",
+			"?sig=" + shareSigForRing(api.keys, id) + "&x=1",
+			"?" + previewLinkQuery(api.keys, id, time.Now().Unix()+600) + "&x=1",
+		} {
+			rec := apiRequest(t, h, "GET", base+query, "", "")
+			if rec.Code != 200 {
+				t.Fatalf("%s: want 200, got %d (%s)", query, rec.Code, rec.Body.String())
+			}
+			apiWantHeaders(t, rec, map[string]string{
+				"Content-Disposition":     `inline; filename="game.html"; filename*=UTF-8''game.html`,
+				"Content-Security-Policy": "sandbox",
+				"X-Content-Type-Options":  "nosniff",
+			})
 		}
-		apiWantHeaders(t, rec, map[string]string{
-			"Content-Disposition":     `inline; filename="game.html"; filename*=UTF-8''game.html`,
-			"Content-Security-Policy": "sandbox",
-			"X-Content-Type-Options":  "nosniff",
-		})
 	})
 
 	t.Run("a sig minted before links were stored still opens its blob, and a forged one answers 401", func(t *testing.T) {

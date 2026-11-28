@@ -1,7 +1,7 @@
 package main
 
 // Signed links: an HMAC over exactly what they grant, with no stored state.
-// Two kinds are minted today: the cockpit's one-hour preview link (attachment id
+// One kind is minted today: the cockpit's one-hour preview link (attachment id
 // + exp). The other two — an attachment sig and a comparison sig with no exp —
 // are only verified, for links handed out before share links were stored
 // (api_share_links.go); legacyShareSigsOpen decides whether they still open.
