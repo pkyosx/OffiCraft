@@ -1771,12 +1771,12 @@ export function RepliesPage({
             idPrefix={tabsId}
             onSelect={setView}
           />
+          {view === "answered" && (
+            <span className="replies__section-hint" data-testid="replies-answered-window">
+              {t.replies.tabAnsweredHint}
+            </span>
+          )}
           <div className="replies__head-tools">
-            {view === "answered" && (
-              <span className="replies__section-hint" data-testid="replies-answered-window">
-                {t.replies.tabAnsweredHint}
-              </span>
-            )}
             <FilterPanel
               testId="replies-filter"
               clearLabel={t.replies.clearFilters}

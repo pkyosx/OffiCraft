@@ -24,9 +24,11 @@
 //       shows only while something is filtered;
 //   (5) the shell adds no spacing of its own below the row;
 //   (6) on 請示頁 the three list labels hold one line inside the column at
-//       320, 390 and 1440 in both languages, with the funnel and 顯示方式 on
-//       the same line beside them on a desktop and on one line below them on a
-//       phone, and no sort wording in the row;
+//       320, 375, 390, 393 and 1440 in both languages, with the funnel and
+//       顯示方式 on the same line beside them on a desktop and on a phone
+//       wherever they fit (zh from 375, en from 390; below them otherwise),
+//       近期已回覆's 「近 24 小時」 beside them on a desktop and on its own line
+//       under the row on a phone, and no sort wording in the row;
 //   (7) on 任務頁 and a 傳承 section page the row's count (「5 個任務」) sits at
 //       its left end on the funnel's centre line, whole and on one line, at
 //       320, 390 and 1440 in both languages.
@@ -334,23 +336,29 @@ test("the 篩選 shell adds no spacing of its own: the gap below the label row i
     const panel = root.querySelector(".filter-panel") as HTMLElement;
     const head = root.querySelector(".replies__head") as HTMLElement;
     const list = root.querySelector('[role="tabpanel"]') as HTMLElement;
+    const tabs = root.querySelector('[role="tablist"]') as HTMLElement;
     const cs = getComputedStyle(panel);
+    const headBottom = head.getBoundingClientRect().bottom;
     return {
       hostGap: parseFloat(getComputedStyle(head.parentElement!).rowGap || "0"),
-      actual: list.getBoundingClientRect().top - head.getBoundingClientRect().bottom,
-      panelBottomInHead: head.getBoundingClientRect().bottom - panel.getBoundingClientRect().bottom,
+      actual: list.getBoundingClientRect().top - headBottom,
+      rowBottomInHead:
+        headBottom - Math.max(panel.getBoundingClientRect().bottom, tabs.getBoundingClientRect().bottom),
       panelMargins: [cs.marginTop, cs.marginBottom],
     };
   });
   expect(m.hostGap, "the host must own a real rhythm for this test to mean anything").toBeGreaterThan(0);
   expect(m.panelMargins, "the shell's own vertical margins").toEqual(["0px", "0px"]);
-  expect(m.panelBottomInHead, "the shell ends at the bottom of the label row").toBeCloseTo(0, 0);
+  expect(m.rowBottomInHead, "the label row ends at the lower of the labels and the shell").toBeCloseTo(0, 0);
   expect(m.actual, "gap under the label row").toBeCloseTo(m.hostGap, 0);
 });
 
-for (const width of [320, 390, 1440]) {
+const TOOLBAR_FITS_ONE_ROW = { zh: 375, en: 390 };
+
+for (const width of [320, 375, 390, 393, 1440]) {
   for (const language of ["zh", "en"] as const) {
-    test(`width ${width}, ${language}: the three list labels keep one line inside the column, each label whole or cut with 「…」, the 篩選 and 顯示方式 buttons share a line ${width > 720 ? "with them" : "below them"}, and the row names no sort`, async ({
+    const oneRow = width >= TOOLBAR_FITS_ONE_ROW[language];
+    test(`width ${width}, ${language}: the three list labels keep one line inside the column, each label whole or cut with 「…」, the 篩選 and 顯示方式 buttons share a line ${oneRow ? "with them" : "below them"}, the 24h note ${width > 720 ? "beside them" : "on its own line under the row"}, and the row names no sort`, async ({
       mount,
       page,
     }) => {
@@ -421,11 +429,44 @@ for (const width of [320, 390, 1440]) {
       expect(Math.abs(mid(m.funnel) - mid(m.display)), "the buttons on one line").toBeLessThanOrEqual(2);
       for (const b of tools) expect(b.right).toBeLessThanOrEqual(m.column.right + 0.5);
       expect(m.headText).not.toContain(language === "zh" ? "開卡時間" : "Opened");
-      if (width > 720) {
+      if (oneRow) {
         expect(Math.abs(mid(m.funnel) - mid(m.list)), "the buttons beside the labels").toBeLessThanOrEqual(2);
         expect(m.funnel.left, "the buttons after the labels").toBeGreaterThanOrEqual(m.list.right);
       } else {
         expect(m.funnel.top, "the buttons on the line below the labels").toBeGreaterThanOrEqual(m.list.bottom);
+      }
+
+      await cmp.getByTestId("replies-tab-answered").click();
+      const h = await cmp.evaluate((root: HTMLElement) => {
+        const r = (el: Element) => {
+          const b = el.getBoundingClientRect();
+          return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+        };
+        const hint = root.querySelector('[data-testid="replies-answered-window"]') as HTMLElement;
+        const range = document.createRange();
+        range.selectNodeContents(hint);
+        return {
+          hint: r(hint),
+          lines: new Set(Array.from(range.getClientRects()).map((x) => Math.round(x.top))).size,
+          list: r(root.querySelector('[role="tablist"]')!),
+          funnel: r(root.querySelector('[data-testid="replies-filter-toggle"]')!),
+          display: r(root.querySelector('[data-testid="display-options"]')!),
+          panel: r(root.querySelector('[role="tabpanel"]')!),
+          page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        };
+      });
+      expect(h.page, "page horizontal overflow with the note shown").toBeLessThanOrEqual(0);
+      expect(h.lines, "the note on one line").toBe(1);
+      expect(h.hint.left).toBeGreaterThanOrEqual(m.column.left - 0.5);
+      expect(h.hint.right).toBeLessThanOrEqual(m.column.right + 0.5);
+      expect(h.hint.bottom, "the note above the list").toBeLessThanOrEqual(h.panel.top);
+      expect(Math.abs(h.funnel.top - m.funnel.top), "the note moves no button").toBeLessThanOrEqual(0.5);
+      expect(Math.abs(h.display.left - m.display.left), "the note moves no button").toBeLessThanOrEqual(0.5);
+      if (width > 720) {
+        expect(Math.abs(mid(h.hint) - mid(h.list)), "the note beside the labels").toBeLessThanOrEqual(2);
+        expect(h.hint.left, "the note after the labels").toBeGreaterThanOrEqual(h.list.right);
+      } else {
+        expect(h.hint.top, "the note under the row").toBeGreaterThanOrEqual(Math.max(h.list.bottom, h.funnel.bottom));
       }
     });
   }

@@ -35,8 +35,10 @@
   gap: 14px;
 }
 /* The three list labels, then the selected list's note (近期已回覆's 24h
- * window) and the filter / 顯示方式 buttons. The labels never wrap; when the
- * row is too narrow the note and buttons move below them as one group. */
+ * window) and the filter / 顯示方式 buttons. The labels never wrap. On a phone
+ * the note takes its own line under the row so it never pushes the buttons
+ * off the labels' line; the buttons drop below the labels only where even
+ * the tightened labels do not leave room (320, English at 375). */
 .replies__head {
   display: flex;
   flex-wrap: wrap;
@@ -130,10 +132,21 @@
 .replies__tab--active .replies__tab-count {
   color: var(--color-text);
 }
-@media (max-width: 360px) {
+@media (max-width: 720px) {
+  .replies__head {
+    column-gap: 8px;
+  }
+  .replies__section-hint {
+    order: 1;
+    flex: 1 0 100%;
+  }
+  .replies__tabs {
+    gap: 0;
+    padding: 2px;
+  }
   .replies__tab {
-    gap: 4px;
-    padding: 0 8px;
+    gap: 3px;
+    padding: 0 5px;
   }
 }
 
