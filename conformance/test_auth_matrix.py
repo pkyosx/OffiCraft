@@ -1106,14 +1106,28 @@ MATRIX: dict[str, Route] = {
         requires="machine",
         path=lambda ctx, _i: f"/api/chat/attachments?with={ctx.agent_a.member_id}",
     ),
-    "GET /api/chat/attachments/{attachment_id}/share-link": Route(
+    "POST /api/chat/attachments/{attachment_id}/share-link": Route(
         # unknown blob id: authz face passes, lookup 404s — same probe shape as
-        # the attachment blob row above; the sig SEMANTICS (single-file grant,
-        # bad sig 401, sig scoped to the blob route) are pinned in
+        # the attachment blob row above; the link SEMANTICS (single-file grant,
+        # unknown link 410, link scoped to the blob route) are pinned in
         # test_rest_happy.py where the attachment fixture lives.
         requires="machine",
         overrides={i: 404 for i in _IDENTITY_RANK},
         path="/api/chat/attachments/att-conf-missing/share-link",
+    ),
+    "GET /api/chat/attachments/{attachment_id}/preview-link": Route(
+        requires="machine",
+        overrides={i: 404 for i in _IDENTITY_RANK},
+        path="/api/chat/attachments/att-conf-missing/preview-link",
+    ),
+    "GET /api/share-links": Route(requires="admin_agent"),
+    # unknown id: the floor passes and the row 404s, so the matrix revokes
+    # nothing a later row depends on. Revocation itself is pinned in
+    # test_rest_happy.py.
+    "DELETE /api/share-links/{share_link_id}": Route(
+        requires="admin_agent",
+        path="/api/share-links/sl-000000000000",
+        overrides={"admin_agent": 404, "owner": 404},
     ),
     "POST /api/chat/attachments": Route(
         # an EMPTY octet-stream body probes the authz choke (which fires before
@@ -1126,15 +1140,15 @@ MATRIX: dict[str, Route] = {
     # Both comparison rows probe with a SAYABLE address that resolves to
     # nothing, which is deliberately still a 200: the pair route answers a
     # missing side with that side's `gone` marker, and the mint judges shape
-    # only. The sig SEMANTICS (credential-less read, tampered sig 401) are
+    # only. The link SEMANTICS (credential-less read, relabelled link 410) are
     # pinned in test_rest_happy.py, where the attachment fixture lives.
     "GET /api/diff": Route(
         requires="machine",
         path="/api/diff?before=att-000000000000&after=att-000000000000",
     ),
-    "GET /api/diff/share-link": Route(
+    "POST /api/diff/share-link": Route(
         requires="machine",
-        path="/api/diff/share-link?before=att-000000000000&after=att-000000000000",
+        body={"before": "att-000000000000", "after": "att-000000000000"},
     ),
     "POST /api/chat/mark-read": Route(
         requires="machine",
@@ -2270,9 +2284,17 @@ DEGRADED: dict[str, str] = {
         "probed with a missing attachment id (404 across authenticated "
         "identities); batch 1 posts no attachment fixture."
     ),
-    "GET /api/chat/attachments/{attachment_id}/share-link": (
+    "POST /api/chat/attachments/{attachment_id}/share-link": (
         "probed with a missing attachment id (404 across authenticated "
-        "identities); the sig semantics are pinned in test_rest_happy.py."
+        "identities); the link semantics are pinned in test_rest_happy.py."
+    ),
+    "GET /api/chat/attachments/{attachment_id}/preview-link": (
+        "probed with a missing attachment id (404 across authenticated "
+        "identities); the preview url is exercised in test_rest_happy.py."
+    ),
+    "DELETE /api/share-links/{share_link_id}": (
+        "probed with an unknown link id (404 for the admin/owner faces): a real "
+        "revoke is pinned in test_rest_happy.py."
     ),
     "PATCH /api/members/{member_id}/webhooks/{endpoint_id}": (
         "probed with a missing endpoint id (404 for the admin/owner faces only): "
