@@ -38,9 +38,9 @@ When a member reaches something only you can decide (whether to do something, wh
 
 A card states the background, what you need to do, the impact, and a recommendation, so you can answer from the card alone. A card that belongs to a task shows the task name, priority, and due date at the top. When there are many cards, the "Ask" tab can filter or sort them by task priority and task due date. You can answer by clicking an option or by typing a reply. The option marked "AI pick" is the one the member recommends.
 
-**To change your answer**: go to "Recently handled" in the "Ask" tab and press "Change my decision" on that card. The member receives the new answer.
+**To change your answer**: in the "Ask" tab, press the funnel button ("Filters") and tick "Answered" under "Status" (cards answered in the last 24 hours), then press "Change my decision" on that card. The member receives the new answer.
 
-**If you do not want to answer yet**: press "Later" and choose to come back after a number of hours or days. The card moves to "Snoozed" and returns to "Ask" automatically when the time is up. The member who opened the card is not notified, and any task waiting on this card keeps waiting.
+**If you do not want to answer yet**: press "Later" and choose to come back after a number of hours or days. The card becomes "Snoozed" and becomes "Unanswered" again automatically when the time is up. The member who opened the card is not notified, and any task waiting on this card keeps waiting.
 
 **If the question no longer needs an answer**: mark the card as expired. Marking a card as expired **cannot be undone**; if the question still applies, the member opens a new card.
 

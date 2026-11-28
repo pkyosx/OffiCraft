@@ -96,7 +96,7 @@ When you open a reply card, you see:
 - If the options have checkboxes in front of them, it is a **multiple-choice card**: the "AI pick" options are already checked. You can add or remove checks, then send.
 - You can also type a reply in "Type a reply…". On a single-choice card, text you have already typed is sent together with the option you click.
 
-After you reply, Mira continues the work. Cards you have answered are in "Recently handled", where you can click "Change my decision" to change your answer.
+After you reply, Mira continues the work. To find a card you have answered, press the funnel button ("Filters") on the "Ask" tab and tick "Answered" under "Status"; there you can click "Change my decision" to change your answer.
 
 For other ways to use reply cards, see [Assigning work and answering reply cards](daily.md).
 
