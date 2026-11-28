@@ -12,10 +12,9 @@
 //   ② waiting_external 三處同詞:step map 項 == 特殊徽章 stepWaitingExternal
 //      == 任務層 tasks.status.waiting_external —— 兩層(任務/步驟)與兩條
 //      render 路徑(特殊徽章/後防 map)永遠讀成同一個詞。
-//   ③ resolver 全輸入空間掃描:status × isGate × replyCardId ×
-//      replyCardStatus 每種組合的徽章,經三語字典解出的文字都不得長得像
-//      raw key(^[a-z_]+$)——特殊徽章 key(gateAnnounced 等)缺譯也會在
-//      這裡紅,不只 stepStatus map。
+//   ③ resolver 全輸入空間掃描:status × replyCardId × replyCardStatus
+//      每種組合的徽章,經三語字典解出的文字都不得長得像 raw key
+//      (^[a-z_]+$)——特殊徽章 key 缺譯也會在這裡紅,不只 stepStatus map。
 import { describe, it, expect } from "vitest";
 import { resolveStepBadge, STEP_STATUSES, type StepBadge } from "./stepBadge";
 import { zh, type Dict } from "../i18n/locales/zh";
@@ -26,12 +25,6 @@ const DICTS: Record<string, Dict> = { zh, en };
 /** The exact text TaskCard.renderStepBadge shows for a resolved badge. */
 function badgeText(t: Dict, badge: StepBadge): string {
   switch (badge.kind) {
-    case "gate-announced":
-      return t.tasks.gateAnnounced;
-    case "card-answered":
-      return t.tasks.stepCardAnswered;
-    case "card-expired":
-      return t.tasks.stepCardExpired;
     case "waiting-external":
       return t.tasks.stepWaitingExternal;
     default:
@@ -71,39 +64,35 @@ describe("step 狀態 i18n 枚舉守衛 (T-6f11)", () => {
 
   it("resolver 全輸入空間 × 三語:沒有任何組合渲染出 raw key", () => {
     for (const status of STEP_STATUSES) {
-      for (const isGate of [false, true]) {
-        for (const replyCardId of ["", "rc-1"]) {
-          for (const replyCardStatus of [
-            null,
-            "waiting",
-            "answered",
-            "expired",
-          ] as const) {
-            const badge = resolveStepBadge({
-              status,
-              isGate,
-              replyCardId,
-              replyCardStatus,
-            });
-            for (const [name, t] of Object.entries(DICTS)) {
-              const text = badgeText(t, badge);
-              expect(
-                text,
-                `${name} status=${status} gate=${isGate} card=${replyCardId} ` +
-                  `rcs=${replyCardStatus} kind=${badge.kind} 渲染出 raw key`
-              ).not.toMatch(RAW_KEY);
-            }
+      for (const replyCardId of ["", "rc-1"]) {
+        for (const replyCardStatus of [
+          null,
+          "waiting",
+          "answered",
+          "expired",
+        ] as const) {
+          const badge = resolveStepBadge({
+            status,
+            replyCardId,
+            replyCardStatus,
+          });
+          for (const [name, t] of Object.entries(DICTS)) {
+            const text = badgeText(t, badge);
+            expect(
+              text,
+              `${name} status=${status} card=${replyCardId} ` +
+                `rcs=${replyCardStatus} kind=${badge.kind} 渲染出 raw key`
+            ).not.toMatch(RAW_KEY);
           }
         }
       }
     }
   });
 
-  it("waiting_external step 走自己的特殊徽章(非 gate、無卡)——語意零回歸", () => {
+  it("waiting_external step 走自己的特殊徽章(無卡)——語意零回歸", () => {
     expect(
       resolveStepBadge({
         status: "waiting_external",
-        isGate: false,
         replyCardId: "",
         replyCardStatus: null,
       })

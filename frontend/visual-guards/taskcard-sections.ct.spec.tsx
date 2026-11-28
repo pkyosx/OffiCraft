@@ -138,7 +138,7 @@ for (const width of [320, 375, 390]) {
       const step = cmp.getByTestId("task-step").nth(1);
       await expect(step.getByTestId("gate-mark")).toHaveText(language === "en" ? "Approval" : "審批");
       await expect(step.locator(".task-step__duration")).toHaveText("4h 59m");
-      await expect(step.getByTestId("gate-announced")).toHaveText(language === "en" ? "Awaiting my reply" : "等我回覆");
+      await expect(step.locator(".task-step-badge--waiting_owner")).toHaveText(language === "en" ? "Awaiting my reply" : "等我回覆");
       const g = await step.locator(".task-step__row").evaluate((row: HTMLElement) => {
         const name = row.querySelector(".task-step__name") as HTMLElement;
         const lineHeight = parseFloat(getComputedStyle(name).lineHeight) || parseFloat(getComputedStyle(name).fontSize) * 1.2;

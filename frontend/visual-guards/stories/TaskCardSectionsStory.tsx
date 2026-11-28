@@ -43,7 +43,7 @@ const NOW = 1000 + 4 * 3600 + 59 * 60;
 
 const GATE_STEPS = [
   mkStep({ name: "整理三個文案方案", status: "done", isGate: true, dod: "三個方案各附一張示意圖", startedTs: 1000, finishedTs: 1060 }),
-  mkStep({ name: "請 Owner 選定文案", status: "in_progress", isGate: true, dod: "Owner 選定其中一個方案", startedTs: 1000 }),
+  mkStep({ name: "請 Owner 選定文案", status: "waiting_owner", isGate: true, dod: "Owner 選定其中一個方案", startedTs: 1000 }),
   mkStep({ name: "依選定方案出稿", status: "pending", dod: "交付 1920x600 與手機版兩種尺寸" }),
   mkStep({ name: "發佈週報", status: "pending", dod: "週報發佈到共享文件區" }),
 ];

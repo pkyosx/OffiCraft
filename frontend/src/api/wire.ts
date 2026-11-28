@@ -216,9 +216,7 @@ export type WireTaskDepRef = components["schemas"]["TaskDepRefDTO"];
  * fresh worker on the spot from `model` / `effort` / `machine`. */
 export type WireTaskReassign = components["schemas"]["TaskReassignDTO"];
 
-/** Mirrors `TaskStepDTO`: one workflow node. Gate projection: `is_gate` with an
- * empty `reply_card_id` = ANNOUNCED (dashed 等我回覆); non-empty = ARMED (a live
- * M2 reply card is bound). */
+/** Mirrors `TaskStepDTO`: one workflow node. */
 export type WireTaskStep = components["schemas"]["TaskStepDTO"];
 
 /** Mirrors `TaskStepDetailDTO` (`GET /api/tasks/{task_id}/steps/{step_id}` /

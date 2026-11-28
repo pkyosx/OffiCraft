@@ -370,9 +370,6 @@ export const en: Dict = {
     // Step-level external-wait badge (T-9ca5): the step's own 等待外部, distinct
     // from the owner-facing 等我回覆.
     stepWaitingExternal: "Waiting on external",
-    gateAnnounced: "Awaiting my reply",
-    stepCardAnswered: "Answered",
-    stepCardExpired: "Expired",
     progressLabel: "Step",
     elapsedLabel: "Elapsed",
     expandCard: "Expand workflow",

@@ -1,9 +1,6 @@
 // TaskCard / stepBadge — superseded 已答卡凍結節點 (T-1aea). Locked here:
 //   1. resolveStepBadge (the ONE badge decision source) resolves a superseded
-//      step to the plain status badge — never the card-answered/expired badge
-//      (those fire only for waiting_owner) and never the dashed announced-gate
-//      preview (a superseded gate is frozen replan history: nothing will ever
-//      arm it).
+//      step to the plain status badge, whatever its card or gate state.
 //   2. The rendered row carries the archive styling hooks: 已取代 badge text,
 //      the task-step--superseded greyscale class, the muted timeline dot.
 //   3. Edge ③ (design §3-6): a task whose steps are ALL superseded honestly
@@ -63,33 +60,18 @@ describe("resolveStepBadge — superseded (T-1aea)", () => {
   it("resolves a superseded step to the plain status badge", () => {
     expect(
       resolveStepBadge({
-        status: "superseded", isGate: false,
+        status: "superseded",
         replyCardId: "rc-1", replyCardStatus: "answered",
       })
     ).toEqual({ kind: "status", status: "superseded" });
   });
 
-  it("never shows the announced-gate preview on a superseded gate", () => {
+  it("resolves a superseded gate to the plain status badge", () => {
     expect(
       resolveStepBadge({
-        status: "superseded", isGate: true, replyCardId: "", replyCardStatus: null,
+        status: "superseded", replyCardId: "", replyCardStatus: null,
       })
     ).toEqual({ kind: "status", status: "superseded" });
-    // Sanity: the preview still fires for a live announced gate.
-    expect(
-      resolveStepBadge({
-        status: "pending", isGate: true, replyCardId: "", replyCardStatus: null,
-      })
-    ).toEqual({ kind: "gate-announced" });
-  });
-
-  it("keeps the card-answered/expired badges for waiting_owner only", () => {
-    expect(
-      resolveStepBadge({
-        status: "waiting_owner", isGate: false,
-        replyCardId: "rc-1", replyCardStatus: "expired",
-      })
-    ).toEqual({ kind: "card-expired" });
   });
 });
 

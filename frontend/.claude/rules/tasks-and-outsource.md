@@ -44,7 +44,7 @@ paths:
 
 ## TaskCard
 
-卡片預設收合；標題與 description 是唯讀 UI，owner 沒有要求編輯入口。進度與 gate 狀態直接使用 server 值；stepBadge 由 lib/stepBadge.ts 統一，superseded 不計入 progress。gate 預告、內嵌 TaskReplyCard、等待外部 banner 與任務訊息框都要維持原 wire 語意。
+卡片預設收合；標題與 description 是唯讀 UI，owner 沒有要求編輯入口。進度與 gate 狀態直接使用 server 值；stepBadge 由 lib/stepBadge.ts 統一，superseded 不計入 progress。步驟徽章只寫步驟自己的階段，不寫綁定卡的狀態：卡已回覆／已過期而步驟仍是 waiting_owner 時寫「進行中」，「已回覆／已過期」只出現在內嵌的請示卡上；`審批` 標只看 `isGate`（server 綁卡時就把該步驟的 is_gate 永久設成 true），不看 `replyCardId`。內嵌 TaskReplyCard、等待外部 banner 與任務訊息框都要維持原 wire 語意。
 
 展開後的任務描述與工作流程共用 TaskCard 內的 TaskCardSection 外框（標題列是 button，點它只收合該區塊）；描述的截斷沿用 ClampedText（children 模式按高度截），不另寫一套。狀態選單跳到等我回覆卡／等待外部步驟時會先把收合的工作流程打開，否則跳轉目標不在 DOM 裡。
 

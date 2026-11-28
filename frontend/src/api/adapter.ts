@@ -550,11 +550,9 @@ export interface ReplyCardCounts {
 
 /** One workflow node of a task timeline, in view-model form. `status` is the
  * closed set `pending` | `in_progress` | `waiting_owner` | `waiting_external` |
- * `done` | `superseded`. Gate
- * projection (spec §核心名詞): `isGate` with an EMPTY `replyCardId` is the
- * ANNOUNCED gate (dashed 等我回覆 — the owner sees ahead of time where a reply
- * will be needed); a NON-EMPTY `replyCardId` is the ARMED gate carrying a live
- * M2 reply card. `startedTs`/`finishedTs` are 0 until real (never fabricated —
+ * `done` | `superseded`. `isGate` marks an approval step (declared in the plan,
+ * or set for good by the server once a reply card is bound); `replyCardId` is
+ * the latest bound card. `startedTs`/`finishedTs` are 0 until real (never fabricated —
  * the UI derives 耗時 only from non-zero stamps). */
 export interface TaskStepView {
   id: string;
@@ -563,7 +561,7 @@ export interface TaskStepView {
   dod: string;
   status: string;
   isGate: boolean;
-  /** "" ⇒ announced gate / not a gate; non-empty ⇒ the bound M2 reply card. */
+  /** "" ⇒ no card bound yet; non-empty ⇒ the latest bound M2 reply card. */
   replyCardId: string;
   /** Read-time join of the bound card's CURRENT status (`reply_card_status`):
    * `"waiting"` | `"answered"` | `"expired"`, or null when the step carries no card. Lets the

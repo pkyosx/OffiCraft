@@ -3,10 +3,11 @@
 //      never floating above the workflow (Seth 07-13: 等我回覆卡要看得出屬於
 //      哪個 step). Legacy discovery is unchanged (the step's replyCardId
 //      pointer), so pre-binding data renders the same way — never a crash.
-//   2. 審批持久標記: a step that is a declared gate OR ever carried a card
-//      keeps a permanent 審批 marker after it is done.
-//   3. A DONE announced gate drops the dashed 等我回覆 preview (nothing waits)
-//      — the permanent marker carries the history instead.
+//   2. 審批持久標記: only a gate step (is_gate — the server marks every
+//      card-bound step as one) carries the 審批 marker, also after it is done.
+//   3. The step badge shows only the step's own stage: a gate with no card is
+//      plain 待辦, and a waiting_owner step whose card is answered/expired
+//      reads 進行中.
 //   4. 已回覆卡收合: an ANSWERED card renders as a one-line summary (已回覆
 //      tag + summary + the standing answer), expandable to the full shared
 //      interior and collapsible again.
@@ -139,13 +140,12 @@ describe("TaskCard 卡綁 step", () => {
     expect(workflow.contains(embedded)).toBe(true);
   });
 
-  it("keeps the permanent 審批 marker on steps that ever carried an approval", async () => {
+  it("shows the 審批 marker on gate steps only; a card-less gate shows its plain status", async () => {
     __injectMockReplyCard(mkCard({ id: "rc-done", status: "answered" }));
     __injectMockTask(
       mkTask({
         title: "審批留痕",
         steps: [
-          // A finished declared gate: no dashed preview any more, marker stays.
           mkStep({
             name: "gate-done",
             status: "done",
@@ -155,7 +155,7 @@ describe("TaskCard 卡綁 step", () => {
             startedTs: 100,
             finishedTs: 200,
           }),
-          // A finished plain step an ask was bound to: marker stays too.
+          // isGate is the only source; a replyCardId alone never marks it.
           mkStep({
             name: "asked-done",
             status: "done",
@@ -164,25 +164,33 @@ describe("TaskCard 卡綁 step", () => {
             startedTs: 100,
             finishedTs: 200,
           }),
-          // An ordinary finished step: no marker.
           mkStep({ name: "plain-done", status: "done", orderIdx: 2 }),
+          mkStep({
+            name: "gate-pending",
+            status: "pending",
+            isGate: true,
+            replyCardId: "",
+            orderIdx: 3,
+          }),
         ],
       })
     );
 
-    const { findByTestId, findAllByTestId, queryByTestId } = renderPage();
+    const { findByTestId, findAllByTestId } = renderPage();
     fireEvent.click(await findByTestId("task-card"));
     const steps = await findAllByTestId("task-step");
     expect(
       steps[0].querySelector('[data-testid="gate-mark"]')?.textContent
     ).toBe("審批");
-    expect(steps[1].querySelector('[data-testid="gate-mark"]')).not.toBeNull();
+    expect(steps[1].querySelector('[data-testid="gate-mark"]')).toBeNull();
     expect(steps[2].querySelector('[data-testid="gate-mark"]')).toBeNull();
-    // The DONE announced gate shows the done badge, not the dashed preview.
-    expect(queryByTestId("gate-announced")).toBeNull();
+    expect(steps[3].querySelector('[data-testid="gate-mark"]')).not.toBeNull();
     expect(
       steps[0].querySelector(".task-step-badge")?.textContent
     ).toBe("完成");
+    expect(
+      steps[3].querySelector(".task-step-badge")?.textContent
+    ).toBe("待辦");
   });
 
   it("collapses an ANSWERED card to one line; the chevron expands and re-collapses it", async () => {
@@ -287,7 +295,7 @@ describe("TaskCard 卡綁 step", () => {
     );
   });
 
-  it("shows the waiting badge only while the bound card is WAITING; answered/expired render their own badges", async () => {
+  it("shows 等我回覆 only while the bound card is WAITING; an answered or expired card puts the step back to 進行中", async () => {
     __injectMockReplyCard(mkCard({ id: "rc-b-wait" }));
     __injectMockReplyCard(
       mkCard({
@@ -338,21 +346,15 @@ describe("TaskCard 卡綁 step", () => {
     fireEvent.click(await findByTestId("task-card"));
     const steps = await findAllByTestId("task-step");
 
-    // WAITING card → the solid 等我回覆 badge (truly waiting for the owner).
     expect(
       steps[0].querySelector(".task-step-badge--waiting_owner")?.textContent
     ).toBe("等我回覆");
-    // ANSWERED card → never 等我回覆 any more; the answered badge instead
-    // (no pickup promise in the copy — T-2b14 semantic-death call).
-    expect(steps[1].querySelector(".task-step-badge--waiting_owner")).toBeNull();
     expect(
-      steps[1].querySelector('[data-testid="step-card-answered"]')?.textContent
-    ).toBe("已回覆");
-    // EXPIRED card (terminal, T-1aa4) → never 等我回覆; the 已過期 badge.
-    expect(steps[2].querySelector(".task-step-badge--waiting_owner")).toBeNull();
+      steps[1].querySelector(".task-step-badge--in_progress")?.textContent
+    ).toBe("進行中");
     expect(
-      steps[2].querySelector('[data-testid="step-card-expired"]')?.textContent
-    ).toBe("已過期");
+      steps[2].querySelector(".task-step-badge--in_progress")?.textContent
+    ).toBe("進行中");
   });
 
   it("keeps a WAITING card fully open (the collapse applies to answered cards only)", async () => {

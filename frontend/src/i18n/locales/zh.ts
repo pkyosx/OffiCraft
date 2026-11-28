@@ -398,11 +398,6 @@ export const zh = {
     } as Record<string, string>,
     // 節點等待外部徽章(T-9ca5):步驟自身的「等待外部」,有別於 等我回覆
     stepWaitingExternal: "等待外部",
-    // gate 預告(虛線)與生效(實心)同詞
-    gateAnnounced: "等我回覆",
-    // 綁定卡已非 waiting 時的 step 徽章(T-d64f):已答但 step 尚未被接手/已過期
-    stepCardAnswered: "已回覆",
-    stepCardExpired: "已過期",
     // 頭部:進度用 server 算好的 progress_done/total(SPEC §3.1);文案照
     // mockup「步驟 N/M」(owner 2026-07-13)
     progressLabel: "步驟",

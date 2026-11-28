@@ -2060,26 +2060,6 @@ button.task-card__waiting--dep:focus-visible {
   background: var(--color-dot-waking);
   border-color: var(--color-dot-waking);
 }
-/* ANNOUNCED gate — dashed 等我回覆 preview (no card yet). */
-.task-step-badge--gate-announced {
-  color: var(--color-dot-waking);
-  border: 1px dashed color-mix(in srgb, var(--color-dot-waking) 60%, transparent);
-  background: transparent;
-}
-/* Bound card already ANSWERED (T-d64f) — 等我回覆 would lie; green like the
-   reply-tag--answered stub (replies.css) since the owner's part is done. */
-.task-step-badge--card-answered {
-  color: var(--color-answered);
-  border-color: color-mix(in srgb, var(--color-answered) 45%, transparent);
-  background: transparent;
-}
-/* Bound card EXPIRED (terminal, T-1aa4) — grey like reply-tag--expired:
-   an expiry is not an answer, and nothing waits on the owner any more. */
-.task-step-badge--card-expired {
-  color: var(--color-text-muted);
-  border-color: color-mix(in srgb, var(--color-overlay) 18%, transparent);
-  background: transparent;
-}
 /* 等待外部 (T-9ca5) — the step's own external-wait badge; shares the task-level
    waiting_external purple (.task-badge--status-waiting_external) so the two read
    as one vocabulary. Distinct from the amber owner-facing 等我回覆. */

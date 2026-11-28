@@ -798,7 +798,7 @@ describe("TasksPage", () => {
     expect(queryByTestId("task-step")).toBeNull();
   });
 
-  it("renders the timeline: step DoD + 耗時, parallel stage label, gate announced (dashed) vs armed (solid)", async () => {
+  it("renders the timeline: step DoD + 耗時, parallel stage label, a waiting gate reads 等我回覆 and a pending gate its plain status", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(mkCard({ id: "rc-armed" }));
     __injectMockTask(
@@ -862,15 +862,11 @@ describe("TasksPage", () => {
     expect(
       parallel.querySelectorAll('[data-testid="task-step"]')
     ).toHaveLength(2);
-    // ARMED gate: solid 等我回覆 badge (waiting_owner class, no dashed one).
     expect(
       steps[3].querySelector(".task-step-badge--waiting_owner")?.textContent
     ).toBe("等我回覆");
-    expect(steps[3].querySelector('[data-testid="gate-announced"]')).toBeNull();
-    // ANNOUNCED gate: dashed preview badge even while the step is pending.
-    expect(
-      steps[4].querySelector('[data-testid="gate-announced"]')?.textContent
-    ).toBe("等我回覆");
+    expect(steps[4].querySelector(".task-step-badge")?.textContent).toBe("待辦");
+    expect(steps[4].querySelector('[data-testid="gate-mark"]')).not.toBeNull();
   });
 
   it("aggregates the parallel stage dot: any in_progress → 藍, all done → 綠, else pending", async () => {
@@ -903,15 +899,14 @@ describe("TasksPage", () => {
     expect(dotOf(stages[2])).toContain("task-timeline__dot--pending");
   });
 
-  it("renders legacy dirty parallel data defensively: gate-in-group keeps its badge, a split group folds into two separate stages", async () => {
+  it("renders legacy dirty parallel data defensively: gate-in-group keeps its plain status badge, a split group folds into two separate stages", async () => {
     // submit_plan now refuses these shapes (400), but rows written before the
     // gate landed are never rewritten — the timeline must stay honest, not crash.
     __injectMockTask(
       mkTask({
         title: "髒資料",
         steps: [
-          // A gate INSIDE a parallel group (pre-gate legacy): the announced
-          // dashed badge still renders inside the stage.
+          // A gate INSIDE a parallel group (pre-gate legacy).
           mkStep({ name: "lane", status: "in_progress", parallelGroup: "pg-x", orderIdx: 0 }),
           mkStep({ name: "approve", status: "pending", parallelGroup: "pg-x", isGate: true, replyCardId: "", orderIdx: 1 }),
           // The SAME group key split by a plain step: two stages, each with
@@ -927,10 +922,8 @@ describe("TasksPage", () => {
     expect(stages).toHaveLength(2);
     expect(stages[0].textContent).toContain("同時進行 · 2 項並行");
     expect(stages[1].textContent).toContain("同時進行 · 1 項並行");
-    // The in-group announced gate still shows its dashed 等我回覆 preview.
-    expect(
-      stages[0].querySelector('[data-testid="gate-announced"]')?.textContent
-    ).toBe("等我回覆");
+    const inGroup = stages[0].querySelectorAll('[data-testid="task-step"]');
+    expect(inGroup[1].querySelector(".task-step-badge")?.textContent).toBe("待辦");
   });
 
   it("終止 double-confirms; the terminated task leaves the default view, and 終止 reveals it in the list again (action hidden on closed tasks)", async () => {

@@ -37,15 +37,13 @@
 //               「task details 應該在回覆訊息的下面」 — only this block moved;
 //               the head's meta column stayed put). Expanded-only.
 //   workflow  — the step timeline: name + DoD + status badge + 耗時; parallel
-//               stages grouped 「同時進行 · N 項並行」; gate projection dashed
-//               (announced) vs solid (armed).
+//               stages grouped 「同時進行 · N 項並行」.
 //               Card-bearing steps embed their reply card INSIDE the step row
 //               (owner 2026-07-14: 卡內嵌在所屬 step 內, 不再懸在 task 頂部;
 //               TaskReplyCard — the SHARED M2 ReplyCardBody interior, never a
 //               re-implementation; answered cards collapse to one line).
-//               Steps that EVER carried an approval (is_gate, or a bound
-//               reply card — plain non-gate steps included) keep a permanent
-//               審批 marker after they finish (owner 2026-07-14: 持久標記).
+//               Gate steps (is_gate — the server sets it for good when a
+//               card is bound) carry the 審批 marker, also after they finish.
 //               Transitional states when there are no steps yet: unassigned →
 //               等待指派; assigned-but-no-plan → 「等待 ○○ 建立 Steps」 (○○ = the
 //               executor's display name; owner 2026-07). But a task the light
@@ -1320,8 +1318,8 @@ export function TaskCard({
   }
 
   // ── embedded reply cards ────────────────────────────────────────────────────
-  // Each step carrying a card (non-empty replyCardId — an armed gate OR an
-  // ad-hoc ask bound to a plain step) embeds one TaskReplyCard INSIDE its step row.
+  // Each step carrying a card (non-empty replyCardId) embeds one TaskReplyCard
+  // INSIDE its step row.
 
   // ── header stamps ──────────────────────────────────────────────────────────
   // 已歷時 ticks from created_ts (含 等待指派/等待建立 Steps — spec §3.1); a CLOSED
@@ -1335,39 +1333,10 @@ export function TaskCard({
       : 0;
 
   // ── step badge — resolveStepBadge (lib/stepBadge.ts) is the ONE decision
-  // source: 等我回覆 renders only while the bound card really WAITS; an
-  // answered/expired card shows its own badge even if the step is still held
-  // at waiting_owner (T-d64f).
+  // source: the badge shows only the step's own stage, never the bound card's.
   function renderStepBadge(step: TaskStepView) {
     const badge = resolveStepBadge(step);
     switch (badge.kind) {
-      case "gate-announced":
-        return (
-          <span
-            className="task-step-badge task-step-badge--gate-announced"
-            data-testid="gate-announced"
-          >
-            {t.tasks.gateAnnounced}
-          </span>
-        );
-      case "card-answered":
-        return (
-          <span
-            className="task-step-badge task-step-badge--card-answered"
-            data-testid="step-card-answered"
-          >
-            {t.tasks.stepCardAnswered}
-          </span>
-        );
-      case "card-expired":
-        return (
-          <span
-            className="task-step-badge task-step-badge--card-expired"
-            data-testid="step-card-expired"
-          >
-            {t.tasks.stepCardExpired}
-          </span>
-        );
       case "waiting-external":
         return (
           <span
@@ -1407,10 +1376,6 @@ export function TaskCard({
 
   function renderStep(step: TaskStepView) {
     const dur = stepDuration(step);
-    // The PERMANENT approval marker: a step that is a declared gate OR ever
-    // had a reply card bound (the pointer persists after the step finishes)
-    // stays recognisable as an approval step forever (owner 2026-07-14).
-    const everApproval = step.isGate || step.replyCardId !== "";
     return (
       <div
         key={step.id}
@@ -1424,7 +1389,7 @@ export function TaskCard({
         <div className="task-step__row">
           <span className="task-step__name">{step.name}</span>
           <span className="task-step__badges">
-            {everApproval && (
+            {step.isGate && (
               <span className="task-step__gate-mark" data-testid="gate-mark">
                 {t.tasks.gateMark}
               </span>
