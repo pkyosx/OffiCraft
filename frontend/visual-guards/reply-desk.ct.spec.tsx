@@ -59,11 +59,16 @@ const HEAD_BUTTONS = {
 /** Whether anything in the name column paints into the strip between it and
  * the card's right edge: the strip is captured with the column shown and with
  * it hidden, and the two only match when every line of it is cut at the
- * column's edge. */
+ * column's edge. The buttons and the stamp are hidden in both captures.
+ * ⚠️ Toggling the column's visibility can re-raster the buttons' icons a few
+ * levels differently when the head straddles a raster tile edge (at 390 with a
+ * mouse, rc-desk-long-name's head crosses y=512 under CPU load), which reads
+ * as the column drawing past its edge though it draws nothing there. */
 async function nameColumnDrawsPastItsEdge(page: Page, w: Box, cardRight: number): Promise<boolean> {
   const clip = { x: w.right + 1, y: w.top, width: Math.max(1, cardRight - w.right - 2), height: w.bottom - w.top };
-  const shown = await page.screenshot({ clip, animations: "disabled" });
-  const hidden = await page.screenshot({ clip, animations: "disabled", style: ".reply-card__who { visibility: hidden !important; }" });
+  const others = ".reply-card__actions, .reply-card__waited, .reply-card__answered-at";
+  const shown = await page.screenshot({ clip, animations: "disabled", style: `${others} { visibility: hidden !important; }` });
+  const hidden = await page.screenshot({ clip, animations: "disabled", style: `${others}, .reply-card__who { visibility: hidden !important; }` });
   return !shown.equals(hidden);
 }
 
