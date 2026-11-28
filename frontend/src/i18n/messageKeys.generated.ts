@@ -1880,7 +1880,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "tasks.reassignToMember",
   "tasks.reassignToOutsource",
   "tasks.replyAnsweredTag",
-  "tasks.replyBadge",
   "tasks.replyHeader",
   "tasks.replyInChat",
   "tasks.replySnoozedTag",

@@ -627,7 +627,6 @@ export const zh = {
     reassignError: "轉派失敗，請稍後重試",
     // 內嵌請示卡(重用 M2 ReplyCardBody;可多張;內嵌在所屬 step 內)
     replyHeader: "請示",
-    replyBadge: "等你回覆",
     replyInChat: "在聊天室回覆",
     // 審批持久標記:曾經開過卡/標過 gate 的 step,做完後仍看得出(owner
     // 2026-07-14:不消失的標記)

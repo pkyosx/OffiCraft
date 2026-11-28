@@ -227,7 +227,7 @@ describe("TaskReplyCard", () => {
     expect(getSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("a snoozed waiting card's head says 已延後 where a plain waiting one says 等你回覆, and 等你回覆 again once unsnoozed", async () => {
+  it("a waiting card's head carries no status tag, snoozed or not", async () => {
     __injectMockReplyCard(mkCard({ id: "rc-1", snoozedUntilTs: Date.now() / 1000 + 3600 }));
     __injectMockReplyCard(mkCard({ id: "rc-2" }));
     render(
@@ -238,15 +238,14 @@ describe("TaskReplyCard", () => {
         </ReplyCardsProvider>
       </I18nProvider>
     );
-    const headTag = (id: string) =>
-      document.querySelector(`[data-reply-card-id="${id}"] .task-reply-card__head .reply-tag`)?.textContent ?? null;
-    await waitFor(() => expect(headTag("rc-1")).toBe("已延後"));
-    expect(headTag("rc-2")).toBe("等你回覆");
-
-    await act(async () => {
-      await api.snoozeReplyCard("rc-1", null);
-    });
-    await waitFor(() => expect(headTag("rc-1")).toBe("等你回覆"));
+    const head = (id: string) =>
+      document.querySelector(`[data-reply-card-id="${id}"] .task-reply-card__head`);
+    await waitFor(() => expect(head("rc-1")?.textContent).toContain("在聊天室回覆"));
+    await waitFor(() => expect(head("rc-2")?.textContent).toContain("在聊天室回覆"));
+    for (const id of ["rc-1", "rc-2"]) {
+      expect(head(id)!.querySelector(".reply-tag")).toBeNull();
+      expect(head(id)!.textContent).not.toMatch(/已延後|等你回覆|待回覆/);
+    }
   });
 
   it("a WAITING-hinted card loads eagerly on mount (waiting 卡照常)", async () => {

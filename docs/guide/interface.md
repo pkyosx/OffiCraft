@@ -310,7 +310,7 @@ Reply cards appear in three places. Answering in any one of them has the same ef
 
 - The "Ask" tab. The number on the tab is the count of cards still waiting for your answer, not counting snoozed cards.
 - In a member's chat, between messages. In chat, reply cards are collapsed into a single row by default, labeled "Pending", "Snoozed", "Answered" or "Expired". "Snoozed" is a card you pressed "Later" on whose time has not come yet; when the time comes, or when you bring it back, it changes back to "Pending" by itself. Click the collapsed row to expand it; once expanded, click an empty area of the card to collapse it again.
-- The "Ask" section on a task card. A waiting card is marked "Your call" and a snoozed card is marked "Snoozed". Pressing "Reply in chat" takes you to the same card in chat.
+- The "Ask" section on a task card. The card carries no status tag there, whether it is waiting or snoozed. Pressing "Reply in chat" takes you to the same card in chat.
 
 When a card relates to a task, it has a task bar at the top: on the Ask tab it shows the task number, priority, due date and task name; in chat it shows only the task name. In both places the right-pointing arrow at the far right is "View task". When the task name is too long it is cut off with "…" and does not push the arrow to the next line; on a phone, the due date is on its own line below the task line. "View in chat" takes you to the message in chat where the card was opened.
 

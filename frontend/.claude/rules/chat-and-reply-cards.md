@@ -125,7 +125,7 @@ ChatReplyCard 的 doReanswer 保留單卡 refetch：終態 delta 可能被刻意
 - 任務列的優先序／期限是 server 在回應當下讀任務本身的值（`TaskRefDTO`），卡片不存。⇒ `useReplyCards` 除了 `reply_card` 也要在 `task` delta 重抓，否則改任務的優先序或期限，請示頁要等下一張卡變動才跟上。期限顏色走 `TaskDueChip`（`useDueState`，在跨過邊界的那一刻重繪，不是輪詢）。任務列畫在卡片最上方、抬頭之上；外包的「目前任務」那一行永遠照畫，即使跟任務列是同一個任務。
 - 優先序／期限篩選跟開卡人軸同一套：選項與張數從選中標籤的那份清單算，每一軸的張數只套用**其他**軸；各軸彼此 AND、也跟 id AND。
 - 🔴 稍後再看的卡仍是 waiting：`listReplyCards("waiting")` 照列、帶 `snoozedUntilTs`；provider 依自己的時鐘把它分到 `snoozed`，`waiting`（也就是徽章）不含它。到時間 server 什麼都不寫、不發事件，所以 provider 自己在最早的 `snoozedUntilTs` 設 timer 讓卡回來，並在 `count.waiting_next_change_ts` 重抓一次。
-- 聊天室收合列與任務卡內嵌卡的標籤：延後中的等待卡標「已延後」（`tasks.replySnoozedTag`，`.reply-tag--snoozed`），不標待回覆／等你回覆，跟聊天室標頭徽章不數它同一個判準。判斷只讀 provider 的 `snoozed`（`useReplyCardSnoozed`），所以時間到、取消延後、回答都由 provider 那份清單帶著翻，卡片自己不設 timer、不另讀；沒有 provider 時答 false（掛裸卡的測試很多，provider 會多出讀取）。`ResumeSummaryCard` 印的是喚醒快照當下的 status 原值，不跟。
+- 聊天室收合列的標籤：延後中的等待卡標「已延後」（`tasks.replySnoozedTag`，`.reply-tag--snoozed`），其餘等待卡標「待回覆」（`tasks.replyWaitingTag`），跟聊天室標頭徽章不數已延後同一個判準。任務卡內嵌卡（`TaskReplyCard`）的卡頭不標任何狀態（owner：「我覺得都不要顯示好了，包含已延後」）；請示頁的卡同樣沒有。判斷只讀 provider 的 `snoozed`（`useReplyCardSnoozed`），所以時間到、取消延後、回答都由 provider 那份清單帶著翻，卡片自己不設 timer、不另讀；沒有 provider 時答 false（掛裸卡的測試很多，provider 會多出讀取）。`ResumeSummaryCard` 印的是喚醒快照當下的 status 原值，不跟。
 - 🔴 `snooze()` 跟 answer／expire 一樣要「握到快照同意為止」：寫入前就在飛的那支 waiting 讀取會帶著舊的 snooze 回來，直接採用會把剛延後的卡放回待回覆（取消延後則相反）。`heldSnoozeRef` 依 id 握住寫入存下的值，直到快照列出同一個值、卡不在 waiting 了、或握住的時間已過。409 跟回答一樣是「卡已經被處理」，要講清楚並 `refresh()`（延後與取消延後各用自己的句子）；其他失敗留在選單裡（取消延後則在卡上）顯示，不清掉畫面。
 
 ## 聊天室標頭的請示卡跳轉（`#replies/opener/<memberId>`）
@@ -199,8 +199,8 @@ parity 的 roll-call 不列卡片內部欄位。守著這一切的只有
 `ReplyCardBody.multi-select.test.tsx`、`TaskReplyCard.test.tsx`、
 `ResumeSummaryCard.payload-parity.test.tsx` 與 `http.mutations.test.ts` 裡那幾條。
 
-class 名 `.reply-tag--ai` / `.reply-option--ai` **不要改**:`TaskReplyCard` 借用前者
-畫自己的徽章。
+class 名 `.reply-tag--ai` / `.reply-option--ai` **不要改**:`ReplyCardBody` 的 AI 建議標籤與
+`reply-multi-select.ct.spec.tsx` 都用這個名字找它。
 
 `GET /api/reply-cards` 只回一種形狀 —— 輕量列（`ReplyCardRow`），`?view=full` 已經移除（owner 2026-09-07）。**pane 的卡預設收合，點開才打單張 `getReplyCard`**，跟聊天串內嵌卡（`ChatReplyCard`）同一套做法；再點一次會收合，收合會把讀回來的卡丟掉，所以重開是一次新的讀。🔴 **例外已經沒有了**：待回覆第一張自己打開那套（`autoOpenOffRef`）被 owner 2026-09-11「預設全部折疊」推翻，連同 `rc-cd351785b83d`／`rc-fa7e4c9bce42` 的行為一起刪掉；進頁面時**一支 `getReplyCard` 都不會發**，這件事由 `RepliesPage.id-filter.test.tsx` 的兩支「arrival must read no card at all」守著。今天仍會自己打開的只有**深連結指名的那一張**（`#replies/card/<id>`）——那是明確要求，不是預設。🔴 **折疊列＝卡自己的抬頭，不是另一套版面**（owner 2026-09-11「折疊起來那一列的內容不要另外設計」）：頭像、名字＋角色、跳到原訊息、標為過期、`已等你 <時長>`（在標為過期**右方**），下面是請示卡標題；卡有任務時任務列在抬頭**上方**。這些全部來自輕量列；點開只是在下面**補上問題內容**（body、附件、選項），抬頭不重畫、標題不重印。⚠️ **`跳到原訊息` 是例外**：輕量列沒有 `chatMessageId`（wire 的 `ReplyCardListItemDTO` 也沒有），所以那顆按鈕在還沒讀過的卡上是**按下去才讀**一次再導頁——不是 render 時讀。🔴 **卡頭沒有絕對時間**（owner 2026-09-11「我不想知道絕對時間 相對時間已經夠了」）：`data-testid="opened-at"` 這個節點不存在了，e2e `15_card_waited_time.spec.js` 反過來守它不可以回來；絕對時間只剩已回覆／已過期卡的 `已回覆／已過期 <時間>`。⚠️ **整張卡是開關**（`role="button"` ＋ `onCardToggleClick` 的互動過濾），做法照抄 `TaskCard`；卡內任何 button/a/input/`[role=button]` 的點擊都不翻卡。測試要點開卡就點 article 本身（`[data-reply-card-id][aria-expanded]`）。
 
