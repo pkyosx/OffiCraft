@@ -108,6 +108,7 @@ export interface Messages {
   sharedDocCopyId: (docId: string) => string;
   sharedDocDeleteConfirmBody: (name: string) => string;
   sharedDocListedCount: (n: number) => string;
+  secretListedCount: (n: number) => string;
   sharedDocEditHint: () => string;
   sharedDocUpdated: (by: string, when: string) => string;
   // ── office ──
@@ -511,6 +512,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       `${t.sharedDocs.deleteConfirmLead}${name}${t.sharedDocs.deleteConfirmTail}`,
     sharedDocListedCount: (n) =>
       countedNum(n, t.sharedDocs.listedCountOne, t.sharedDocs.listedCountMany),
+    secretListedCount: (n) => countedNum(n, t.secrets.listedCountOne, t.secrets.listedCountMany),
     sharedDocEditHint: () =>
       `${t.sharedDocs.editHintLead}${t.sharedDocs.uploadVersion}${t.sharedDocs.editHintTail}`,
     sharedDocUpdated: (by, when) => `${by} · ${when}`,

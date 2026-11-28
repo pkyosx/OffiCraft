@@ -1250,6 +1250,8 @@ var messageKeys = map[string]bool{
 	"secrets.empty":                                    true,
 	"secrets.hideValue":                                true,
 	"secrets.idCopied":                                 true,
+	"secrets.listedCountMany":                          true,
+	"secrets.listedCountOne":                           true,
 	"secrets.loadFailed":                               true,
 	"secrets.nameLabel":                                true,
 	"secrets.noteLabel":                                true,

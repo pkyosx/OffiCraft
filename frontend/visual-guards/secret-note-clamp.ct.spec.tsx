@@ -168,3 +168,47 @@ for (const width of [320, 390, 1440]) {
     });
   }
 }
+
+for (const width of [320, 390, 1440]) {
+  for (const language of ["zh", "en"] as const) {
+    test(`width ${width}, ${language}: the secret count sits whole on one line at the toolbar's left end, on ＋ 新增's line, and ＋ 新增 ends where the cards end`, async ({ mount, page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate((lang) => localStorage.setItem("oc.language", lang), language);
+      const cmp = await mount(<SecretNoteStory />);
+      const count = cmp.getByTestId("secrets-count");
+      await expect(count).toHaveText(language === "zh" ? "3 把密鑰" : "3 secrets");
+      await expect(cmp.getByTestId("secrets-add")).toHaveText(language === "zh" ? "+新增" : "+Add");
+      const m = await count.evaluate((el: HTMLElement) => {
+        const r = (e: Element | Range) => {
+          const b = e.getBoundingClientRect();
+          return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+        };
+        const bar = el.parentElement!;
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const se = document.scrollingElement!;
+        return {
+          barFirst: bar.parentElement!.firstElementChild === bar,
+          count: r(el),
+          text: r(range),
+          bar: r(bar),
+          add: r(bar.querySelector('[data-testid="secrets-add"]')!),
+          card: r(document.querySelector('[data-testid="secret-row"]')!),
+          lines: new Set(Array.from(range.getClientRects()).map((x) => Math.round(x.top))).size,
+          cut: el.scrollWidth > el.clientWidth + 0.5,
+          pageOver: se.scrollWidth - se.clientWidth,
+        };
+      });
+      const mid = (b: { top: number; bottom: number }) => (b.top + b.bottom) / 2;
+      expect.soft(m.barFirst, "toolbar is the page's first row").toBe(true);
+      expect.soft(m.pageOver, "page horizontal scroll").toBeLessThanOrEqual(1);
+      expect.soft(m.lines, "count on one line").toBe(1);
+      expect.soft(m.cut, "count whole").toBe(false);
+      expect.soft(Math.abs(m.count.left - m.card.left), "count at the cards' left edge").toBeLessThanOrEqual(1);
+      expect.soft(Math.abs(m.add.right - m.card.right), "＋ 新增 at the cards' right edge").toBeLessThanOrEqual(1);
+      expect.soft(m.count.right, "count left of ＋ 新增").toBeLessThanOrEqual(m.add.left);
+      expect.soft(Math.abs(mid(m.text) - mid(m.add)), "count on ＋ 新增's line").toBeLessThanOrEqual(2);
+      expect.soft(m.add.bottom, "toolbar above the cards").toBeLessThanOrEqual(m.card.top);
+    });
+  }
+}

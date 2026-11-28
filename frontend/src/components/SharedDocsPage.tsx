@@ -12,6 +12,8 @@ import { navigateHash, useHashRoute } from "../lib/hashRoute";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import type { Member, SharedDocView } from "../types";
 import { MemberChatChip, MemberChip } from "./MemberChip";
+import { PageToolbar } from "./PageToolbar";
+import "./page-toolbar.css";
 import { ConfirmModal } from "./ConfirmModal";
 import {
   SharedDocDetail,
@@ -671,14 +673,14 @@ function SharedDocList({
 
   return (
     <div className="shared-docs" data-testid="shared-docs-page">
-      <div className="shared-docs__bar">
-        <span className="shared-docs__count" data-testid="shared-docs-count">
-          {!loading && !loadError && msg.sharedDocListedCount(docs.length)}
-        </span>
+      <PageToolbar
+        count={!loading && !loadError ? msg.sharedDocListedCount(docs.length) : ""}
+        countTestId="shared-docs-count"
+      >
         <RuntimeActionMenu
           label={d.add}
           testIdPrefix="shared-docs-add"
-          buttonClassName="secrets__btn secrets__submit shared-docs__bar-btn"
+          buttonClassName="secrets__btn secrets__submit page-toolbar__btn"
           items={[
             {
               key: "upload",
@@ -715,7 +717,7 @@ function SharedDocList({
             if (file) void onPicked(file);
           }}
         />
-      </div>
+      </PageToolbar>
 
       {actionError && (
         <div className="secrets__error" role="alert" data-testid="shared-docs-action-error">

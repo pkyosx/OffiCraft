@@ -74,6 +74,8 @@ const OWNED_SHEETS = [
   "chat-search.css",
   // The label/value rows of the task, reply, secret, file and lore cards.
   "card-meta.css",
+  // The count-and-add row above the 檔案庫 and 金鑰 lists.
+  "page-toolbar.css",
 ] as const;
 
 /** Sheets whose BEM block is not just the filename. `member-detail.css` owns the

@@ -151,12 +151,18 @@ describe("SecretsPage", () => {
     expect(await screen.findByTestId("secret-id-copied")).toBeTruthy();
   });
 
-  it("creating sends name, value and note, then shows the new row without its value", async () => {
+  it("the toolbar counts the secrets left of ＋ 新增; creating sends name, value and note, then shows the new row without its value and counts it", async () => {
     const createSpy = vi.spyOn(api, "createSecret");
     const { container } = renderPage();
     await firstRow(container);
+    const toolbar = screen.getByTestId("secrets-count").parentElement!;
+    expect(toolbar.className).toBe("page-toolbar");
+    expect(toolbar.parentElement!.firstElementChild).toBe(toolbar);
+    expect([...toolbar.children].map((el) => el.textContent)).toEqual(["1 把密鑰", "+新增"]);
+    expect(toolbar.lastElementChild!.getAttribute("data-testid")).toBe("secrets-add");
 
     fireEvent.click(screen.getByTestId("secrets-add"));
+    expect((screen.getByTestId("secrets-add") as HTMLButtonElement).disabled).toBe(true);
     const valueInput = screen.getByTestId("secret-value-input") as HTMLTextAreaElement;
     expect(valueInput.tagName).toBe("TEXTAREA");
     fireEvent.change(screen.getByTestId("secret-name-input"), {
@@ -187,6 +193,8 @@ describe("SecretsPage", () => {
     expect(created.querySelector('[data-testid="secret-note"]')?.textContent).toContain(
       "read-only",
     );
+    expect(screen.getByTestId("secrets-count").textContent).toBe("2 把密鑰");
+    expect((screen.getByTestId("secrets-add") as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("a multi-line value is sent byte for byte on create and on edit", async () => {

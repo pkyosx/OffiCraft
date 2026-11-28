@@ -195,7 +195,7 @@ for (const width of [320, 390, 1440]) {
           const b = e.getBoundingClientRect();
           return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
         };
-        const bar = el.closest(".shared-docs__bar")!;
+        const bar = el.closest(".page-toolbar")!;
         const range = document.createRange();
         range.selectNodeContents(el);
         const se = document.scrollingElement!;
@@ -204,6 +204,7 @@ for (const width of [320, 390, 1440]) {
           text: r(range),
           bar: r(bar),
           add: r(bar.querySelector('[data-testid="shared-docs-add-menu"]')!),
+          card: r(document.querySelector('[data-testid="shared-docs-list"] [role="listitem"]')!),
           lines: new Set(Array.from(range.getClientRects()).map((x) => Math.round(x.top))).size,
           cut: el.scrollWidth > el.clientWidth + 0.5,
           pageOver: se.scrollWidth - se.clientWidth,
@@ -214,6 +215,7 @@ for (const width of [320, 390, 1440]) {
       expect.soft(m.cut, "count whole").toBe(false);
       expect.soft(Math.abs(m.count.left - m.bar.left), "count at the bar's left end").toBeLessThanOrEqual(1);
       expect.soft(Math.abs(m.add.right - m.bar.right), "＋ 新增 at the bar's right end").toBeLessThanOrEqual(1);
+      expect.soft(Math.abs(m.add.right - m.card.right), "＋ 新增 at the cards' right edge").toBeLessThanOrEqual(1);
       expect.soft(m.count.right, "count left of ＋ 新增").toBeLessThanOrEqual(m.add.left);
       expect.soft(Math.abs(mid(m.text) - mid(m.add)), "count on ＋ 新增's line").toBeLessThanOrEqual(2);
     });

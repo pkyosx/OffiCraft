@@ -549,8 +549,10 @@ Files in "Files" do not belong to any task, and every member can read and update
 
 ## Secrets
 
+- **Secret count** — At the left end of the row with "+ Add", above the list: how many secrets there are, for example "3 secrets". The same row as on the Files page.
+- **+ Add** — The button at the top right of the list, where the Files page has its own. Pressing it shows the "Add secret" form at the top of the list; the button cannot be pressed again while the form is open.
 - **Secret card** — The first line has the secret ID (click it to "Copy secret ID") and, at the right, the edit and delete icons. Below are the name in bold and the note (not shown if empty; a note longer than three lines is cut off, and clicking the note shows it in full or cuts it again), then the rows "Last accessed" (shows "-" if the secret has never been retrieved) and "Updated". On every card, a row whose value is missing shows "-", for example a task's "Created by" on an old task.
-- **Add secret** — Three fields: name, value and note.
+- **Add secret** — The form "+ Add" opens. Three fields: name, value and note.
 
 **Field rules**
 

@@ -14,6 +14,8 @@ import {
   TrashIcon,
 } from "./icons";
 import { CopyIdChip } from "./IdChips";
+import { PageToolbar } from "./PageToolbar";
+import "./page-toolbar.css";
 import "./lore.css";
 import "./card-meta.css";
 import "./secrets.css";
@@ -47,6 +49,40 @@ export function SecretsPage() {
 
   return (
     <div className="secrets" data-testid="secrets-page">
+      <PageToolbar
+        count={!loading && !loadError ? msg.secretListedCount(secrets.length) : ""}
+        countTestId="secrets-count"
+      >
+        <button
+          type="button"
+          className="secrets__btn secrets__submit page-toolbar__btn"
+          data-testid="secrets-add"
+          disabled={adding}
+          onClick={() => setAdding(true)}
+        >
+          <span aria-hidden="true">+</span>
+          {d.add}
+        </button>
+      </PageToolbar>
+
+      {adding && (
+        <div className="secrets__card">
+          <SecretForm
+            mode="create"
+            onCancel={() => setAdding(false)}
+            onSubmit={async (fields) => {
+              const err = await create({
+                name: fields.name,
+                value: fields.value,
+                note: fields.note,
+              });
+              if (!err) setAdding(false);
+              return err;
+            }}
+          />
+        </div>
+      )}
+
       {loadError && (
         <div className="lore__error" data-testid="secrets-load-error">
           {loadError}
@@ -93,33 +129,6 @@ export function SecretsPage() {
             ),
           )}
         </div>
-      )}
-
-      {adding ? (
-        <div className="secrets__card">
-          <SecretForm
-            mode="create"
-            onCancel={() => setAdding(false)}
-            onSubmit={async (fields) => {
-              const err = await create({
-                name: fields.name,
-                value: fields.value,
-                note: fields.note,
-              });
-              if (!err) setAdding(false);
-              return err;
-            }}
-          />
-        </div>
-      ) : (
-        <button
-          type="button"
-          className="add-entry"
-          data-testid="secrets-add"
-          onClick={() => setAdding(true)}
-        >
-          + {d.add}
-        </button>
       )}
 
       {deleteTarget && (

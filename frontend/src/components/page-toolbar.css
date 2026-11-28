@@ -1,0 +1,24 @@
+/* page-toolbar.css — the row above a card list: how many there are on the left,
+ * the page's add button on the right (檔案庫, 金鑰). The count looks like the
+ * 任務 page's (.filter-panel__summary). */
+.page-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.page-toolbar__count {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+.page-toolbar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

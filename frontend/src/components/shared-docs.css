@@ -13,24 +13,6 @@
   padding-bottom: 12px;
 }
 
-.shared-docs__bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-}
-/* Same look as the 任務 page's count (.filter-panel__summary). */
-.shared-docs__count {
-  flex: 1 1 0;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12.5px;
-  font-variant-numeric: tabular-nums;
-  color: var(--color-text-muted);
-}
-
 .shared-docs__bar-btn {
   display: inline-flex;
   align-items: center;

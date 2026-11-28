@@ -1249,6 +1249,8 @@ export const MESSAGE_KEYS: readonly string[] = [
   "secrets.empty",
   "secrets.hideValue",
   "secrets.idCopied",
+  "secrets.listedCountMany",
+  "secrets.listedCountOne",
   "secrets.loadFailed",
   "secrets.nameLabel",
   "secrets.noteLabel",
