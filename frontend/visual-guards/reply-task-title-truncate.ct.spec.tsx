@@ -4,7 +4,7 @@
 // contractor's card said who was asking but not WHICH piece of work). Titles
 // are free-length — real ones run past 40 characters — so the row needs one
 // element that gives way. If none does, the row grows past the card and the
-// 查看任務 jump is pushed out of reach, or the card itself starts panning
+// task-number chip (查看任務) is squeezed, or the card itself starts panning
 // sideways.
 //
 // WHY A REAL BROWSER: this is layout. jsdom resolves no flex box and no
@@ -48,7 +48,7 @@ for (const viewport of WIDTHS) {
     const card = cmp.getByTestId("card-long");
     const row = card.getByTestId("reply-task-ref");
     const title = card.locator(".reply-card__task-title");
-    const jump = card.getByTestId("reply-task-jump");
+    const jump = card.getByTestId("reply-task-no");
     await expect(title).toBeVisible();
 
     // (1) CORE red→green: nothing in the chain gets WIDER than the viewport.
@@ -96,9 +96,9 @@ for (const viewport of WIDTHS) {
       ).toBeLessThanOrEqual(1);
     }
 
-    // (2) The title is the element that gave way — it is clipped, and the jump
-    // button is still fully inside the row. Without this, (1) could be
-    // satisfied by the jump button being the one that got squashed away.
+    // (2) The title is the element that gave way — it is clipped, and the
+    // task-number chip (the jump) is still whole and inside the row. Without
+    // this, (1) could be satisfied by the chip being the one that got squashed.
     const titleOverflow = await title.evaluate(
       (el) => el.scrollWidth - el.clientWidth,
     );
@@ -112,8 +112,12 @@ for (const viewport of WIDTHS) {
     expect(rowBox && jumpBox).toBeTruthy();
     expect(
       jumpBox!.x + jumpBox!.width,
-      "查看任務 must stay inside the row",
+      "the task-number chip must stay inside the row",
     ).toBeLessThanOrEqual(rowBox!.x + rowBox!.width + 1);
+    expect(
+      await jump.evaluate((el) => el.scrollWidth - el.clientWidth),
+      "the task-number chip is not cut",
+    ).toBeLessThanOrEqual(0);
 
     // (3) CONTROL — a title that fits is NOT clipped. This is what separates
     // "the long one is clipped" from "titles are always clipped"; it stays

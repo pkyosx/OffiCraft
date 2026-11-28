@@ -64,6 +64,7 @@ import { useReplyCardQuoteTarget } from "./ChatSelectionReply";
 import { MentionText } from "./MentionText";
 import { useMentionRosterContext } from "../hooks/useMentionComposer";
 import { ChevronRightIcon } from "./icons";
+import { TaskIdChip } from "./TaskChips";
 import "./replies.css";
 import { autosizeTextarea } from "../lib/autosize";
 import { SecretValueInput } from "./SecretValueInput";
@@ -318,17 +319,16 @@ export function ReplyCardQuestionAttachments({
   );
 }
 
-/** §3.6 請示 → 任務: the task row an ask that names a task wears — the task's
- * own TITLE and the jump to it. A pure chat ask (task absent/null) renders
- * NOTHING: an empty slot reads as "this ask has no task", which is a different
- * claim from "it has one and we would not say which".
+/** §3.6 請示 → 任務: the task row an ask that names a task wears — the
+ * task-number chip that jumps to the task (the outsource row's chip) and the
+ * task's own TITLE. A pure chat ask (task absent/null) renders NOTHING: an empty
+ * slot reads as "this ask has no task", which is a different claim from "it has
+ * one and we would not say which".
  *
- * ONE HOME for both surfaces (the 請示 page and the inline ChatReplyCard), so
- * the title is written once. The 請示 page passes `lead` — the task number,
- * priority and due chips; the chat card shows the title alone. The jump has no
- * visible label so that the title keeps the row's width. The typeKey is never
- * shown. The jump is a callback so this stays presentational (each surface owns
- * its own router). */
+ * ONE HOME for both surfaces (the 請示 page and the inline ChatReplyCard). The
+ * 請示 page passes `lead` — the priority and due chips after the number. The
+ * typeKey is never shown. The jump is a callback so this stays presentational
+ * (each surface owns its own router). */
 export function ReplyCardTaskRef({
   task,
   onJump,
@@ -344,22 +344,18 @@ export function ReplyCardTaskRef({
       className={`reply-card__task${lead ? " reply-card__task--row" : ""}`}
       data-testid="reply-task-ref"
     >
+      <TaskIdChip
+        taskNo={task.id}
+        label={t.replies.openTask}
+        onOpen={onJump}
+        testId="reply-task-no"
+      />
       {lead}
       {task.title && (
         <span className="reply-card__task-title" title={task.title}>
           {task.title}
         </span>
       )}
-      <button
-        type="button"
-        className="reply-card__task-jump"
-        data-testid="reply-task-jump"
-        aria-label={t.replies.openTask}
-        title={t.replies.openTask}
-        onClick={onJump}
-      >
-        <ChevronRightIcon size={14} />
-      </button>
     </div>
   );
 }

@@ -115,7 +115,7 @@ import { IdFilterInput } from "./IdFilterInput";
 import { MultiSelectFilter, type MultiSelectOption } from "./MultiSelectFilter";
 import { ConfirmModal } from "./ConfirmModal";
 import { DisplayOptions } from "./DisplayOptions";
-import { TaskDueChip, TaskNoBadge, TaskPriorityBadge } from "./TaskChips";
+import { TaskDueChip, TaskPriorityBadge } from "./TaskChips";
 import { ReplySnoozeMenu, type SnoozeOutcome } from "./ReplySnoozeMenu";
 import {
   ChatSelectionModeBar,
@@ -1247,7 +1247,6 @@ export function RepliesPage({
         onJump={() => setRoute({ page: "tasks", taskId: task.id })}
         lead={
           <span className="reply-card__task-chips">
-            <TaskNoBadge taskNo={task.id} testId="reply-task-no" />
             {task.priority && (
               <TaskPriorityBadge priority={task.priority} testId="reply-task-priority" />
             )}

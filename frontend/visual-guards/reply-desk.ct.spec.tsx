@@ -194,11 +194,10 @@ async function expectHeadLine(card: Locator, what: string, mode: "touch" | "mous
   return { cut, stamp: s };
 }
 
-/** The task row: task number, priority, title and the 查看任務 chevron on one
- * line, the chevron at the row's (and the card's content) right end and the
- * title running up to it, cut with 「…」 when long; a due chip shares that line
- * on a desktop and has a line of its own under it on a phone. The chevron is a
- * 24px icon named only in aria-label and title. */
+/** The task row: the task-number chip (the row's only button, 查看任務), the
+ * priority and the title on one line, the title running to the row's (and the
+ * card's content) right end, cut with 「…」 when long; a due chip shares that
+ * line on a desktop and has a line of its own under it on a phone. */
 /** The story's cards whose task has a due date. */
 const CARDS_WITH_DUE = new Set(["rc-desk-1", "rc-desk-2"]);
 
@@ -210,41 +209,41 @@ async function expectTaskRow(card: Locator, cardBox: Box) {
   const id = await card.getAttribute("data-reply-card-id");
   expect(inside(rowBox, cardBox), `${id}: task row inside the card`).toBe(true);
   expect(rowBox.bottom, `${id}: task row above the head`).toBeLessThanOrEqual((await box(card.locator(".reply-card__head"))).top);
-  for (const part of await row.locator(".reply-card__task-chips > *, .reply-card__task-title, .reply-card__task-jump").all()) {
+  for (const part of await row.locator("[data-testid='reply-task-no'], .reply-card__task-chips > *, .reply-card__task-title").all()) {
     expect(inside(await box(part), rowBox), `${id}: ${await part.textContent()} inside the task row`).toBe(true);
   }
   for (const chip of await row.locator(".reply-card__task-chips > *").all()) {
     expect(await textLines(chip), `${id}: ${await chip.textContent()} on one line`).toBe(1);
   }
   const jump = row.getByRole("button", { name: "查看任務", exact: true });
+  await expect(row.getByRole("button"), `${id}: the chip is the row's only button (no 查看任務 chevron)`).toHaveCount(1);
+  await expect(jump).toHaveAttribute("data-testid", "reply-task-no");
   await expect(jump).toHaveAttribute("title", "查看任務");
   await expect(jump, "named by aria-label, not only by the title fallback").toHaveAttribute("aria-label", "查看任務");
-  await expect(jump).toHaveText("");
-  await expect(jump.locator("svg")).toHaveCount(1);
+  await expect(jump.locator("svg")).toHaveCount(0);
+  expect(await textLines(jump), `${id}: the task number on one line`).toBe(1);
   const j = await box(jump);
-  expect(j.right - j.left, "查看任務 24px wide").toBeCloseTo(24, 0);
-  expect(Math.abs(j.right - rowBox.right), `${id}: 查看任務 at the row's right end`).toBeLessThanOrEqual(0.5);
+  expect(j.left - rowBox.left, `${id}: the task number leads the row`).toBeLessThanOrEqual(0.5);
   const head = await box(card.locator(".reply-card__head"));
-  expect(Math.abs(j.right - head.right), `${id}: 查看任務 at the card's content right edge`).toBeLessThanOrEqual(0.5);
   const jMid = (j.top + j.bottom) / 2;
   const phone = card.page().viewportSize()!.width <= 720;
   const lineParts = row.locator("[data-testid='reply-task-no'], [data-testid='reply-task-priority'], .reply-card__task-title");
   for (const part of await lineParts.all()) {
     const p = await box(part);
-    expect(Math.abs((p.top + p.bottom) / 2 - jMid), `${id}: ${await part.textContent()} on 查看任務's line`).toBeLessThanOrEqual(1);
+    expect(Math.abs((p.top + p.bottom) / 2 - jMid), `${id}: ${await part.textContent()} on the task number's line`).toBeLessThanOrEqual(1);
   }
   const due = row.getByTestId("reply-task-due");
   await expect(due, `${id}: a due chip exactly when the task has a due date`).toHaveCount(CARDS_WITH_DUE.has(id ?? "") ? 1 : 0);
   if (CARDS_WITH_DUE.has(id ?? "")) {
     const d = await box(due);
     if (phone) expect(d.top, `${id}: the due chip on a line of its own under the task line`).toBeGreaterThanOrEqual(j.bottom);
-    else expect(Math.abs((d.top + d.bottom) / 2 - jMid), `${id}: the due chip on 查看任務's line`).toBeLessThanOrEqual(1);
+    else expect(Math.abs((d.top + d.bottom) / 2 - jMid), `${id}: the due chip on the task number's line`).toBeLessThanOrEqual(1);
   }
   const title = row.locator(".reply-card__task-title");
   if ((await title.count()) === 0) return;
   const t = await box(title);
   expect(await textLines(title), "the task title on one line").toBe(1);
-  expect(j.left - t.right, `${id}: the title runs up to 查看任務`).toBeLessThanOrEqual(10.5);
+  expect(Math.abs(t.right - head.right), `${id}: the title runs to the card's content right edge`).toBeLessThanOrEqual(0.5);
   if (await isCut(title)) {
     await expect(title, "the cut task title whole on hover").toHaveAttribute("title", (await title.textContent()) ?? "");
     expect(await drawsEllipsis(title), `${id}: the cut task title ends in 「…」`).toBe(true);
@@ -271,7 +270,7 @@ async function noPageOverflow(page: Page) {
   expect(m.scroll, "the page does not scroll sideways").toBeLessThanOrEqual(m.client);
 }
 
-test("width 1440: 複製, 跳到原訊息, 稍後再看 and 標為過期 sit together on one line in the head, 32px apart centre to centre (22px buttons, 10px apart), each icon inside its own button, clear of each other and of the waited stamp, and the task row with its chips and 查看任務 chevron stays inside its card", async ({
+test("width 1440: 複製, 跳到原訊息, 稍後再看 and 標為過期 sit together on one line in the head, 32px apart centre to centre (22px buttons, 10px apart), each icon inside its own button, clear of each other and of the waited stamp, and the task row with its task-number chip and chips stays inside its card", async ({
   mount,
   page,
 }) => {

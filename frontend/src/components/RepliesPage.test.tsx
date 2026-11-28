@@ -1223,7 +1223,7 @@ describe("RepliesPage", () => {
     }
   });
 
-  // An empty title leaves the jump alone on the row — the cell is not drawn at
+  // An empty title leaves the chip alone on the row — the cell is not drawn at
   // all, so there is no empty box and no placeholder standing in for a title
   // nobody wrote. The typeKey does NOT step in as a substitute.
   it("draws no title cell when the task's title is empty", async () => {
@@ -1235,7 +1235,7 @@ describe("RepliesPage", () => {
     await openCards();
     const ref = await findByTestId("reply-task-ref");
     expect(ref.querySelector(".reply-card__task-title")).toBeNull();
-    expect(ref.textContent).toBe("#t-3");
+    expect(ref.textContent).toBe("t-3");
     expect(within(ref).getByRole("button", { name: "查看任務" })).toBeTruthy();
   });
 
@@ -1549,7 +1549,7 @@ describe("RepliesPage", () => {
     localStorage.removeItem("oc_replies_sort");
   });
 
-  it("a card naming a task → one task row at the top, above the head: #number, priority, due date in its tone, title, 查看任務 → #tasks/<id>", async () => {
+  it("a card naming a task → one task row at the top, above the head: the number chip (查看任務 → #tasks/<id>), priority, due date in its tone, title", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(
       mkCard({
@@ -1593,21 +1593,21 @@ describe("RepliesPage", () => {
         el.className,
       ])
     ).toEqual([
-      ["reply-task-no", "task-card__id-badge"],
       ["reply-task-priority", "task-badge task-badge--prio-high"],
       ["reply-task-due", "task-card__chip task-card__due-chip task-card__due-date--overdue"],
     ]);
-    expect(over.querySelector('[data-testid="reply-task-no"]')!.textContent).toBe("#T-11");
+    expect(over.firstElementChild!.getAttribute("data-testid")).toBe("reply-task-no");
+    expect(over.querySelector('[data-testid="reply-task-no"]')!.textContent).toBe("T-11");
     expect(over.querySelector('[data-testid="reply-task-priority"]')!.textContent).toBe("高");
     expect(over.querySelector('[data-testid="reply-task-due"]')!.textContent).toMatch(
       /^2026\/9\/30（三）已逾期 \d+ 天$/
     );
     expect(over.querySelector(".reply-card__task-title")!.textContent).toBe("修好登入");
-    const jump = over.querySelector<HTMLElement>('[data-testid="reply-task-jump"]')!;
+    const jump = over.querySelector<HTMLElement>('[data-testid="reply-task-no"]')!;
+    expect(within(over as HTMLElement).getAllByRole("button")).toEqual([jump]);
     expect(within(over as HTMLElement).getByRole("button", { name: "查看任務" })).toBe(jump);
     expect(jump.getAttribute("title")).toBe("查看任務");
     expect(jump.getAttribute("aria-label")).toBe("查看任務");
-    expect(jump.textContent).toBe("");
     expect(over.textContent).not.toContain("x");
 
     const card = document.querySelector('[data-reply-card-id="rc-over"]')!;
@@ -1626,7 +1626,7 @@ describe("RepliesPage", () => {
       "task-card__chip task-card__due-chip task-card__due-date--soon"
     );
 
-    fireEvent.click(over.querySelector('[data-testid="reply-task-jump"]')!);
+    fireEvent.click(jump);
     expect(window.location.hash).toBe("#tasks/T-11");
     expect(card.getAttribute("aria-expanded")).toBe("false");
   });
@@ -1636,7 +1636,7 @@ describe("RepliesPage", () => {
     renderPage();
     await waitFor(() => expect(paneIds("waiting-card")).toHaveLength(1));
     const chips = document.querySelector(".reply-card__task-chips")!;
-    expect([...chips.children].map((el) => el.getAttribute("data-testid"))).toEqual(["reply-task-no"]);
+    expect([...chips.children].map((el) => el.getAttribute("data-testid"))).toEqual([]);
   });
 
   it("稍後再看 → four presets each with its return time, then a custom row; a preset moves the card to 稍後再看 with its time and out of the nav badge", async () => {

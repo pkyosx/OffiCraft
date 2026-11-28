@@ -914,8 +914,9 @@
   }
 }
 
-/* ---- §3.6 請示 → 任務: the task row on an ask that names a task (title +
- * jump; on the 請示 page also the task number, priority and due chips). ---- */
+/* ---- §3.6 請示 → 任務: the task row on an ask that names a task (the
+ * task-number chip that jumps to it + title; on the 請示 page also the
+ * priority and due chips). ---- */
 .reply-card__task {
   display: flex;
   align-items: center;
@@ -924,7 +925,7 @@
 }
 /* The task's own title (T-ee17). It is the only free-length thing on this row,
  * so it is the one that shrinks; the ellipsis says a title was cut rather than
- * ending mid-word as if that were the whole name. The jump keeps its width.
+ * ending mid-word as if that were the whole name. The chips keep their width.
  *
  * `overflow: hidden` is doing TWO jobs and both are load-bearing: it clips the
  * text, AND it is what lets this flex item go below its content width at all
@@ -942,33 +943,14 @@
   font-size: 12px;
   color: var(--color-text-muted);
 }
-/* 查看任務: a borderless chevron, named only in aria-label and title. The
- * negative block margin keeps its hit area from making the row taller. */
-.reply-card__task-jump {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  margin: -6px 0;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  cursor: pointer;
-  color: var(--color-accent);
-  transition: background-color 0.15s;
-}
-.reply-card__task-jump:hover {
-  background: color-mix(in srgb, currentColor 12%, transparent);
+.reply-card__task > .outsource-row__chip {
+  flex: none;
 }
 
 /* The 請示 page's task row: the card's top line, ruled off from the head below
- * it. Task number, priority, title and the 查看任務 chevron are one line on
- * every width, the chevron at its right end: the chips are row items of their
- * own, and the title's zero basis means it never pushes anything onto a next
- * line — it takes what is left and ends in 「…」. */
+ * it. Task number, priority and title are one line on every width: the chips
+ * are row items of their own, and the title's zero basis means it never pushes
+ * anything onto a next line — it takes what is left and ends in 「…」. */
 .reply-card__task--row {
   flex-wrap: wrap;
   gap: 6px 10px;
@@ -984,13 +966,9 @@
   font-size: 13px;
   color: var(--color-text);
 }
-.reply-card__task--row .reply-card__task-jump {
-  margin-left: auto;
-  white-space: nowrap;
-}
 /* A phone's due chip is a line of its own under that line: its full date and
  * state (「2026/11/24（二） 12:15 · 已逾期 2 天」) is about as wide as a 320px
- * card, so it cannot share the line with the chevron, and cutting it would hide
+ * card, so it cannot share the line with the title, and cutting it would hide
  * whether the task is overdue. A desktop keeps it beside the priority. */
 @media (max-width: 720px) {
   /* The zero-height full-width break before it; its own line would add a

@@ -430,7 +430,7 @@ export function ChatReplyCard({
           }}
         >
         {/* §3.6 請示 → 任務 (chat surface): the SAME row RepliesPage renders —
-         * one component, so TITLE and the 查看任務 jump can never drift between the two
+         * one component, so the task-number chip and TITLE can never drift between the two
          * surfaces. Only the route is ours. It leads the card (owner 2026-08-14,
          * T-ee17:「這個不能夠放到最一開始嗎？」) — WHICH piece of work this asks
          * about should not require reading the whole card first. Both surfaces
