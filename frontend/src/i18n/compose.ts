@@ -408,8 +408,6 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       `${tasks.artifacts.versionsOpaqueLead}${mime}${tasks.artifacts.versionsOpaqueTail}`,
     taskProgress: (done, total) =>
       `${tasks.progressLabel} ${done}/${total}`,
-    // 「步驟 N/M · 已歷時 X」 is ONE visible string. Leaving elapsed as a template
-    // left 步驟 overridable and 已歷時 not, inside that one sentence.
     // The 429 wait. The space AFTER the number is language-specific and is the
     // OPPOSITE of `sp`: zh writes 「請於 42 秒後再試。」 (spaces both sides), en
     // writes "in 42s." (none). It cannot reuse `sp`, and it is not baked into

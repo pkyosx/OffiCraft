@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { I18nProvider, useI18n } from "../../src/i18n";
 import { TaskCard } from "../../src/components/TaskCard";
+import { __injectMockReplyCard } from "../../src/api/mock";
 import { mkTask, mkStep, MIRA, NOOP, WORKERS } from "./taskFixtures";
 
 const LONG_DESC = [
@@ -48,7 +49,42 @@ const GATE_STEPS = [
   mkStep({ name: "發佈週報", status: "pending", dod: "週報發佈到共享文件區" }),
 ];
 
-export type StorySteps = "weekly" | "gates";
+const ALL_NOW = 400_000;
+
+__injectMockReplyCard({
+  id: "rc-sections-gate",
+  from: "mira",
+  kind: "decision",
+  summary: "示意圖選哪一版？",
+  body: "",
+  options: [{ text: "A 版", aiPick: true }, { text: "B 版", aiPick: false }],
+  selectMode: "single",
+  status: "waiting",
+  attachments: [],
+  createdTs: ALL_NOW - 5 * 3600,
+  answeredTs: null,
+  chatMessageId: "msg-sections-gate",
+  answer: null,
+});
+
+/** Every step status, a parallel stage and three approval steps; the ids
+ * address each step for the guards. */
+function allSteps(language: "zh" | "en") {
+  const zh = language === "zh";
+  return [
+    mkStep({ id: "s-done", name: zh ? "Recon：讀現況程式與前例" : "Recon: read the current code and prior cases", status: "done", startedTs: 1000, finishedTs: 1000 + 7 * 60 }),
+    mkStep({ id: "s-progress", name: zh ? "實作四項改動並在本機 dev 畫面確認每一項都可以操作" : "Implement the four changes and confirm each works in the local dev screen", status: "in_progress", startedTs: ALL_NOW - 2 * 3600 }),
+    mkStep({ id: "s-par-1", name: zh ? "撰寫後端 API 測試" : "Write backend API tests", status: "in_progress", parallelGroup: "pg", startedTs: ALL_NOW - 40 * 60 }),
+    mkStep({ id: "s-par-2", name: zh ? "更新 i18n 字串與截圖" : "Update i18n strings and screenshots", status: "pending", parallelGroup: "pg" }),
+    mkStep({ id: "s-gate-pending", name: zh ? "上試用站並請 Owner 確認畫面" : "Deploy to staging and ask the Owner to check the screen", status: "pending", isGate: true }),
+    mkStep({ id: "s-gate-waiting", name: zh ? "示意圖：任務卡狀態圖示與「更多」" : "Mockup: task card status icons and “More”", status: "waiting_owner", isGate: true, replyCardId: "rc-sections-gate", replyCardStatus: "waiting", startedTs: ALL_NOW - 5 * 3600 }),
+    mkStep({ id: "s-gate-done", name: zh ? "CI 與交回合併" : "CI and hand back for merge", status: "done", isGate: true, startedTs: 1000, finishedTs: 1000 + 86400 }),
+    mkStep({ id: "s-external", name: zh ? "等 SILOG 下一次操作發票" : "Wait for SILOG's next invoice operation", status: "waiting_external", waitingReason: zh ? "等 SILOG 下一次操作發票" : "SILOG's next invoice action", startedTs: ALL_NOW - 3 * 86400 }),
+    mkStep({ id: "s-superseded", name: zh ? "（舊計畫）示意圖第一版" : "(old plan) Mockup v1", status: "superseded", startedTs: 1000, finishedTs: 1000 + 40 * 60 }),
+  ];
+}
+
+export type StorySteps = "weekly" | "gates" | "all";
 
 function LanguageSwitch({ language }: { language: "zh" | "en" }) {
   const { language: current, setLanguage } = useI18n();
@@ -74,7 +110,7 @@ export function TaskCardSectionsStory({
     description: DESCRIPTIONS[description],
     progressDone: 1,
     progressTotal: 4,
-    steps: steps === "gates" ? GATE_STEPS : STEPS,
+    steps: steps === "all" ? allSteps(language) : steps === "gates" ? GATE_STEPS : STEPS,
   });
   return (
     <I18nProvider>
@@ -88,7 +124,7 @@ export function TaskCardSectionsStory({
                   task={task}
                   members={[MIRA]}
                   workers={WORKERS}
-                  nowTs={NOW}
+                  nowTs={steps === "all" ? ALL_NOW : NOW}
                   onTerminate={NOOP as never}
                   onMarkDuplicate={NOOP as never}
                   onSetPriority={NOOP as never}

@@ -794,21 +794,49 @@ export function CircleDashedIcon({ size = 16, className }: IconProps) {
   );
 }
 
-export function CirclePlayIcon({ size = 16, className }: IconProps) {
+export function CircleProgressIcon({ size = 16, className }: IconProps) {
   return (
     <svg {...base(size)} className={className}>
-      <circle cx="12" cy="12" r="10" />
-      <polygon points="10 8 16 12 10 16 10 8" />
+      <circle cx="12" cy="12" r="10" strokeOpacity={0.35} />
+      <path d="M12 2A10 10 0 1 1 6.122 20.09" strokeWidth={3.6} />
     </svg>
   );
 }
 
-export function MessageQuestionIcon({ size = 16, className }: IconProps) {
+export function UserClockIcon({ size = 16, className }: IconProps) {
   return (
     <svg {...base(size)} className={className}>
-      <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
-      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-      <path d="M12 17h.01" />
+      <circle cx="10" cy="7" r="4" />
+      <path d="M10.3 15H7a4 4 0 0 0-4 4v2" />
+      <circle cx="17" cy="17" r="5" />
+      <path d="M17 14.5V17l1.5 1" />
+    </svg>
+  );
+}
+
+export function CircleArrowOutUpRightIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M22 12A10 10 0 1 1 12 2" />
+      <path d="M22 2 12 12" />
+      <path d="M16 2h6v6" />
+    </svg>
+  );
+}
+
+export function CircleSlashIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M9 15 15 9" />
+    </svg>
+  );
+}
+
+export function ShieldIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
     </svg>
   );
 }

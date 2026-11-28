@@ -9,27 +9,21 @@
 //   ① 枚舉 STEP_STATUSES(closed set 的唯一出處,lib/stepBadge.ts)× 三語
 //      locales:tasks.stepStatus[status] 必須存在、非空、且不等於 raw key。
 //      新增狀態忘記補翻譯 → 這裡先紅,raw key 進不了座艙。
-//   ② waiting_external 三處同詞:step map 項 == 特殊徽章 stepWaitingExternal
-//      == 任務層 tasks.status.waiting_external —— 兩層(任務/步驟)與兩條
-//      render 路徑(特殊徽章/後防 map)永遠讀成同一個詞。
+//   ② waiting_external 兩層同詞:step map 項 == 任務層
+//      tasks.status.waiting_external。
 //   ③ resolver 全輸入空間掃描:status × replyCardId × replyCardStatus
-//      每種組合的徽章,經三語字典解出的文字都不得長得像 raw key
-//      (^[a-z_]+$)——特殊徽章 key 缺譯也會在這裡紅,不只 stepStatus map。
+//      每種組合解出的狀態,經三語字典解出的名稱都不得長得像 raw key
+//      (^[a-z_]+$)。
 import { describe, it, expect } from "vitest";
-import { resolveStepBadge, STEP_STATUSES, type StepBadge } from "./stepBadge";
+import { resolveParallelStatus, resolveStepBadge, STEP_STATUSES } from "./stepBadge";
 import { zh, type Dict } from "../i18n/locales/zh";
 import { en } from "../i18n/locales/en";
 
 const DICTS: Record<string, Dict> = { zh, en };
 
-/** The exact text TaskCard.renderStepBadge shows for a resolved badge. */
-function badgeText(t: Dict, badge: StepBadge): string {
-  switch (badge.kind) {
-    case "waiting-external":
-      return t.tasks.stepWaitingExternal;
-    default:
-      return t.tasks.stepStatus[badge.status] ?? badge.status;
-  }
+/** The name TaskCard gives a resolved step status (timeline icon label). */
+function statusName(t: Dict, status: string): string {
+  return t.tasks.stepStatus[status] ?? status;
 }
 
 /** A raw status key: lowercase snake_case — what the cockpit must never show. */
@@ -49,12 +43,8 @@ describe("step 狀態 i18n 枚舉守衛 (T-6f11)", () => {
     }
   });
 
-  it("waiting_external 三處同詞:step map == stepWaitingExternal == 任務層", () => {
+  it("waiting_external 兩層同詞:step map == 任務層", () => {
     for (const [name, t] of Object.entries(DICTS)) {
-      expect(
-        t.tasks.stepStatus.waiting_external,
-        `${name}: step map 與特殊徽章不同詞`
-      ).toBe(t.tasks.stepWaitingExternal);
       expect(
         t.tasks.stepStatus.waiting_external,
         `${name}: step 層與任務層不同詞`
@@ -71,17 +61,17 @@ describe("step 狀態 i18n 枚舉守衛 (T-6f11)", () => {
           "answered",
           "expired",
         ] as const) {
-          const badge = resolveStepBadge({
+          const drawn = resolveStepBadge({
             status,
             replyCardId,
             replyCardStatus,
           });
           for (const [name, t] of Object.entries(DICTS)) {
-            const text = badgeText(t, badge);
+            const text = statusName(t, drawn);
             expect(
               text,
               `${name} status=${status} card=${replyCardId} ` +
-                `rcs=${replyCardStatus} kind=${badge.kind} 渲染出 raw key`
+                `rcs=${replyCardStatus} → ${drawn} 渲染出 raw key`
             ).not.toMatch(RAW_KEY);
           }
         }
@@ -89,13 +79,20 @@ describe("step 狀態 i18n 枚舉守衛 (T-6f11)", () => {
     }
   });
 
-  it("waiting_external step 走自己的特殊徽章(無卡)——語意零回歸", () => {
+  it("waiting_external step 照自己的狀態畫(無卡)", () => {
     expect(
       resolveStepBadge({
         status: "waiting_external",
         replyCardId: "",
         replyCardStatus: null,
       })
-    ).toEqual({ kind: "waiting-external" });
+    ).toBe("waiting_external");
+  });
+
+  it("並行階段的共用圖示:有一項進行中就是進行中,全部完成才是完成,其餘是待辦", () => {
+    expect(resolveParallelStatus(["done", "in_progress", "pending"])).toBe("in_progress");
+    expect(resolveParallelStatus(["done", "done"])).toBe("done");
+    expect(resolveParallelStatus(["done", "pending"])).toBe("pending");
+    expect(resolveParallelStatus(["done", "waiting_owner"])).toBe("pending");
   });
 });

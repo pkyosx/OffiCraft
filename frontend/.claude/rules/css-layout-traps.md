@@ -16,7 +16,7 @@ paths:
 
 重驗 mutant 時，整頁 overflow 那條若先炸，測試會中止，底下的 per-surface 斷言根本沒執行；要證明後者，先暫時放寬整頁斷言再跑 mutant，不能把「整體失敗」誤讀成「後面的斷言也驗過」。
 
-固定高度、可收縮 flex item、CJK 標籤同時出現時，用 `white-space: nowrap` 保住單行；中文的 min-content 可能只有一個字，固定高就會被折行溢出，而同一段 CSS 對拉丁字的幾何不等價。不要用 `flex:none` 代替，也不要只看 computed property：要用真瀏覽器量 line box 與實際 overflow。角色誌的 Insight 卡（`.mp-lessons__head`）與 DocCard（`.doc-card__head`）在 ≤720px 讓 header 換行：編輯模式的三顆按鈕在任何手機寬度都跟標題放不進同一列，閱讀模式的「編輯」鈕在窄螢幕也會掉到下一列，多出的列是預期形狀，換來的是標題與字數不折行。不要為了省那一列把斷點縮回去；也不要讓標題群 `min-width: 0` 卻不讓它跟 header 一起換行，那會把標題壓成零寬、一字一行，徽章與字數直接疊到按鈕上，而且沒有任何東西溢出卡片，只看 overflow 的守衛抓不到。任務卡步驟的標題列（`.task-step__row`）同理：標題 `flex: 1 1 10em`、徽章包成 `.task-step__badges` 一起換到下一行靠右；拿掉 10em 的 basis 或 wrap，「請 Owner 選定文案」配「審批 · 4h 59m · 等我回覆」在工作流程框裡會被壓成一字一行（CT `taskcard-sections` 在 320／375／390 中英量標題寬度）。
+固定高度、可收縮 flex item、CJK 標籤同時出現時，用 `white-space: nowrap` 保住單行；中文的 min-content 可能只有一個字，固定高就會被折行溢出，而同一段 CSS 對拉丁字的幾何不等價。不要用 `flex:none` 代替，也不要只看 computed property：要用真瀏覽器量 line box 與實際 overflow。角色誌的 Insight 卡（`.mp-lessons__head`）與 DocCard（`.doc-card__head`）在 ≤720px 讓 header 換行：編輯模式的三顆按鈕在任何手機寬度都跟標題放不進同一列，閱讀模式的「編輯」鈕在窄螢幕也會掉到下一列，多出的列是預期形狀，換來的是標題與字數不折行。不要為了省那一列把斷點縮回去；也不要讓標題群 `min-width: 0` 卻不讓它跟 header 一起換行，那會把標題壓成零寬、一字一行，徽章與字數直接疊到按鈕上，而且沒有任何東西溢出卡片，只看 overflow 的守衛抓不到。任務卡步驟的標題列（`.task-step__row`）是兩欄 grid：標題 `minmax(0, 1fr)`、右欄是固定 64px 的耗時膠囊，`align-items: start`。標題只在自己那一欄裡換行，膠囊永遠在標題第一行的右端、不會被擠到下一行；改回 flex wrap 會讓膠囊在窄寬掉到標題下面（CT `taskcard-sections` 在 320／375／390／1440 中英量）。時間軸圖示的垂直位置是算出來的（`--task-marker-y`：步驟框上緣到標題第一行中線，並行階段是它的標籤行）；改步驟的 padding、標題字級或行高要一起改它。
 
 ## 輸入欄位 16px（iOS 聚焦放大）
 
@@ -35,6 +35,8 @@ iOS Safari 在字小於 16px 的 input／textarea／select 聚焦時會放大整
 ⇒ 動這幾格的 padding／radius／border／字級時，兩份一起看；只改一份就會讓兩頁的篩選欄位在同一個畫面上長得不一樣，而測試與 lint 都不會叫。
 
 清除鈕只有一份：`filter-panel.css` 的 `.filter-panel__clear`，長在篩選面板的底部。
+
+請示頁的時間膠囊 `.reply-card__waited-pill`（`replies.css`）沒有拷貝：任務卡的步驟耗時與任務已歷時直接用同一個 class。改它的寬度、高度或字級，請示頁與任務卡一起變，兩邊的守衛（`reply-desk`、`taskcard-sections`）都要跑。
 
 ## lazy fetch
 

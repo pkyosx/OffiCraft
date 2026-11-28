@@ -382,22 +382,17 @@ export const zh = {
       low: "低",
       frozen: "凍結",
     } as Record<string, string>,
-    // 節點狀態徽章
+    // 節點狀態(時間軸圖示的名稱)
     stepStatus: {
       pending: "待辦",
       in_progress: "進行中",
       done: "完成",
       waiting_owner: "等我回覆",
-      // 等待外部(T-6f11):與任務層 status.waiting_external / 特殊徽章
-      // stepWaitingExternal 同詞 —— 三處必須一致,兩層才讀成同一件事。
-      // resolver(lib/stepBadge.ts)平常走特殊徽章;這條 map 項是它的後防,
-      // 讓任何走到 plain status 徽章的 waiting_external 都不會漏出原始 key。
+      // 等待外部(T-6f11):與任務層 status.waiting_external 同詞,兩層才讀成同一件事。
       waiting_external: "等待外部",
       // re-plan 凍結的已答卡節點(T-1aea):終態、灰階、只留問答史料
       superseded: "已取代",
     } as Record<string, string>,
-    // 節點等待外部徽章(T-9ca5):步驟自身的「等待外部」,有別於 等我回覆
-    stepWaitingExternal: "等待外部",
     // 頭部:進度用 server 算好的 progress_done/total(SPEC §3.1);文案照
     // mockup「步驟 N/M」(owner 2026-07-13)
     progressLabel: "步驟",
@@ -623,9 +618,9 @@ export const zh = {
     // 內嵌請示卡(重用 M2 ReplyCardBody;可多張;內嵌在所屬 step 內)
     replyHeader: "請示",
     replyInChat: "在聊天室回覆",
-    // 審批持久標記:曾經開過卡/標過 gate 的 step,做完後仍看得出(owner
+    // 審批步驟的盾牌角標:曾經開過卡/標過 gate 的 step,做完後仍看得出(owner
     // 2026-07-14:不消失的標記)
-    gateMark: "審批",
+    needsApproval: "需要你核可",
     // 卡片一律收合成一行摘要(可展開),標籤說明它現在的狀態
     replyAnsweredTag: "已回覆",
     replyWaitingTag: "待回覆",

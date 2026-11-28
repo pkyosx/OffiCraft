@@ -79,8 +79,7 @@ for (const width of [320, 390, 1440]) {
     const colours = await cmp
       .locator(".task-card__status-icon")
       .evaluateAll((els) => els.map((el) => getComputedStyle(el).color));
-    expect(colours[0], "進行中 and 已完成 share the accent").toBe(colours[5]);
-    expect(new Set(colours).size, "the other statuses each have their own colour").toBe(7);
+    expect(new Set(colours).size, "every status has its own colour").toBe(8);
 
     const overflow = await pageOverflow(page);
     expect(overflow.missing).toBe(false);

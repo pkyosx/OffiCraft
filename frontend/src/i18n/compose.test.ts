@@ -619,10 +619,7 @@ describe("makeMessages", () => {
     );
   });
 
-  it("lets a theme re-word both halves of the 步驟 … · 已歷時 … progress line", () => {
-    // The two are ONE visible string on the task card. 已歷時 was still an
-    // interpolation template, so a pack could re-word 步驟 and not 已歷時 —
-    // the "same sentence, half of it swappable" defect this ticket removed.
+  it("lets a theme re-word both 步驟 … and 已歷時 … on the progress line", () => {
     const themed = applyWording(zh, {
       "tasks.progressLabel": "關卡",
       "tasks.elapsedLabel": "耗費",

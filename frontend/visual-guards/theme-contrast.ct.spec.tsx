@@ -20,10 +20,14 @@
 //   ⑤ the task card's red overdue / orange due-soon 到期日 date clears AA
 //      (≥4.5:1) as text on its chip, and so does the time left beside it, in
 //      those tones and in the muted grey, on the card.
+//   ⑦ every workflow step's title clears AA on its status-tinted box, the
+//      faded 已取代 row included (its opacity and greyscale applied), and so
+//      does the 等待中 reason label on the 等待外部 box.
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { ThemeContrastStory } from "./stories/ThemeContrastStory";
 import { TaskCardDueStory } from "./stories/TaskCardDueStory";
+import { TaskCardSectionsStory } from "./stories/TaskCardSectionsStory";
 import {
   BUILTIN_THEME_IDS,
   expectBuiltinApplied,
@@ -298,5 +302,65 @@ for (const theme of THEMES) {
     const ratio = contrast(line, pop);
     console.log(`${theme} status filter group line contrast: ${ratio.toFixed(2)}`);
     expect(ratio).toBeGreaterThanOrEqual(2.5);
+  });
+}
+
+function grayscale({ r, g, b }: Rgba): Rgba {
+  const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return { r: y, g: y, b: y, a: 1 };
+}
+
+function mix(top: Rgba, under: Rgba, opacity: number): Rgba {
+  return over({ ...top, a: opacity }, under);
+}
+
+/** A text colour on the step box it sits in, as painted: the box's tint over
+ * the card, then the box's own filter and opacity over what is behind it. */
+async function stepTextContrast(loc: import("@playwright/test").Locator): Promise<number> {
+  const s = await loc.evaluate((el) => {
+    const step = el.closest('[data-testid="task-step"]') as HTMLElement;
+    const inside: string[] = [];
+    for (let n: HTMLElement | null = el as HTMLElement; n; n = n.parentElement) {
+      inside.push(getComputedStyle(n).backgroundColor);
+      if (n === step) break;
+    }
+    const outside: string[] = [];
+    for (let n = step.parentElement; n; n = n.parentElement) outside.push(getComputedStyle(n).backgroundColor);
+    const cs = getComputedStyle(step);
+    return { color: getComputedStyle(el).color, inside, outside, opacity: parseFloat(cs.opacity), filter: cs.filter };
+  });
+  const behind = foldZone(s.outside);
+  let box = behind;
+  for (let i = s.inside.length - 1; i >= 0; i--) box = over(parseColor(s.inside[i]), box);
+  let fg = over(parseColor(s.color), box);
+  if (s.filter.includes("grayscale(1)")) {
+    fg = grayscale(fg);
+    box = grayscale(box);
+  }
+  return contrast(mix(fg, behind, s.opacity), mix(box, behind, s.opacity));
+}
+
+for (const theme of BUILTIN_THEME_IDS) {
+  test(`${theme}: every step title clears AA (≥4.5:1) on its status-tinted box`, async ({ mount, page }) => {
+    await page.setViewportSize({ width: 1280, height: 1400 });
+    await selectBuiltinTheme(page, theme);
+    const cmp = await mount(<TaskCardSectionsStory description="short" steps="all" />);
+    await cmp.locator(".task-card__head").first().click();
+    const steps = cmp.getByTestId("task-step");
+    await expect(steps).toHaveCount(9);
+    const ratios: Record<string, string> = {};
+    for (let i = 0; i < 9; i++) {
+      const step = steps.nth(i);
+      const id = (await step.getAttribute("data-step-id"))!;
+      ratios[id] = (await stepTextContrast(step.locator(".task-step__name"))).toFixed(2);
+    }
+    ratios["s-external reason"] = (
+      await stepTextContrast(cmp.getByTestId("step-waiting-reason").locator(".task-step__waiting-label"))
+    ).toFixed(2);
+    await expectBuiltinApplied(page, theme);
+    console.log(`${theme} step title contrast: ${JSON.stringify(ratios)}`);
+    for (const [which, ratio] of Object.entries(ratios)) {
+      expect.soft(Number(ratio), `${which}: ${ratio}:1`).toBeGreaterThanOrEqual(4.5);
+    }
   });
 }

@@ -157,10 +157,14 @@ describe("進度條看得見 — the fill width tracks the SERVER's counts", () 
     expect(fill(container)!.style.width).toBe("40%");
   });
 
-  it("the progress text, the fill and the 工作流程 title bar all read the server's 2/5", async () => {
-    const { container, getByTestId } = renderCard(REPLANNED_2_OF_5);
+  it("the progress text, the fill and the 工作流程 title bar all read the server's 2/5; the elapsed time is a one-unit pill", async () => {
+    const { container, getByTestId } = renderCard(REPLANNED_2_OF_5, 1000 + 30 * 3600);
     // superseded nodes are NOT counted — 8 steps exist, the card still says 2/5.
-    expect(getByTestId("task-progress").textContent).toContain("2/5");
+    expect(getByTestId("task-progress").textContent).toBe("步驟 2/5");
+    const elapsed = getByTestId("task-elapsed");
+    expect(elapsed.textContent).toBe("1d");
+    expect(elapsed.getAttribute("title")).toBe("已歷時 1d 6h");
+    expect(elapsed.getAttribute("aria-label")).toBe("已歷時 1d 6h");
     expect(fill(container)!.style.width).toBe("40%");
 
     fireEvent.click(getByTestId("task-card"));

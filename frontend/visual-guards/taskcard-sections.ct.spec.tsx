@@ -5,7 +5,11 @@
 // each title bar folds its body away without folding the card. On a phone a
 // step whose badges cannot share a line with its title moves them to the next
 // line rather than squeezing the title to one character per line.
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { test, expect } from "@playwright/experimental-ct-react";
+import type { Page } from "@playwright/test";
 import { TaskCardSectionsStory, type StoryDescription } from "./stories/TaskCardSectionsStory";
 
 const card = (cmp: any) => cmp.locator(".task-card");
@@ -126,39 +130,147 @@ for (const width of [390, 1440]) {
   });
 }
 
-for (const width of [320, 375, 390]) {
+/** The harness page loads no webfonts; step titles wrap by text width, so
+ * measure in the ones index.html ships. */
+async function loadProductionFonts(page: Page) {
+  const html = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../index.html"), "utf8");
+  const href = html.match(/href="(https:\/\/fonts\.googleapis\.com\/css2\?[^"]+)"/)![1].replace(/&amp;/g, "&");
+  await page.evaluate(async (href) => {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = href;
+    const loaded = new Promise((resolve, reject) => {
+      link.onload = resolve;
+      link.onerror = reject;
+    });
+    document.head.appendChild(link);
+    await loaded;
+    await Promise.all([
+      document.fonts.load('700 13px "Noto Sans TC"', "示意圖任務卡狀態"),
+      document.fonts.load('12px "Schibsted Grotesk"', "4h 59m"),
+    ]);
+  }, href);
+  expect(
+    await page.evaluate(() => document.fonts.check('700 13px "Noto Sans TC"', "示")),
+    "control: the production fonts loaded (they come from Google Fonts)"
+  ).toBe(true);
+}
+
+type Box = { left: number; right: number; top: number; bottom: number; width: number; height: number };
+
+type StepGeometry = {
+  id: string;
+  inParallel: boolean;
+  step: Box;
+  name: Box;
+  nameLineHeight: number;
+  firstLine: Box;
+  firstLineHeight: number;
+  pill: Box;
+  shield: Box | null;
+  marker: Box;
+  replyCard: Box | null;
+  rowOverflow: number;
+};
+
+/** Every step's box, title, time pill, shield and timeline icon as drawn. */
+async function stepGeometry(cmp: any): Promise<{ card: Box; steps: StepGeometry[] }> {
+  return cmp.locator(".task-timeline").evaluate((tl: HTMLElement) => {
+    const box = (el: Element | null) => (el ? (el.getBoundingClientRect().toJSON() as Box) : null);
+    const card = tl.closest(".task-card")!;
+    return {
+      card: box(card)!,
+      steps: [...tl.querySelectorAll<HTMLElement>('[data-testid="task-step"]')].map((step) => {
+        const name = step.querySelector<HTMLElement>(".task-step__name")!;
+        const row = step.closest(".task-timeline__row")!;
+        const parallel = step.closest(".task-parallel");
+        const firstLine = parallel ? parallel.querySelector(".task-parallel__label")! : name;
+        const lineHeight = parseFloat(getComputedStyle(firstLine).lineHeight);
+        return {
+          id: step.dataset.stepId!,
+          inParallel: parallel !== null,
+          step: box(step)!,
+          name: box(name)!,
+          nameLineHeight: parseFloat(getComputedStyle(name).lineHeight),
+          firstLine: box(firstLine)!,
+          firstLineHeight: lineHeight,
+          pill: box(step.querySelector(".task-step__time"))!,
+          shield: box(step.querySelector('[data-testid="step-gate"]')),
+          marker: box(row.querySelector('[data-testid="step-marker"]'))!,
+          replyCard: box(step.querySelector('[data-testid="task-reply-card"]')),
+          rowOverflow: step.querySelector(".task-step__row")!.scrollWidth - step.querySelector(".task-step__row")!.clientWidth,
+        };
+      }),
+    };
+  });
+}
+
+const overlaps = (a: Box, b: Box) =>
+  a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
+
+for (const width of [320, 375, 390, 1440]) {
   for (const language of ["zh", "en"] as const) {
-    test(`a gate step keeps its title readable with 審批, its duration and 等我回覆 on the step @${width}px ${language}`, async ({
+    test(`each step keeps its time pill on the title's first line, its shield on the corner and its icon on the title line, and the task's time pill sits on the 步驟 N/M line @${width}px ${language}`, async ({
       mount,
       page,
     }) => {
-      await page.setViewportSize({ width, height: 900 });
-      const cmp = await mount(<TaskCardSectionsStory description="short" steps="gates" language={language} />);
+      await page.setViewportSize({ width, height: 1400 });
+      await loadProductionFonts(page);
+      const cmp = await mount(<TaskCardSectionsStory description="short" steps="all" language={language} />);
       await cmp.locator(".task-card__head").first().click();
-      const step = cmp.getByTestId("task-step").nth(1);
-      await expect(step.getByTestId("gate-mark")).toHaveText(language === "en" ? "Approval" : "審批");
-      await expect(step.locator(".task-step__duration")).toHaveText("4h 59m");
-      await expect(step.locator(".task-step-badge--waiting_owner")).toHaveText(language === "en" ? "Awaiting my reply" : "等我回覆");
-      const g = await step.locator(".task-step__row").evaluate((row: HTMLElement) => {
-        const name = row.querySelector(".task-step__name") as HTMLElement;
-        const lineHeight = parseFloat(getComputedStyle(name).lineHeight) || parseFloat(getComputedStyle(name).fontSize) * 1.2;
-        const rowBox = row.getBoundingClientRect();
-        const nameBox = name.getBoundingClientRect();
-        const badges = [...row.querySelectorAll(".task-step__badges > *")].map((c) => c.getBoundingClientRect());
-        return {
-          nameShare: nameBox.width / rowBox.width,
-          nameLines: Math.round(nameBox.height / lineHeight),
-          badgesRight: Math.max(...badges.map((b) => b.right)) - rowBox.right,
-          badgesOverName: badges.some((b) => b.top < nameBox.bottom - 1 && b.left < nameBox.right - 1),
-          over: row.scrollWidth - row.clientWidth,
-        };
+      await expect(cmp.getByTestId("task-step")).toHaveCount(9);
+      await expect(cmp.getByTestId("task-reply-card")).toBeVisible();
+      const g = await stepGeometry(cmp);
+      const at = `[${width}px ${language}]`;
+
+      const fromRight = g.steps.map((s) => s.step.right - s.pill.right);
+      const topLevelPillRight = g.steps.filter((s) => !s.inParallel).map((s) => s.pill.right);
+      expect.soft(Math.max(...fromRight) - Math.min(...fromRight), `${at} pill inset from the step's right edge differs`).toBeLessThanOrEqual(0.5);
+      expect.soft(Math.max(...topLevelPillRight) - Math.min(...topLevelPillRight), `${at} top-level pills' right edges differ`).toBeLessThanOrEqual(0.5);
+
+      for (const s of g.steps) {
+        const id = `${at} ${s.id}`;
+        const pillMid = (s.pill.top + s.pill.bottom) / 2;
+        expect.soft(pillMid, `${id} pill below the title's first line`).toBeLessThan(s.name.top + s.nameLineHeight);
+        expect.soft(pillMid, `${id} pill above the title`).toBeGreaterThan(s.name.top);
+        expect.soft(s.pill.left, `${id} pill outside the step (left)`).toBeGreaterThanOrEqual(s.step.left);
+        expect.soft(s.pill.right, `${id} pill outside the step (right)`).toBeLessThanOrEqual(s.step.right);
+        expect.soft(s.name.right, `${id} title runs under the pill`).toBeLessThanOrEqual(s.pill.left + 0.5);
+        expect.soft(s.name.left, `${id} title outside the step`).toBeGreaterThanOrEqual(s.step.left);
+        expect.soft(s.pill.left - s.name.right, `${id} title column stops short of the pill`).toBeLessThanOrEqual(8.5);
+        expect.soft(s.rowOverflow, `${id} step header overflows`).toBeLessThanOrEqual(0);
+
+        const markerMid = (s.marker.top + s.marker.bottom) / 2;
+        const lineMid = s.firstLine.top + s.firstLineHeight / 2;
+        expect.soft(Math.abs(markerMid - lineMid), `${id} timeline icon off the first text line`).toBeLessThanOrEqual(1.5);
+        expect.soft(s.marker.right, `${id} timeline icon runs into the box`).toBeLessThanOrEqual(s.step.left);
+
+        if (s.replyCard) {
+          expect.soft(s.replyCard.right, `${id} reply card past the step`).toBeLessThanOrEqual(s.step.right);
+        }
+      }
+
+      const gated = g.steps.filter((s) => s.shield);
+      expect(gated.map((s) => s.id), `${at} steps with a shield`).toEqual(["s-gate-pending", "s-gate-waiting", "s-gate-done"]);
+      for (const s of gated) {
+        const shield = s.shield!;
+        const id = `${at} ${s.id}`;
+        expect.soft(overlaps(shield, s.pill), `${id} shield over the pill`).toBe(false);
+        expect.soft(shield.right, `${id} shield past the card`).toBeLessThanOrEqual(g.card.right);
+        expect.soft(shield.left < s.step.right && shield.right > s.step.right, `${id} shield not on the box's right edge`).toBe(true);
+        expect.soft(shield.top < s.step.top && shield.bottom > s.step.top, `${id} shield not on the box's top edge`).toBe(true);
+      }
+
+      const progress = await cmp.locator(".task-card__progress").evaluate((el: HTMLElement) => {
+        const box = (sel: string) => el.querySelector(sel)!.getBoundingClientRect().toJSON() as Box;
+        return { text: box('[data-testid="task-progress"]'), pill: box('[data-testid="task-elapsed"]'), card: el.closest(".task-card")!.getBoundingClientRect().toJSON() as Box };
       });
-      expect.soft(g.nameShare, `[${width}px ${language}] step title width share`).toBeGreaterThan(0.4);
-      expect.soft(g.nameLines, `[${width}px ${language}] step title lines`).toBeLessThanOrEqual(2);
-      expect.soft(g.badgesOverName, `[${width}px ${language}] badges overlap the title`).toBe(false);
-      expect.soft(g.badgesRight, `[${width}px ${language}] badges past the step`).toBeLessThanOrEqual(0.5);
-      expect.soft(g.over, `[${width}px ${language}] step header overflows`).toBeLessThanOrEqual(0);
-      expect.soft(await pageOverflow(page), `[${width}px ${language}] page horizontal scroll`).toBeLessThanOrEqual(0);
+      const textMid = (progress.text.top + progress.text.bottom) / 2;
+      const pillMid = (progress.pill.top + progress.pill.bottom) / 2;
+      expect.soft(Math.abs(textMid - pillMid), `${at} task time pill off the 步驟 N/M line`).toBeLessThanOrEqual(1.5);
+      expect.soft(progress.pill.left, `${at} task time pill before the 步驟 N/M text`).toBeGreaterThanOrEqual(progress.text.right);
+      expect.soft(progress.pill.right, `${at} task time pill past the card`).toBeLessThanOrEqual(progress.card.right);
+      expect.soft(await pageOverflow(page), `${at} page horizontal scroll`).toBeLessThanOrEqual(0);
     });
   }
 }

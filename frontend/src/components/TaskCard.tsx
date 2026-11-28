@@ -36,14 +36,14 @@
 //   desc      — the 詳細敘述 markdown, BELOW the message box (owner 2026-07-17
 //               「task details 應該在回覆訊息的下面」 — only this block moved;
 //               the head's meta column stayed put). Expanded-only.
-//   workflow  — the step timeline: name + DoD + status badge + 耗時; parallel
+//   workflow  — the step timeline: status icon + tinted box (name + DoD + 耗時 pill); parallel
 //               stages grouped 「同時進行 · N 項並行」.
 //               Card-bearing steps embed their reply card INSIDE the step row
 //               (owner 2026-07-14: 卡內嵌在所屬 step 內, 不再懸在 task 頂部;
 //               TaskReplyCard — the SHARED M2 ReplyCardBody interior, never a
 //               re-implementation; answered cards collapse to one line).
 //               Gate steps (is_gate — the server sets it for good when a
-//               card is bound) carry the 審批 marker, also after they finish.
+//               card is bound) carry the shield (需要你核可) badge, also after they finish.
 //               Transitional states when there are no steps yet: unassigned →
 //               等待指派; assigned-but-no-plan → 「等待 ○○ 建立 Steps」 (○○ = the
 //               executor's display name; owner 2026-07). But a task the light
@@ -71,10 +71,10 @@ import { api } from "../api";
 // `reportCloseRefused` needs it because force-done's three refusals want three
 // different sentences; see that function.
 import { isHttpStatus } from "../api/errors";
-import { formatDuration } from "../lib/duration";
+import { formatDuration, formatDurationShort } from "../lib/duration";
 import { isCardToggleClick, isCardToggleKey } from "../lib/cardToggle";
 import { copyText } from "../lib/clipboard";
-import { resolveStepBadge } from "../lib/stepBadge";
+import { resolveParallelStatus, resolveStepBadge } from "../lib/stepBadge";
 import { autosizeTextarea } from "../lib/autosize";
 import { navigateHash } from "../lib/hashRoute";
 import { deriveTaskNo } from "../lib/taskNo";
@@ -144,13 +144,16 @@ import {
   ChevronRightIcon,
   CircleCheckIcon,
   CircleDashedIcon,
-  CirclePlayIcon,
+  CircleProgressIcon,
+  CircleArrowOutUpRightIcon,
+  CircleSlashIcon,
+  ShieldIcon,
+  UserClockIcon,
   CircleXIcon,
   CloseIcon,
   CopyIcon,
   FlagIcon,
   HourglassIcon,
-  MessageQuestionIcon,
   FileTextIcon,
   ClockIcon,
   ExternalLinkIcon,
@@ -161,6 +164,7 @@ import {
   TasksIcon,
 } from "./icons";
 import "./inline-edit.css";
+import "./replies.css";
 import "./card-composer.css";
 
 /** Terminal statuses (已完成/終止/重複) — owner actions and ticking stop here. */
@@ -190,9 +194,9 @@ function leadAmountText(minutes: number, unit: LeadUnit): string {
 
 const STATUS_ICONS: Record<string, (p: { size: number }) => React.JSX.Element> = {
   not_started: CircleDashedIcon,
-  in_progress: CirclePlayIcon,
-  waiting_owner: MessageQuestionIcon,
-  waiting_external: HourglassIcon,
+  in_progress: CircleProgressIcon,
+  waiting_owner: UserClockIcon,
+  waiting_external: CircleArrowOutUpRightIcon,
   ready_for_done: FlagIcon,
   done: CircleCheckIcon,
   terminated: CircleXIcon,
@@ -202,6 +206,30 @@ const STATUS_ICONS: Record<string, (p: { size: number }) => React.JSX.Element> =
 function TaskStatusIcon({ status, size }: { status: string; size: number }) {
   const Icon = STATUS_ICONS[status] ?? CircleDashedIcon;
   return <Icon size={size} />;
+}
+
+const STEP_ICONS: Record<string, (p: { size: number }) => React.JSX.Element> = {
+  pending: CircleDashedIcon,
+  in_progress: CircleProgressIcon,
+  waiting_owner: UserClockIcon,
+  waiting_external: CircleArrowOutUpRightIcon,
+  done: CircleCheckIcon,
+  superseded: CircleSlashIcon,
+};
+
+function StepMarker({ status, label }: { status: string; label: string }) {
+  const Icon = STEP_ICONS[status] ?? CircleDashedIcon;
+  return (
+    <span
+      className={`task-timeline__marker task-timeline__marker--${status}`}
+      role="img"
+      title={label}
+      aria-label={label}
+      data-testid="step-marker"
+    >
+      <Icon size={16} />
+    </span>
+  );
 }
 
 /** True when the 識別鍵 value is a link → the badge renders target=_blank. */
@@ -1325,51 +1353,35 @@ export function TaskCard({
   // 已歷時 ticks from created_ts (含 等待指派/等待建立 Steps — spec §3.1); a CLOSED
   // task freezes at closed_ts. created_ts 0 (no real stamp) → honest "—".
   const elapsedEnd = task.closedTs ?? nowTs;
-  const elapsedText =
-    task.createdTs > 0 ? formatDuration(elapsedEnd - task.createdTs) : "—";
+  const elapsedSeconds = task.createdTs > 0 ? elapsedEnd - task.createdTs : null;
   const progressPct =
     task.progressTotal > 0
       ? Math.min(100, (task.progressDone / task.progressTotal) * 100)
       : 0;
 
-  // ── step badge — resolveStepBadge (lib/stepBadge.ts) is the ONE decision
-  // source: the badge shows only the step's own stage, never the bound card's.
-  function renderStepBadge(step: TaskStepView) {
-    const badge = resolveStepBadge(step);
-    switch (badge.kind) {
-      case "waiting-external":
-        return (
-          <span
-            className="task-step-badge task-step-badge--waiting-external"
-            data-testid="step-waiting-external"
-          >
-            {t.tasks.stepWaitingExternal}
-          </span>
-        );
-      default:
-        return (
-          <span className={`task-step-badge task-step-badge--${badge.status}`}>
-            {/* Map miss → show the raw key DELIBERATELY (honest, debuggable —
-             * never a blank badge). This branch must stay unreachable for the
-             * closed set: stepBadge.i18n.test.ts enumerates STEP_STATUSES ×
-             * every locale and goes red the moment a status lacks its
-             * translations (T-6f11), so the raw key can only surface for a
-             * value the whole frontend doesn't know yet. */}
-            {t.tasks.stepStatus[badge.status] ?? badge.status}
-          </span>
-        );
-    }
+  // Map miss → the raw key DELIBERATELY (honest, debuggable — never a blank
+  // name). stepBadge.i18n.test.ts walks STEP_STATUSES × every locale, so the
+  // raw key can only surface for a value the whole frontend doesn't know yet.
+  function stepStatusName(status: string): string {
+    return t.tasks.stepStatus[status] ?? status;
+  }
+
+  function stepMarkerLabel(step: TaskStepView): string {
+    const name = stepStatusName(resolveStepBadge(step));
+    return step.isGate ? `${name} · ${t.tasks.needsApproval}` : name;
   }
 
   // Step 耗時 — only from REAL stamps: done = finished-started; running/waiting
-  // = now-started; pending (no start) renders nothing (never fabricated).
-  function stepDuration(step: TaskStepView): string | null {
+  // = now-started; pending (no start) gets no time (never fabricated).
+  function stepDuration(step: TaskStepView): number | null {
     if (step.startedTs <= 0) return null;
-    if (step.finishedTs > 0) {
-      return formatDuration(step.finishedTs - step.startedTs);
-    }
-    if (step.status === "in_progress" || step.status === "waiting_owner") {
-      return formatDuration(nowTs - step.startedTs);
+    if (step.finishedTs > 0) return step.finishedTs - step.startedTs;
+    if (
+      step.status === "in_progress" ||
+      step.status === "waiting_owner" ||
+      step.status === "waiting_external"
+    ) {
+      return nowTs - step.startedTs;
     }
     return null;
   }
@@ -1379,28 +1391,45 @@ export function TaskCard({
     return (
       <div
         key={step.id}
-        className={`task-step task-step--${step.status}`}
+        className={`task-step task-step--${resolveStepBadge(step)}`}
         data-testid="task-step"
         /* T-c514: the 等待外部 menu jump needs to land on a SPECIFIC step, and
            data-testid alone can't tell two steps apart. Same addressing trick
            the reply-card jump already uses (data-reply-card-id). */
         data-step-id={step.id}
       >
+        {step.isGate && (
+          <span
+            className="task-step__gate"
+            role="img"
+            title={t.tasks.needsApproval}
+            aria-label={t.tasks.needsApproval}
+            data-testid="step-gate"
+          >
+            <ShieldIcon size={12} />
+          </span>
+        )}
         <div className="task-step__row">
           <span className="task-step__name">{step.name}</span>
-          <span className="task-step__badges">
-            {step.isGate && (
-              <span className="task-step__gate-mark" data-testid="gate-mark">
-                {t.tasks.gateMark}
-              </span>
-            )}
-            {dur && (
-              <span className="task-step__duration">
-                <ClockIcon size={12} /> {dur}
-              </span>
-            )}
-            {renderStepBadge(step)}
-          </span>
+          {/* Same pill as the 請示 page's waited stamp (replies.css); an empty
+              one keeps a step with no time in the same column. */}
+          {dur === null ? (
+            <span
+              className="reply-card__waited-pill task-step__time task-step__time--empty"
+              aria-hidden="true"
+            />
+          ) : (
+            <span
+              className="reply-card__waited-pill task-step__time"
+              role="img"
+              title={msg.taskElapsed(formatDuration(dur))}
+              aria-label={msg.taskElapsed(formatDuration(dur))}
+              data-testid="step-duration"
+            >
+              <HourglassIcon size={12} />
+              <span>{formatDurationShort(dur)}</span>
+            </span>
+          )}
         </div>
         {step.dod && (
           <div className="task-step__dod">
@@ -1469,7 +1498,7 @@ export function TaskCard({
             text → <Markdown>; label on its own line (always-stack). */}
         {step.status === "waiting_external" && step.waitingReason && (
           <div className="task-step__waiting" data-testid="step-waiting-reason">
-            <ClockIcon size={12} />
+            <CircleArrowOutUpRightIcon size={12} />
             <span className="task-step__waiting-label">
               {t.tasks.waitingLabel}
             </span>
@@ -2525,9 +2554,20 @@ export function TaskCard({
             style={{ width: `${progressPct}%` }}
           />
         </div>
-        <span className="task-card__progress-text" data-testid="task-progress">
-          {msg.taskProgress(task.progressDone, task.progressTotal)} ·{" "}
-          {msg.taskElapsed(elapsedText)}
+        <span className="task-card__progress-line">
+          <span className="task-card__progress-text" data-testid="task-progress">
+            {msg.taskProgress(task.progressDone, task.progressTotal)}
+          </span>
+          <span
+            className="reply-card__waited-pill"
+            role="img"
+            title={msg.taskElapsed(elapsedSeconds === null ? "—" : formatDuration(elapsedSeconds))}
+            aria-label={msg.taskElapsed(elapsedSeconds === null ? "—" : formatDuration(elapsedSeconds))}
+            data-testid="task-elapsed"
+          >
+            <HourglassIcon size={12} />
+            <span>{elapsedSeconds === null ? "—" : formatDurationShort(elapsedSeconds)}</span>
+          </span>
         </span>
       </div>
 
@@ -2815,8 +2855,9 @@ export function TaskCard({
             {timeline.map((row) =>
               row.kind === "single" ? (
                 <div key={row.step.id} className="task-timeline__row">
-                  <span
-                    className={`task-timeline__dot task-timeline__dot--${row.step.status}`}
+                  <StepMarker
+                    status={resolveStepBadge(row.step)}
+                    label={stepMarkerLabel(row.step)}
                   />
                   {renderStep(row.step)}
                 </div>
@@ -2825,16 +2866,18 @@ export function TaskCard({
                 // hold the SAME group split into two stages (submit_plan now
                 // refuses new ones, stored rows are never rewritten) and two
                 // rows must not collide on one React key.
-                <div key={row.steps[0].id} className="task-timeline__row">
-                  <span
-                    className={`task-timeline__dot task-timeline__dot--${
-                      row.steps.some((s) => s.status === "in_progress")
-                        ? "in_progress"
-                        : row.steps.every((s) => s.status === "done")
-                          ? "done"
-                          : "pending"
-                    }`}
-                  />
+                <div
+                  key={row.steps[0].id}
+                  className="task-timeline__row task-timeline__row--parallel"
+                >
+                  {(() => {
+                    const status = resolveParallelStatus(
+                      row.steps.map(resolveStepBadge)
+                    );
+                    return (
+                      <StepMarker status={status} label={stepStatusName(status)} />
+                    );
+                  })()}
                   <div className="task-parallel" data-testid="task-parallel">
                     <div className="task-parallel__label">
                       ‖ {t.tasks.parallel(row.steps.length)}

@@ -361,15 +361,10 @@ export const en: Dict = {
       in_progress: "In progress",
       done: "Done",
       waiting_owner: "Awaiting my reply",
-      // Same wording as task-level status.waiting_external and the special
-      // stepWaitingExternal badge (T-6f11) — the map entry is the backstop so
-      // no path can leak the raw key.
+      // Same wording as task-level status.waiting_external (T-6f11).
       waiting_external: "Waiting on external",
       superseded: "Superseded",
     } as Record<string, string>,
-    // Step-level external-wait badge (T-9ca5): the step's own 等待外部, distinct
-    // from the owner-facing 等我回覆.
-    stepWaitingExternal: "Waiting on external",
     progressLabel: "Step",
     elapsedLabel: "Elapsed",
     expandCard: "Expand workflow",
@@ -597,7 +592,7 @@ export const en: Dict = {
     reassignError: "The reassign failed. Please try again.",
     replyHeader: "Ask",
     replyInChat: "Reply in chat",
-    gateMark: "Approval",
+    needsApproval: "Needs your approval",
     replyAnsweredTag: "Answered",
     replyWaitingTag: "Pending",
     replySnoozedTag: "Snoozed",

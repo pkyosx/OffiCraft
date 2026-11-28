@@ -120,6 +120,11 @@ function mkCard(over: Partial<ReplyCard>): ReplyCard {
   };
 }
 
+/** The timeline icon drawn for a step or a parallel stage. */
+function markerOf(el: Element): Element {
+  return el.closest(".task-timeline__row")!.querySelector('[data-testid="step-marker"]')!;
+}
+
 function renderPage() {
   return render(
     <I18nProvider>
@@ -855,21 +860,19 @@ describe("TasksPage", () => {
     // DoD renders under the node name; the finished step carries its 耗時 (6m).
     expect(steps[0].textContent).toContain("產出可部署的 build artifact");
     expect(steps[0].textContent).toContain("6m");
-    expect(steps[0].textContent).toContain("完成");
+    expect(markerOf(steps[0]).getAttribute("aria-label")).toBe("完成");
     // Parallel stage: one block labelled 同時進行 · 2 項並行.
     const parallel = await findByTestId("task-parallel");
     expect(parallel.textContent).toContain("同時進行 · 2 項並行");
     expect(
       parallel.querySelectorAll('[data-testid="task-step"]')
     ).toHaveLength(2);
-    expect(
-      steps[3].querySelector(".task-step-badge--waiting_owner")?.textContent
-    ).toBe("等我回覆");
-    expect(steps[4].querySelector(".task-step-badge")?.textContent).toBe("待辦");
-    expect(steps[4].querySelector('[data-testid="gate-mark"]')).not.toBeNull();
+    expect(markerOf(steps[3]).getAttribute("aria-label")).toBe("等我回覆 · 需要你核可");
+    expect(markerOf(steps[4]).getAttribute("aria-label")).toBe("待辦 · 需要你核可");
+    expect(steps[4].querySelector('[data-testid="step-gate"]')).not.toBeNull();
   });
 
-  it("aggregates the parallel stage dot: any in_progress → 藍, all done → 綠, else pending", async () => {
+  it("gives a parallel stage one shared icon: any in_progress → 進行中, all done → 完成, else 待辦", async () => {
     const now = Date.now() / 1000;
     __injectMockTask(
       mkTask({
@@ -891,15 +894,15 @@ describe("TasksPage", () => {
     fireEvent.click(await findByTestId("task-card"));
     const stages = await findAllByTestId("task-parallel");
     expect(stages).toHaveLength(3);
-    const dotOf = (stage: Element) =>
-      stage.parentElement!.querySelector('[class*="task-timeline__dot--"]')!
-        .className;
-    expect(dotOf(stages[0])).toContain("task-timeline__dot--done");
-    expect(dotOf(stages[1])).toContain("task-timeline__dot--in_progress");
-    expect(dotOf(stages[2])).toContain("task-timeline__dot--pending");
+    expect(stages.map((stage) => markerOf(stage).getAttribute("aria-label"))).toEqual([
+      "完成",
+      "進行中",
+      "待辦",
+    ]);
+    expect(await findAllByTestId("step-marker")).toHaveLength(3);
   });
 
-  it("renders legacy dirty parallel data defensively: gate-in-group keeps its plain status badge, a split group folds into two separate stages", async () => {
+  it("renders legacy dirty parallel data defensively: gate-in-group keeps its shield, a split group folds into two separate stages", async () => {
     // submit_plan now refuses these shapes (400), but rows written before the
     // gate landed are never rewritten — the timeline must stay honest, not crash.
     __injectMockTask(
@@ -923,7 +926,8 @@ describe("TasksPage", () => {
     expect(stages[0].textContent).toContain("同時進行 · 2 項並行");
     expect(stages[1].textContent).toContain("同時進行 · 1 項並行");
     const inGroup = stages[0].querySelectorAll('[data-testid="task-step"]');
-    expect(inGroup[1].querySelector(".task-step-badge")?.textContent).toBe("待辦");
+    expect(inGroup[1].querySelector('[data-testid="step-gate"]')).not.toBeNull();
+    expect(markerOf(stages[0]).getAttribute("aria-label")).toBe("進行中");
   });
 
   it("終止 double-confirms; the terminated task leaves the default view, and 終止 reveals it in the list again (action hidden on closed tasks)", async () => {

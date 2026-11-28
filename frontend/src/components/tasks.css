@@ -1068,9 +1068,12 @@ button.task-card__status-icon svg {
   flex: none;
   display: block;
 }
-button.task-card__status-icon--in_progress,
-button.task-card__status-icon--done {
+/* not --color-step-progress: in office that is the 可結案 blue */
+button.task-card__status-icon--in_progress {
   color: var(--color-accent);
+}
+button.task-card__status-icon--done {
+  color: var(--color-success);
 }
 button.task-card__status-icon--waiting_owner {
   color: var(--color-dot-waking);
@@ -1260,8 +1263,13 @@ button.task-card__status-icon--duplicated {
   background: var(--color-accent);
   transition: width 0.3s;
 }
-.task-card__progress-text {
+.task-card__progress-line {
   flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.task-card__progress-text {
   font-size: 12px;
   color: var(--color-text-muted);
   white-space: nowrap;
@@ -1809,113 +1817,134 @@ button.task-card__waiting--dep:focus-visible {
   flex-direction: column;
   gap: 10px;
   position: relative;
-  padding-left: 18px;
-}
-/* the connecting spine */
-.task-timeline::before {
-  content: "";
-  position: absolute;
-  left: 4px;
-  top: 12px;
-  bottom: 12px;
-  width: 2px;
-  background: color-mix(in srgb, var(--color-overlay) 7%, transparent);
+  padding-left: 24px;
 }
 .task-timeline__row {
   position: relative;
   display: flex;
   flex-direction: column;
+  /* centre of the row's first text line: step padding + border (12px) plus
+     half of the 13px × 1.5 title line; a parallel stage's first line is its
+     11.5px label */
+  --task-marker-y: 21.75px;
 }
-.task-timeline__dot {
+.task-timeline__row--parallel {
+  --task-marker-y: 20.625px;
+}
+/* the spine runs from this row's marker into the next row's, which covers it */
+.task-timeline__row:not(:last-child)::before {
+  content: "";
   position: absolute;
-  left: -18px;
-  top: 12px;
-  width: 10px;
-  height: 10px;
+  left: -17px;
+  top: var(--task-marker-y);
+  bottom: -30px;
+  width: 2px;
+  background: color-mix(in srgb, var(--color-overlay) 12%, transparent);
+}
+.task-timeline__marker {
+  position: absolute;
+  z-index: 1;
+  left: -24px;
+  top: calc(var(--task-marker-y) - 8px);
+  display: flex;
   border-radius: 50%;
-  border: 2px solid var(--color-card);
-  background: var(--color-dot-offline);
+  background: var(--color-card);
+  box-shadow: 0 0 0 2px var(--color-card);
+  color: var(--task-step-status);
 }
-.task-timeline__dot--done {
-  background: var(--color-accent);
+.task-timeline__marker svg {
+  display: block;
 }
-.task-timeline__dot--in_progress {
-  background: var(--color-step-progress);
+
+/* One colour per step status drives the timeline icon and the box tint. */
+.task-timeline__marker--pending,
+.task-step--pending {
+  --task-step-status: var(--color-text-muted);
+  --task-step-tint: var(--color-dot-offline);
 }
-.task-timeline__dot--waiting_owner {
-  background: var(--color-dot-waking);
+.task-timeline__marker--in_progress,
+.task-step--in_progress {
+  --task-step-status: var(--color-step-progress);
 }
-/* superseded (T-1aea) — frozen replan history: stays at the muted offline
-   grey (same as pending's default dot), the row itself carries the fade. */
-.task-timeline__dot--superseded {
-  background: var(--color-dot-offline);
+.task-timeline__marker--waiting_owner,
+.task-step--waiting_owner {
+  --task-step-status: var(--color-dot-waking);
+}
+.task-timeline__marker--waiting_external,
+.task-step--waiting_external {
+  --task-step-status: var(--color-wait-external);
+}
+.task-timeline__marker--done,
+.task-step--done {
+  --task-step-status: var(--color-success);
+}
+.task-timeline__marker--superseded,
+.task-step--superseded {
+  --task-step-status: var(--color-status-duplicated);
+}
+.task-timeline__marker--superseded {
+  color: color-mix(in srgb, var(--color-status-duplicated) 68%, var(--color-card));
 }
 
 .task-step {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 5px;
   padding: 11px 13px;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
-  background: color-mix(in srgb, var(--color-overlay) 3%, transparent);
+  border: 1px solid
+    color-mix(in srgb, var(--task-step-tint, var(--task-step-status)) 30%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--task-step-tint, var(--task-step-status)) 7%,
+    var(--color-card)
+  );
 }
-/* superseded step (T-1aea) — 已取代 frozen replan history: one grade greyer
-   than a done row (desaturated AND dimmed) so the kept Q&A reads as archive,
-   never as pending work. */
+/* superseded step (T-1aea) — 已取代 frozen replan history, read as archive.
+   🔴 .68 is the lowest opacity at which the title still clears 4.5:1 in every
+   theme (theme-contrast); .62 did not. */
 .task-step--superseded {
   filter: grayscale(1);
-  opacity: 0.62;
+  opacity: 0.68;
 }
-/* The title's 10em basis is what makes the badges wrap: once title and badges
-   cannot share a line, the badges drop together to a right-aligned second line
-   instead of squeezing the title to one character per line. */
+/* 需要你核可: a badge over the box's top-right corner, so the box must not
+   clip overflow. */
+.task-step__gate {
+  position: absolute;
+  top: -9px;
+  right: -8px;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--color-dot-waking) 55%, transparent);
+  background: var(--color-card);
+  box-shadow: 0 0 0 2px var(--color-card);
+  color: var(--color-dot-waking);
+}
+/* The title takes every column the 64px time pill leaves and wraps there; the
+   pill stays on the title's first line. */
 .task-step__row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 4px 10px;
-}
-.task-step__badges {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 4px 10px;
-  max-width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 8px;
+  align-items: start;
 }
 .task-step__name {
-  flex: 1 1 10em;
   min-width: 0;
+  overflow-wrap: anywhere;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
   font-weight: 700;
+  line-height: 1.5;
   color: var(--color-text-strong);
 }
-/* 審批持久標記:曾開卡/標 gate 的 step,做完後仍看得出 (owner 2026-07-14) */
-.task-step__gate-mark {
-  flex: none;
-  padding: 1px 7px;
-  border-radius: var(--radius-pill);
-  border: 1px solid color-mix(in srgb, var(--color-dot-waking) 45%, transparent);
-  color: var(--color-dot-waking);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  white-space: nowrap;
-}
-.task-step__duration {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
-  min-width: 2.75rem;
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-  color: var(--color-text-muted);
-  white-space: nowrap;
+.reply-card__waited-pill.task-step__time--empty {
+  background: transparent;
 }
 .task-step__dod {
   color: var(--color-text-muted);
@@ -1991,8 +2020,8 @@ button.task-card__waiting--dep:focus-visible {
   background: color-mix(in srgb, var(--color-text) 8%, transparent);
 }
 
-/* ── step-level 等待外部 reason row (T-9ca5) ── shares the waiting purple
-   vocabulary but nested in a step. Since T-c514 this is the ONLY rendering of a
+/* ── step-level 等待外部 reason row (T-9ca5) ── plain muted text with a purple
+   icon: the step box around it is already tinted purple. Since T-c514 this is the ONLY rendering of a
    waiting reason — the task-level copy was removed as duplicate. Always-stack:
    the label takes line 1, the markdown reason line 2, at every width (a
    bare-word reason can only be on line 2 because flex-basis:100% put it there —
@@ -2001,18 +2030,14 @@ button.task-card__waiting--dep:focus-visible {
   display: flex;
   align-items: flex-start;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
-  padding: 7px 10px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--color-wait-external) 32%, transparent);
-  background: color-mix(in srgb, var(--color-wait-external) 9%, transparent);
-  color: var(--color-wait-external-text);
+  gap: 0 5px;
+  color: var(--color-text-muted);
   font-size: 12px;
 }
 .task-step__waiting > svg {
   flex: none;
   margin-top: 2px;
+  color: var(--color-wait-external);
 }
 .task-step__waiting-label {
   flex: none;
@@ -2033,48 +2058,6 @@ button.task-card__waiting--dep:focus-visible {
   margin-bottom: 0;
 }
 
-/* step status badges */
-.task-step-badge {
-  flex: none;
-  min-width: 3.25rem;
-  padding: 2px 8px;
-  border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
-  font-size: 11px;
-  font-weight: 700;
-  white-space: nowrap;
-  text-align: center;
-  color: var(--color-text-muted);
-}
-.task-step-badge--done {
-  color: var(--color-accent);
-  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
-}
-.task-step-badge--in_progress {
-  color: var(--color-step-progress);
-  border-color: color-mix(in srgb, var(--color-step-progress) 45%, transparent);
-}
-/* ARMED gate — solid 等我回覆 (a live reply card is bound). */
-.task-step-badge--waiting_owner {
-  color: var(--color-on-warn);
-  background: var(--color-dot-waking);
-  border-color: var(--color-dot-waking);
-}
-/* 等待外部 (T-9ca5) — the step's own external-wait badge; shares the task-level
-   waiting_external purple (.task-badge--status-waiting_external) so the two read
-   as one vocabulary. Distinct from the amber owner-facing 等我回覆. */
-.task-step-badge--waiting-external {
-  color: var(--color-wait-external);
-  border-color: color-mix(in srgb, var(--color-wait-external) 45%, transparent);
-  background: transparent;
-}
-/* superseded (T-1aea) — 已取代: plain muted outline; the row-level greyscale
-   (.task-step--superseded) does the visual demotion. */
-.task-step-badge--superseded {
-  color: var(--color-text-muted);
-  border-color: color-mix(in srgb, var(--color-overlay) 18%, transparent);
-  background: transparent;
-}
 /* parallel stage block */
 .task-parallel {
   display: flex;
@@ -2116,9 +2099,6 @@ button.task-card__waiting--dep:focus-visible {
   .task-card__desc.doc-md table[data-md-table-sizing="content-aware"] th {
     white-space: nowrap;
   }
-  .task-step__name {
-    overflow-wrap: anywhere;
-  }
   .task-card__progress {
     flex-direction: column;
     align-items: stretch;
@@ -2135,7 +2115,7 @@ button.task-card__waiting--dep:focus-visible {
   .task-card__progress-bar {
     flex: none;
   }
-  .task-card__progress-text {
+  .task-card__progress-line {
     align-self: flex-end;
   }
   /* 產物浮層 RWD:留在原地(產物列正下方),不做 bottom sheet。定位參考改成整條
