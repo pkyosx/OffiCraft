@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 import { I18nProvider } from "../../src/i18n";
 import { LorePage } from "../../src/components/LorePage";
+import { CODE_BLOCK_TITLE, TABLE_TITLE } from "./loreRowHeadFixtures";
 
 const NORMAL_MANUAL_NAME = "部署前檢查";
 const LONG_MANUAL_NAME =
@@ -58,6 +59,16 @@ export function LoreRowHeadStory({
           loreType: "other",
         });
       }
+      await mockApi.writeLoreEntry({
+        title: CODE_BLOCK_TITLE,
+        body: "```\nnpm ci\nnpm run typecheck\nnpm run lint\nnpm test\nnpm run build\nnpm run preview\n```",
+        loreType: "other",
+      });
+      await mockApi.writeLoreEntry({
+        title: TABLE_TITLE,
+        body: "| 環境 | 指令 |\n| --- | --- |\n| dev | make dev |\n| beta | make beta |\n| prod | make prod |\n| e2e | make e2e |",
+        loreType: "other",
+      });
       if (roleCap !== undefined) await mockApi.patchServerSettings({ loreCapCharsRole: roleCap });
       if (dirCollapsed === null) localStorage.removeItem("oc_lore_dir_collapsed");
       else localStorage.setItem("oc_lore_dir_collapsed", JSON.stringify(dirCollapsed));

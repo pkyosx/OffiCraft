@@ -665,12 +665,11 @@ button.lore-section__name--link:hover {
 .lore-row[role="button"] {
   cursor: pointer;
 }
-/* Folded: the same card with the body cut to two lines. */
+/* Folded: the same card with the body cut to two lines. By height, as
+ * ClampedText's rich mode does: line-clamp does not reach into a Markdown
+ * code block or table, which would show in full. */
 .lore-row__body--clamped {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
+  max-height: calc(2 * 1.55em);
   overflow: hidden;
 }
 .lore-row__fold {

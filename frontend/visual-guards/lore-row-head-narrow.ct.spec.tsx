@@ -23,6 +23,7 @@
 // must not turn these checks into no-ops.
 import { test, expect } from "@playwright/experimental-ct-react";
 import { LoreRowHeadStory } from "./stories/LoreRowHeadStory";
+import { CODE_BLOCK_TITLE, TABLE_TITLE } from "./stories/loreRowHeadFixtures";
 
 type Box = { left: number; right: number; top: number; bottom: number };
 type RowGeom = {
@@ -626,6 +627,22 @@ for (const width of [390, 1440]) {
     const g2 = await measure(page);
     assertHeadContained(width, g2.rows.find((r) => r.id === id)!);
     assertNoHScroll(width, g2);
+
+    const bodyHeight = async (title: string) => {
+      const card = cmp.locator('[data-testid="lore-row"]', { has: page.locator(".lore-row__title", { hasText: title }) });
+      if ((await card.getAttribute("data-folded")) !== "true") await card.locator(".lore-row__title").click();
+      await expect(card).toHaveAttribute("data-folded", "true");
+      return card.locator('[data-testid="lore-body"]').evaluate((el: HTMLElement) => ({
+        height: el.getBoundingClientRect().height,
+        lines: el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight),
+      }));
+    };
+    const plain = await bodyHeight("第 2 條補充的原則");
+    expect.soft(Math.round(plain.lines), `[${width}px] a long plain body folds to two lines`).toBe(2);
+    for (const title of [CODE_BLOCK_TITLE, TABLE_TITLE]) {
+      const folded = await bodyHeight(title);
+      expect.soft(Math.abs(folded.height - plain.height), `[${width}px] 「${title}」 folds to the plain body's two lines`).toBeLessThanOrEqual(1);
+    }
   });
 
   test(`the member section head's char/cap row and per-source counts each hold one line inside the head @${width}px`, async ({ mount, page }) => {
