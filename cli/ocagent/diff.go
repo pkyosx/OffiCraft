@@ -40,6 +40,8 @@ const (
 	diffParamLabelAfter  = "label_after"
 )
 
+const diffShareLinkPath = "/api/diff/share-link"
+
 // A padded address is refused rather than trimmed: the server cannot resolve
 // it either, and the plain link would carry it unchecked.
 func sideRefusal(arg, which string) string {
@@ -143,51 +145,37 @@ func mintExternalDiffLink(
 		fmt.Fprint(errOut, "[ocagent] diff: no OC_TOKEN configured — minting an external link is an authed call.\n")
 		return 3
 	}
-	query := url.Values{diffParamBefore: {before}, diffParamAfter: {after}}
+	payload := map[string]any{diffParamBefore: before, diffParamAfter: after}
 	if labelBefore != "" {
-		query.Set(diffParamLabelBefore, labelBefore)
+		payload[diffParamLabelBefore] = labelBefore
 	}
 	if labelAfter != "" {
-		query.Set(diffParamLabelAfter, labelAfter)
+		payload[diffParamLabelAfter] = labelAfter
 	}
-	// bin/uplink-guard.py classifies callsites by shape: the route stays in a
-	// variable so this reads as a bodyless GET, not a send.
-	reqURL := cfg.Base + "/api/diff/share-link?" + query.Encode()
-	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
-	if err != nil {
-		fmt.Fprintf(errOut, "[ocagent] diff: bad request: %v\n", err)
+	status, detail := httpRequest(client, http.MethodPost, cfg.Base+diffShareLinkPath, cfg.Token, payload)
+	detail = strings.TrimSpace(detail)
+	if status == 0 {
+		fmt.Fprintf(errOut, "[ocagent] diff: request failed (network): %s\n", detail)
 		return 1
 	}
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+cfg.Token)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Fprintf(errOut, "[ocagent] diff: request failed (network): %v\n", err)
-		return 1
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-	detail := strings.TrimSpace(string(raw))
 
 	switch {
-	case resp.StatusCode == http.StatusOK:
-	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
-		fmt.Fprintf(errOut, "[ocagent] diff: auth rejected (HTTP %d): %s\n", resp.StatusCode, detail)
+	case status == http.StatusOK:
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		fmt.Fprintf(errOut, "[ocagent] diff: auth rejected (HTTP %d): %s\n", status, detail)
 		return 3
-	case resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnprocessableEntity:
-		fmt.Fprintf(errOut, "[ocagent] diff: server rejected the pair (HTTP %d): %s\n", resp.StatusCode, detail)
+	case status == http.StatusBadRequest || status == http.StatusUnprocessableEntity:
+		fmt.Fprintf(errOut, "[ocagent] diff: server rejected the pair (HTTP %d): %s\n", status, detail)
 		return 4
 	default:
-		fmt.Fprintf(errOut, "[ocagent] diff: unexpected HTTP %d: %s\n", resp.StatusCode, detail)
+		fmt.Fprintf(errOut, "[ocagent] diff: unexpected HTTP %d: %s\n", status, detail)
 		return 5
 	}
 
 	var minted struct {
 		URL string `json:"url"`
 	}
-	if err := json.Unmarshal(raw, &minted); err != nil || minted.URL == "" {
+	if err := json.Unmarshal([]byte(detail), &minted); err != nil || minted.URL == "" {
 		fmt.Fprintf(errOut, "[ocagent] diff: 200 but unparseable link body: %s\n", detail)
 		return 5
 	}
@@ -203,7 +191,7 @@ func diffUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: ocagent diff <before> <after> [--label-before <text>] [--label-after <text>] [--external]
 
 Prints a link to the before/after compare screen for those two things. Paste it
-to whoever needs to see the difference. Nothing is stored and nothing is uploaded.
+to whoever needs to see the difference. Nothing is uploaded.
 
 The plain link is a host-less path (/diff?...): paste it as printed, it opens on
 whatever station address the reader is using. Do not prefix it with OC_BASE or
@@ -233,17 +221,19 @@ To compare a LOCAL FILE, put it in the store first and pass the id it prints:
 gets the compare screen's own heading; do NOT label a doc: side, which the
 screen already names in the reader's own language.
 
---external asks the server to mint a SIGNED link instead: it opens with no login
-at all and has no expiry, and no single link can be withdrawn — the only thing
-that ends one is removing the signing key it was minted under (Settings ›
-Signing keys), which kills every link that key signed at once. Mint it only for
-a reader who has no account on this station. It is a full URL built on OC_BASE,
-so it refuses when OC_BASE is unset or malformed. Without it you get the plain
-link, which any signed-in reader opens and which costs no request at all.
+--external asks the server to mint a SHARE link instead: it opens with no login
+at all and stops working 7 days later. Each call mints a separate link; the
+owner can revoke any one of them on the Share tab (or with revoke_share_link)
+without touching the others. The URL is printed once and cannot be fetched
+again. For another expiry, or a link that never expires, call the
+get_diff_share_link tool with expires_ts instead. Mint it only for a reader who
+has no account on this station. It is a full URL built on OC_BASE, so it
+refuses when OC_BASE is unset or malformed. Without it you get the plain link,
+which any signed-in reader opens and which costs no request at all.
 
 An address that no longer resolves is not an error here: the screen says that
 side is gone and still draws the other one.
 
-stdout: one line — the /diff?... path, or with --external the signed URL.
+stdout: one line — the /diff?... path, or with --external the share URL.
 `)
 }
