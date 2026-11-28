@@ -29,7 +29,9 @@
 //      (OKLCH chroma ≥ 0.06), sit ≥ 30° of hue apart from each other and stand
 //      off the title ink (OKLab ΔE ≥ 0.2 from --color-text-strong — a dark text
 //      token reads as a black icon at any contrast); all six differ pairwise
-//      by OKLab ΔE ≥ 0.04.
+//      by OKLab ΔE ≥ 0.04. In office, 進行中 also sits ≥ 30° of hue from
+//      可結案 (--color-ready-for-done) and 轉派中 (--color-lock-reassigning),
+//      which share the card head with it.
 //   ⑨ a theme that does not set the --color-step-* tokens still paints each
 //      icon in the colour its own pack gives the token that status follows.
 import fs from "node:fs";
@@ -497,6 +499,11 @@ for (const theme of STEP_THEMES) {
           if (gap < 30) failures.push(`${a}/${b} hue ${gap.toFixed(0)}° apart < 30°`);
         }
       }
+    }
+    for (const tok of theme.id === "office" ? ["--color-ready-for-done", "--color-lock-reassigning"] : []) {
+      const other = over(parseColor(await resolveToken(page, tok)), m.in_progress.card);
+      const gap = hueGap(m.in_progress.icon, other);
+      if (gap < 30) failures.push(`in_progress/${tok} hue ${gap.toFixed(0)}° apart < 30°`);
     }
     console.log(`${theme.id} step icons: ${JSON.stringify(report)}`);
     expect(failures).toEqual([]);

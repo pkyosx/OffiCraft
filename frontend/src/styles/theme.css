@@ -110,7 +110,7 @@
   --color-ready-for-done: #6ea8fe;     /* 可結案 status 藍(唯一沒被其他狀態佔走的色相) */
   --color-dep-missing: #a89484;        /* 找不到的 dep 暖灰 */
   --color-artifacts: #cf94b0;          /* 產物 N badge 塵玫瑰 */
-  --color-step-progress: #2ec4c4;      /* 步驟與卡頭的進行中 青(要跟可結案的藍分得開) */
+  --color-step-progress: #ec6fd0;      /* 步驟與卡頭的進行中 洋紅(要跟可結案的藍、轉派中的青分得開) */
   /* 其餘步驟狀態色(時間軸圖示、步驟框淡底與框線)。主題可以不填:預設跟隨該狀態
    * 原本借用的 token,沒填的主題包畫出來跟加這組之前一樣。⚠️ 要保持純 var() alias,
    * 匯出與主題編輯器才會把它當「跟隨 X」而不是烘成內建色。 */

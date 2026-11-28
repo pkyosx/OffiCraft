@@ -44,7 +44,7 @@
     "--color-ready-for-done": "#6ea8fe",
     "--color-dep-missing": "#a89484",
     "--color-artifacts": "#cf94b0",
-    "--color-step-progress": "#2ec4c4",
+    "--color-step-progress": "#ec6fd0",
     "--color-step-pending": "var(--color-text-muted)",
     "--color-step-waiting-owner": "var(--color-dot-waking)",
     "--color-step-waiting-external": "var(--color-wait-external)",

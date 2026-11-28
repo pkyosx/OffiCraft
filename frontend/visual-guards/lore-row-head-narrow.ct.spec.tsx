@@ -456,9 +456,7 @@ for (const width of [320, 390, 1440]) {
       const effective = page.locator('[data-entry-id="L-3"] [data-testid="lore-effective"]');
       await expect(effective).toContainText(" – ");
       const g = await measure(page);
-      // Not assertNoHScroll: with the 失效 filter on, the 篩選 count badge hangs
-      // past .lore's right edge, which is the filter bar's, not this card's.
-      expect.soft(g.pageOver, `[${width}px] page horizontal scroll`).toBeLessThanOrEqual(1);
+      assertNoHScroll(width, g);
       const row = g.rows.find((r) => r.id === "L-3");
       expect(row, `[${width}px ${language}] L-3 row`).toBeTruthy();
       const tag = `[${width}px ${language}] L-3`;

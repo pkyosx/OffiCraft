@@ -94,6 +94,11 @@
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
+/* A funnel alone in the bar ends flush with the page's right edge, where an
+ * overhanging badge would scroll the page sideways. */
+.filter-panel__trigger:only-child .filter-panel__badge {
+  right: 0;
+}
 
 /* ── the fields, as a labelled grid (panel and sheet) ─────────────────────── */
 .filter-panel__grid {
