@@ -3675,6 +3675,8 @@ export interface LoreEntryPageView {
   entries: LoreEntryView[];
   limit: number;
   offset: number;
+  /** Entries matching the filter across every page. */
+  total: number;
   capChars: number;
   firstDroppedId: string;
   /** What the selection behind `firstDroppedId` spends; 0 with no single scope. */

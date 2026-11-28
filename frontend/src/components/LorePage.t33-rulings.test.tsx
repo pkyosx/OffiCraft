@@ -42,6 +42,7 @@ function page(entries: LoreEntryView[]): LoreEntryPageView {
     entries,
     limit: 30,
     offset: 0,
+    total: entries.length,
     capChars: 0,
     firstDroppedId: "",
     usedChars: 0,

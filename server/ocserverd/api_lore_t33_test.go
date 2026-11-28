@@ -1021,7 +1021,7 @@ func (st loreScopeStack) wantLoreRow(t *testing.T, want loreEntryWant) {
 		t.Fatalf("read back %s: %d %v", want.e.ID, status, data)
 	}
 	apiWantBody(t, data, map[string]any{
-		"entries": []any{want.body()}, "limit": 30, "offset": 0,
+		"entries": []any{want.body()}, "limit": 30, "offset": 0, "total": 1,
 		"cap_chars": 0, "first_dropped_id": "",
 		"used_chars": 0, "first_dropped_chars": 0, "budget_segments": []any{},
 	})
@@ -1318,7 +1318,7 @@ func TestWriteLoreTypeTag(t *testing.T) {
 					"created_ts": apiAnyNumber, "updated_ts": apiAnyNumber, "task_type_key": "",
 					"scope_options": []any{"agent", "everyone"}, "lore_type": tc.want,
 				}},
-				"limit": 30, "offset": 0, "cap_chars": 0, "first_dropped_id": "",
+				"limit": 30, "offset": 0, "total": 1, "cap_chars": 0, "first_dropped_id": "",
 				"used_chars": 0, "first_dropped_chars": 0, "budget_segments": []any{},
 			})
 		})
@@ -1346,7 +1346,7 @@ func TestWriteLoreTypeTag(t *testing.T) {
 				t.Fatalf("list: %d %v", status, page)
 			}
 			apiWantBody(t, page, map[string]any{
-				"entries": []any{}, "limit": 30, "offset": 0, "cap_chars": 0, "first_dropped_id": "",
+				"entries": []any{}, "limit": 30, "offset": 0, "total": 0, "cap_chars": 0, "first_dropped_id": "",
 				"used_chars": 0, "first_dropped_chars": 0, "budget_segments": []any{},
 			})
 		})
@@ -1368,7 +1368,7 @@ func TestWriteLoreTypeTag(t *testing.T) {
 				t.Fatalf("list: %d %v", status, page)
 			}
 			apiWantBody(t, page, map[string]any{
-				"entries": []any{}, "limit": 30, "offset": 0, "cap_chars": 0, "first_dropped_id": "",
+				"entries": []any{}, "limit": 30, "offset": 0, "total": 0, "cap_chars": 0, "first_dropped_id": "",
 				"used_chars": 0, "first_dropped_chars": 0, "budget_segments": []any{},
 			})
 		})
@@ -1661,19 +1661,19 @@ func TestListLoreBudgets(t *testing.T) {
 			want        map[string]any
 		}{
 			{"agent", "scope_kind=agent&scope_key=m-scope-user", map[string]any{
-				"cap_chars": 20, "used_chars": 20, "first_dropped_id": apiAnyString, "first_dropped_chars": 5,
+				"total": 3, "cap_chars": 20, "used_chars": 20, "first_dropped_id": apiAnyString, "first_dropped_chars": 5,
 				"budget_segments": []any{budgetSegment("everyone", 2, 10, 2, 10), budgetSegment("agent", 3, 15, 2, 10)},
 			}},
 			{"everyone", "scope_kind=everyone", map[string]any{
-				"cap_chars": 20, "used_chars": 10, "first_dropped_id": "", "first_dropped_chars": 0,
+				"total": 2, "cap_chars": 20, "used_chars": 10, "first_dropped_id": "", "first_dropped_chars": 0,
 				"budget_segments": []any{budgetSegment("everyone", 2, 10, 2, 10)},
 			}},
 			{"manual", "scope_kind=manual&scope_key=tm-budget", map[string]any{
-				"cap_chars": 12, "used_chars": 10, "first_dropped_id": apiAnyString, "first_dropped_chars": 5,
+				"total": 3, "cap_chars": 12, "used_chars": 10, "first_dropped_id": apiAnyString, "first_dropped_chars": 5,
 				"budget_segments": []any{budgetSegment("manual", 3, 15, 2, 10)},
 			}},
 			{"a member with no entries of its own", "scope_kind=agent&scope_key=m-scope-admin", map[string]any{
-				"cap_chars": 20, "used_chars": 10, "first_dropped_id": "", "first_dropped_chars": 0,
+				"total": 0, "cap_chars": 20, "used_chars": 10, "first_dropped_id": "", "first_dropped_chars": 0,
 				"budget_segments": []any{budgetSegment("everyone", 2, 10, 2, 10), budgetSegment("agent", 0, 0, 0, 0)},
 			}},
 		} {
@@ -1740,7 +1740,7 @@ func TestListLoreBudgets(t *testing.T) {
 			t.Fatalf("page: %d %v", status, data)
 		}
 		delete(data, "entries")
-		apiWantBody(t, data, map[string]any{"limit": 1, "offset": 0,
+		apiWantBody(t, data, map[string]any{"limit": 1, "offset": 0, "total": 2,
 			"cap_chars": 12, "used_chars": 10, "first_dropped_id": "", "first_dropped_chars": 0,
 			"budget_segments": []any{budgetSegment("everyone", 2, 10, 0, 0), budgetSegment("agent", 2, 10, 2, 10)},
 		})
@@ -1803,7 +1803,7 @@ func TestEditLoreEntry(t *testing.T) {
 			t.Fatalf("read back: %d %v", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"entries": []any{want}, "limit": 30, "offset": 0, "cap_chars": 0,
+			"entries": []any{want}, "limit": 30, "offset": 0, "total": 1, "cap_chars": 0,
 			"first_dropped_id": "", "used_chars": 0, "first_dropped_chars": 0,
 			"budget_segments": []any{},
 		})

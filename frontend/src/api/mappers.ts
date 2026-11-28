@@ -2474,6 +2474,7 @@ export function toLoreEntryPage(
     entries: (w.entries ?? []).map(toLoreEntry),
     limit: w.limit,
     offset: w.offset,
+    total: w.total,
     capChars: w.cap_chars,
     firstDroppedId: w.first_dropped_id,
     usedChars: w.used_chars ?? 0,

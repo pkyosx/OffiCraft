@@ -6518,6 +6518,7 @@ const mockApiImpl = {
         walk?.dropped.has(e.id) ? { ...e, dropped: walk.dropped.get(e.id) } : e
       ),
       limit,
+      total: ordered.length,
       offset,
       capChars: walk?.capChars ?? 0,
       firstDroppedId: line.id,

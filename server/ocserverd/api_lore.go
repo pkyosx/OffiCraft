@@ -541,6 +541,11 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 		internalError(w, err)
 		return
 	}
+	total, err := s.dal.CountLoreEntries(f)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
 	ids := make([]string, 0, len(entries))
 	for _, e := range entries {
 		ids = append(ids, e.ID)
@@ -551,7 +556,7 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 		return
 	}
 	out := LoreEntryListDTO{Entries: make([]LoreEntryDTO, 0, len(entries)),
-		Limit: limit, Offset: offset, BudgetSegments: []LoreBudgetSegmentDTO{}}
+		Limit: limit, Offset: offset, Total: total, BudgetSegments: []LoreBudgetSegmentDTO{}}
 	for _, e := range entries {
 		out.Entries = append(out.Entries, newLoreEntryDTO(e, facts[e.ID]))
 	}

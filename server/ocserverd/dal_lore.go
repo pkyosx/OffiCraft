@@ -178,8 +178,8 @@ func loreInClause(column string, vals []string) (string, []any) {
 		strings.TrimPrefix(strings.Repeat(",?", len(vals)), ",") + ")", args
 }
 
-func (d *DAL) ListLoreEntriesPage(f loreListFilter, limit, offset int) ([]LoreEntry, error) {
-	query := `SELECT ` + loreEntryColumns + ` FROM lore_entry WHERE 1=1`
+func loreListWhere(f loreListFilter) (string, []any) {
+	query := ` WHERE 1=1`
 	var args []any
 	for _, axis := range []struct {
 		column string
@@ -207,7 +207,13 @@ func (d *DAL) ListLoreEntriesPage(f loreListFilter, limit, offset int) ([]LoreEn
 		query += ` AND title LIKE ? ESCAPE '\'`
 		args = append(args, "%"+loreLikeEscaper.Replace(f.TitleQ)+"%")
 	}
-	query += ` ORDER BY CASE state WHEN ? THEN 0 WHEN ? THEN 1 ELSE 2 END,
+	return query, args
+}
+
+func (d *DAL) ListLoreEntriesPage(f loreListFilter, limit, offset int) ([]LoreEntry, error) {
+	where, args := loreListWhere(f)
+	query := `SELECT ` + loreEntryColumns + ` FROM lore_entry` + where +
+		` ORDER BY CASE state WHEN ? THEN 0 WHEN ? THEN 1 ELSE 2 END,
 		effective_ts DESC, seq DESC LIMIT ? OFFSET ?`
 	args = append(args, LoreStatePinned, LoreStateActive, limit, offset)
 
@@ -216,6 +222,13 @@ func (d *DAL) ListLoreEntriesPage(f loreListFilter, limit, offset int) ([]LoreEn
 		return nil, err
 	}
 	return collectLoreEntries(rows)
+}
+
+func (d *DAL) CountLoreEntries(f loreListFilter) (int, error) {
+	where, args := loreListWhere(f)
+	var n int
+	err := d.rdb.QueryRow(`SELECT COUNT(*) FROM lore_entry`+where, args...).Scan(&n)
+	return n, err
 }
 
 func collectLoreEntries(rows *sql.Rows) ([]LoreEntry, error) {

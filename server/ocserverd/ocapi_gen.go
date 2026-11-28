@@ -2085,6 +2085,9 @@ type LoreEntryListDTO struct {
 	// Offset The offset actually applied.
 	Offset int `json:"offset"`
 
+	// Total How many entries match this request's filter across ALL pages — the same WHERE as ``entries``, without ``limit`` / ``offset``. Unlike ``cap_chars`` and the budget fields it does follow every filter axis (state, type, id, title), so it is the count of what the list would show when read to the end.
+	Total int `json:"total"`
+
 	// UsedChars Characters the selection behind ``first_dropped_id`` carries, counted as the cap is. 0 when ``cap_chars`` is 0.
 	UsedChars int `json:"used_chars"`
 }

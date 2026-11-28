@@ -131,6 +131,17 @@ func TestPluralStateFilterReturnsOnlyTheStatesAskedFor(t *testing.T) {
 			t.Fatalf("entry %q is in state %q, which was not in the set", e.Id, e.State)
 		}
 	}
+
+	one := 1
+	paged := listLore(t, s, me, HandleListLoreEntriesApiLoreGetParams{
+		States: strsp(LoreStatePinned, LoreStateRetired),
+		Limit:  &one,
+	})
+	if len(paged.Entries) != 1 || paged.Total != 2 {
+		t.Fatalf("limit=1 page: %d entries, total %d; want 1 entry and total 2 — "+
+			"total counts every row the filter matches, not the page and not the scope",
+			len(paged.Entries), paged.Total)
+	}
 }
 
 // TestPluralFilterBeatsTheSingularWhenBothAreSent — the precedence rule, pinned
@@ -650,7 +661,7 @@ func TestLoreTypesFilter(t *testing.T) {
 		for _, r := range rows {
 			entries = append(entries, row(r))
 		}
-		return map[string]any{"entries": entries, "limit": 30, "offset": 0,
+		return map[string]any{"entries": entries, "limit": 30, "offset": 0, "total": len(rows),
 			"cap_chars": 0, "first_dropped_id": "",
 			"used_chars": 0, "first_dropped_chars": 0, "budget_segments": []any{}}
 	}
