@@ -527,16 +527,16 @@ const REGISTRY = [
   {
     file: "components/ShareLinkMenu.tsx",
     kind: "await",
-    count: 3,
+    count: 4,
     verdict:
-      "mint, clipboard write and revoke under a click. The mint asks `targetKeyRef` after its awaits and drops the commit when the overlay has paged to another file (the clipboard still gets the link the reader asked for — the gesture's own subject); revoke removes a row by its own id, which no other target's list holds. Writes only this menu's state; a commit after the host closed lands in a discarded component",
+      "mint, clipboard write, the uncopied URL's retry copy and revoke under a click. The mint asks `targetKeyRef` after its awaits and drops the commit when the overlay has paged to another file (the clipboard still gets the link the reader asked for — the gesture's own subject); revoke removes a row by its own id, which no other target's list holds. Writes only this menu's state; a commit after the host closed lands in a discarded component",
   },
   {
     file: "components/ShareLinkMenu.tsx",
     kind: "setTimeout/setInterval",
-    count: 1,
+    count: 3,
     verdict:
-      "the 2s ✓ flash clearing this menu's own `result`. Armed after the mint's await, so an unmount inside that await leaves it running; it then sets one value on a discarded mount and carries no room's state",
+      "the 2s ✓/⚠ flash clearing this menu's own `result` (after a mint, and after a retry copy that fails or succeeds). Armed after an await, so an unmount inside that await leaves it running; it then sets one value on a discarded mount and carries no room's state",
   },
   {
     file: "components/ShareLinkMenu.tsx",
