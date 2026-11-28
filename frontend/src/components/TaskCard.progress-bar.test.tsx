@@ -198,7 +198,7 @@ describe("進度條看得見 — the bar is unconditional", () => {
     expect(fill(container)!.style.width).toBe("40%");
   });
 
-  it("every status renders a bar — including the two with their own fill colour", () => {
+  it("every status renders a bar with the same fill, its status carried by the head icon alone", () => {
     for (const status of [
       "not_started",
       "in_progress",
@@ -212,12 +212,7 @@ describe("進度條看得見 — the bar is unconditional", () => {
       );
       expect(bar(container), `bar missing for ${status}`).not.toBeNull();
       expect(fill(container)!.style.width, `fill wrong for ${status}`).toBe("40%");
-      // the status modifier must ride ALONG with the base class, never replace
-      // it — the base class is what carries the fill's background.
-      expect(fill(container)!.className).toContain("task-card__progress-fill");
-      expect(fill(container)!.className).toContain(
-        `task-card__progress-fill--${status}`
-      );
+      expect(fill(container)!.className).toBe("task-card__progress-fill");
       unmount();
     }
   });

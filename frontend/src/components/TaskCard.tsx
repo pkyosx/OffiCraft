@@ -142,7 +142,16 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  ChevronUpIcon,
+  CircleCheckIcon,
+  CircleDashedIcon,
+  CirclePlayIcon,
+  CircleXIcon,
   CloseIcon,
+  CopyIcon,
+  FlagIcon,
+  HourglassIcon,
+  MessageQuestionIcon,
   FileTextIcon,
   ClockIcon,
   ExternalLinkIcon,
@@ -181,6 +190,22 @@ function leadAmountText(minutes: number, unit: LeadUnit): string {
 }
 
 /** True when the 識別鍵 value is a link → the badge renders target=_blank. */
+const STATUS_ICONS: Record<string, (p: { size: number }) => React.JSX.Element> = {
+  not_started: CircleDashedIcon,
+  in_progress: CirclePlayIcon,
+  waiting_owner: MessageQuestionIcon,
+  waiting_external: HourglassIcon,
+  ready_for_done: FlagIcon,
+  done: CircleCheckIcon,
+  terminated: CircleXIcon,
+  duplicated: CopyIcon,
+};
+
+function TaskStatusIcon({ status, size }: { status: string; size: number }) {
+  const Icon = STATUS_ICONS[status] ?? CircleDashedIcon;
+  return <Icon size={size} />;
+}
+
 function isUrl(v: string): boolean {
   return /^https?:\/\//i.test(v);
 }
@@ -375,6 +400,8 @@ export function TaskCard({
 
   // 類型 chip text: the manual's display name (T-fa76), falling back to the
   // raw key (deleted manual / legacy type), then the ad-hoc word.
+  const statusName = t.tasks.status[task.status] ?? task.status;
+
   const typeLabel = task.typeKey
     ? typeNames?.get(task.typeKey) || task.typeKey
     : t.tasks.adhoc;
@@ -484,6 +511,8 @@ export function TaskCard({
   // jump promises visibility — a collapsed card would hide exactly what the
   // link came to show).
   const [expanded, setExpanded] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreId = useId();
   useEffect(() => {
     if (located) setExpanded(true);
   }, [located]);
@@ -1536,99 +1565,28 @@ export function TaskCard({
       onClick={onCardToggleClick}
       onKeyDown={onCardToggleKeyDown}
     >
-      {/* ── head (v4 layout — owner 2026-07-17「這兩排應該要對調」): the v2
-           order SWAPPED. Row 1 is the badge row (☑ #<task id> badge · 優先權
-           chip (in-place editable) · 狀態 badge) and row 2 the title; the ▸/▾
-           expand indicator holds the card's top-right corner, riding row 1
-           alongside the badges — the corner is the anchor, not the title
-           (T-70fb behaviour 1, now served by the triangle instead of the
-           deleted ⋮). No avatar; no chevron — the whole card toggles. ── */}
+      {/* ── head: row 1 is the badge row (狀態 icon · ☑ #<task id> · 優先權 ·
+           轉派中), with the ▸/▾ expand indicator in the card's top-right
+           corner; row 2 is the title. No avatar; the whole card toggles. ── */}
       <header className="task-card__head">
         <div className="task-card__head-top">
-          {/* Row 1 — the fixed badge row: #<task id> · 優先權 · 狀態 (v3 order —
-              the id leads). The priority chip edits in place (owner v2/v3):
-              clicking it drops a vertical select-style menu (same visual
-              vocabulary as the 狀態 dropdown popover); picking one calls
-              setTaskPriority — the card never has to expand. A closed task's
-              priority is frozen history → plain span. A 等我回覆 status badge
-              is itself a jump: click → expand the card + scroll to the embedded
-              reply card (v3); every other status is a plain badge. */}
+          {/* Row 1 — the fixed badge row. The status is a line icon in the
+              status colour (its name is the button's accessible name and the
+              menu's header line); the priority chip edits in place, and a
+              closed task's priority is frozen history → plain span. */}
           <div className="task-card__badge-row">
-            <button
-              type="button"
-              className="task-card__id-badge task-card__id-badge--copy"
-              data-testid="task-no"
-              aria-label={msg.taskCopyTaskNo(task.taskNo)}
-              title={msg.taskCopyTaskNo(task.taskNo)}
-              onClick={copyTaskNo}
-            >
-              {copied ? <CheckIcon size={13} /> : <TasksIcon size={13} />}#
-              {task.taskNo}
-              {copied && (
-                <span
-                  className="task-card__id-badge-copied"
-                  role="status"
-                  data-testid="task-no-copied"
-                >
-                  {t.tasks.taskNoCopied}
-                </span>
-              )}
-            </button>
-            {closed ? (
-              <TaskPriorityBadge priority={task.priority} testId="task-priority" />
-            ) : (
-              <div className="task-card__prio" ref={prioRef}>
-                <button
-                  type="button"
-                  className={`task-badge task-badge--prio-${task.priority} task-card__prio-chip`}
-                  title={t.tasks.priorityLabel}
-                  aria-label={t.tasks.priorityLabel}
-                  aria-haspopup="menu"
-                  aria-expanded={prioOpen}
-                  data-testid="task-priority"
-                  onClick={() => setPrioOpen((o) => !o)}
-                >
-                  {t.tasks.priority[task.priority] ?? task.priority}
-                </button>
-                {prioOpen && (
-                  <div
-                    className="task-card__menu-pop task-card__prio-pop"
-                    role="menu"
-                    aria-label={t.tasks.priorityLabel}
-                    data-testid="task-priority-options"
-                  >
-                    {PRIORITIES.map((p) => (
-                      <button
-                        key={p}
-                        type="button"
-                        role="menuitem"
-                        className={`task-card__menu-item${
-                          task.priority === p
-                            ? " task-card__menu-item--active"
-                            : ""
-                        }`}
-                        data-testid={`priority-${p}`}
-                        onClick={() => void doSetPriority(p)}
-                      >
-                        {t.tasks.priority[p]}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
             <div className="task-card__status" ref={statusRef}>
               <button
                 type="button"
-                className={`task-badge task-badge--status-${task.status} task-card__status-chip`}
-                title={t.tasks.statusMenuLabel}
-                aria-label={t.tasks.statusMenuLabel}
+                className={`task-card__status-icon task-card__status-icon--${task.status}`}
+                title={statusName}
+                aria-label={statusName}
                 aria-haspopup="menu"
                 aria-expanded={statusOpen}
                 data-testid="task-status"
                 onClick={() => setStatusOpen((o) => !o)}
               >
-                {t.tasks.status[task.status] ?? task.status}
+                <TaskStatusIcon status={task.status} size={18} />
               </button>
               {statusOpen && (
                 <div
@@ -1637,6 +1595,13 @@ export function TaskCard({
                   aria-label={t.tasks.statusMenuLabel}
                   data-testid="task-status-options"
                 >
+                  <div
+                    className="task-card__menu-head"
+                    aria-hidden="true"
+                    data-testid="task-status-current"
+                  >
+                    {statusName}
+                  </div>
                   {/* ── JUMPS FIRST (T-c514, owner 2026-07-20) ──
                       Both jumps mean "take me to where this is stuck", and both
                       now sit ABOVE 標記重複/終止. Owner's wording: 「跳到等我回覆
@@ -1803,8 +1768,71 @@ export function TaskCard({
               )}
             </div>
 
+            <button
+              type="button"
+              className="task-card__id-badge task-card__id-badge--copy"
+              data-testid="task-no"
+              aria-label={msg.taskCopyTaskNo(task.taskNo)}
+              title={msg.taskCopyTaskNo(task.taskNo)}
+              onClick={copyTaskNo}
+            >
+              {copied ? <CheckIcon size={13} /> : <TasksIcon size={13} />}#
+              {task.taskNo}
+              {copied && (
+                <span
+                  className="task-card__id-badge-copied"
+                  role="status"
+                  data-testid="task-no-copied"
+                >
+                  {t.tasks.taskNoCopied}
+                </span>
+              )}
+            </button>
+            {closed ? (
+              <TaskPriorityBadge priority={task.priority} testId="task-priority" />
+            ) : (
+              <div className="task-card__prio" ref={prioRef}>
+                <button
+                  type="button"
+                  className={`task-badge task-badge--prio-${task.priority} task-card__prio-chip`}
+                  title={t.tasks.priorityLabel}
+                  aria-label={t.tasks.priorityLabel}
+                  aria-haspopup="menu"
+                  aria-expanded={prioOpen}
+                  data-testid="task-priority"
+                  onClick={() => setPrioOpen((o) => !o)}
+                >
+                  {t.tasks.priority[task.priority] ?? task.priority}
+                </button>
+                {prioOpen && (
+                  <div
+                    className="task-card__menu-pop task-card__prio-pop"
+                    role="menu"
+                    aria-label={t.tasks.priorityLabel}
+                    data-testid="task-priority-options"
+                  >
+                    {PRIORITIES.map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        role="menuitem"
+                        className={`task-card__menu-item${
+                          task.priority === p
+                            ? " task-card__menu-item--active"
+                            : ""
+                        }`}
+                        data-testid={`priority-${p}`}
+                        onClick={() => void doSetPriority(p)}
+                      >
+                        {t.tasks.priority[p]}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {/* 轉派中 LOCK overlay (T-9ca5): ORTHOGONAL to status — a reassigned
-                task keeps its honest derived status badge AND shows this while
+                task keeps its honest derived status icon AND shows this while
                 task.lock === "reassigning" (never a status value any more). */}
             {task.lock === "reassigning" && (
               <span
@@ -1814,64 +1842,6 @@ export function TaskCard({
                 {t.tasks.lockReassigning}
               </span>
             )}
-
-            {/* 任務類型 — row 1, a COLOURED .task-badge, same vocabulary as the
-                優先權/狀態 badges beside it (owner picked 候選 A, 2026-07-17).
-                It used to be a neutral .task-card__chip (4% white fill) down in
-                the .task-card__meta label grid, which read as a third-class
-                field while type is in fact one of the card's identifying
-                facts. Its own teal (--color-task-type) — NOT --color-accent —
-                because in_progress is already accent green and two same-
-                coloured badges side by side would read as one status pair.
-                The 齒輪 deep-link into the type's settings hub is unchanged;
-                only the styling and the slot moved.
-                390px: the badge row is flex-wrap, so a type name that does not
-                fit WRAPS to a second line rather than truncating. Owner ruled
-                on this explicitly (「手機上 type 自己一行我接受」) after seeing
-                the 候選 B truncation measured: cutting to 6 chars +「…」 STILL
-                wrapped at 390px, so truncation bought nothing and cost the
-                name. Wrapping is the accepted outcome, not a bug to fix. */}
-            {typeClickable ? (
-              <button
-                type="button"
-                className="task-badge task-badge--type task-card__type-chip"
-                title={t.tasks.typeSettingsLink}
-                data-testid="task-type-link"
-                onClick={openTypeSettings}
-              >
-                <GearIcon size={13} />
-                <span className="task-card__type" data-testid="task-type">
-                  {typeLabel}
-                </span>
-              </button>
-            ) : (
-              <span
-                className="task-badge task-badge--type"
-                data-testid="task-type-row"
-              >
-                <span className="task-card__type" data-testid="task-type">
-                  {typeLabel}
-                </span>
-              </span>
-            )}
-            {/* 產物 N — the artifact-set count badge (T-3dc5, owner design A):
-                the rightmost coloured badge in this row; renders ONLY when the
-                count > 0, and clicking opens the tabbed popover. It deliberately
-                does NOT touch the top-right chevron slot (spec ③). */}
-            {/* T-2654: a CLOSED task's deliverable set is frozen in BOTH
-                directions (the server 409s un-pin exactly like add), so drop
-                the 移除 affordance instead of letting the click fail. Gating
-                here rather than at the call site covers every caller at once. */}
-            {/* T-66 / T-92: no hydrate seam any more. The task read carries a
-                COUNT of the artifacts and nothing else (owner rc-15016959ad4d),
-                so the popover fetches every row itself when it opens. */}
-            <TaskArtifactsBadge
-              task={view}
-              commentRecipient={executorRecipient}
-              onRemoveArtifact={
-                TERMINAL.has(view.status) ? undefined : onRemoveArtifact
-              }
-            />
           </div>
 
           {/* ── expand indicator (v6, owner 2026-07-17): a ChevronRight
@@ -1961,18 +1931,14 @@ export function TaskCard({
           </div>
         )}
 
-        {/* Below the badge row: an aligned label column (任務類型 / 負責人 /
-            建立者 / 到期日 / 識別鍵) — task_no left the stack for the badge row (v2)
-            (owner spec 2026-07-15). A CSS grid gives every label cell the same
-            max-content width so the value chips line up across rows and across
-            languages. Each row emits two grid children: the muted label span
-            and the value chip. The chip — not the label — carries the icon and
-            the click, so the jump target sits inside the pill (spec):
-              類型 chip (齒輪) → #settings/manuals/<typeKey>
-              負責人/建立者 chip (聊天泡泡) → 該對象聊天 compose. */}
+        {/* Below the badge row: an aligned label column. A CSS grid gives
+            every label cell the same max-content width so the value chips line
+            up across rows and languages. Each row emits two grid children: the
+            muted label span and the value chip, which carries the icon and the
+            click. 負責人 / 到期日 (+ 前任 / 識別鍵 when set) are always shown;
+            類型 / 產物 / 建立者 sit behind the 更多 toggle, collapsed per card
+            in component state only. */}
         <div className="task-card__meta">
-          {/* 任務類型 left this grid for the badge row (v6) — see the head. */}
-
           {/* 負責人 (聊天泡泡 in the chip when reachable) + 轉派 icon to its right
               (owner 2026-07-18): 轉派 is a hand-the-task-to-a-new-executor
               action, so it belongs beside WHO owns the task. The chip and the
@@ -2022,39 +1988,6 @@ export function TaskCard({
               </button>
             )}
           </div>
-
-          {/* 建立者 — member/外包 可點(聊天泡泡); ""→— 與 未知值 純文字(無圖示).
-              Hidden entirely when the creator IS the assignee (v6, owner
-              2026-07-17): the row would restate the line directly above it. */}
-          {!creatorIsExecutor && (
-            <>
-              <span className="task-card__meta-label">{t.tasks.creatorLabel}</span>
-              {creator.peerId ? (
-                <button
-                  type="button"
-                  className="task-card__chip task-card__chip--link"
-                  title={t.tasks.messageCreator}
-                  aria-label={t.tasks.messageCreator}
-                  data-testid="task-creator-link"
-                  onClick={() => openChat(creator.peerId)}
-                >
-                  {creatorAvatar ? (
-                    <Avatar size={18} kind={creatorAvatar.kind} src={creatorAvatar.src} />
-                  ) : null}
-                  <span className="task-card__creator" data-testid="task-creator">
-                    {creator.text}
-                  </span>
-                  <ChatBubbleIcon size={13} />
-                </button>
-              ) : (
-                <span className="task-card__chip" data-testid="task-creator-row">
-                  <span className="task-card__creator" data-testid="task-creator">
-                    {creator.text}
-                  </span>
-                </span>
-              )}
-            </>
-          )}
 
           {dueRowShown && (
             <>
@@ -2330,6 +2263,100 @@ export function TaskCard({
               )}
             </>
           )}
+
+          <div
+            id={moreId}
+            className="task-card__more"
+            data-testid="task-meta-more"
+            hidden={!moreOpen}
+          >
+            {moreOpen && (
+              <>
+                <span className="task-card__meta-label">{t.tasks.metaTypeLabel}</span>
+                {typeClickable ? (
+                  <button
+                    type="button"
+                    className="task-card__chip task-card__chip--link"
+                    title={t.tasks.typeSettingsLink}
+                    data-testid="task-type-link"
+                    onClick={openTypeSettings}
+                  >
+                    <GearIcon size={13} />
+                    <span className="task-card__type" data-testid="task-type">
+                      {typeLabel}
+                    </span>
+                  </button>
+                ) : (
+                  <span className="task-card__chip" data-testid="task-type-row">
+                    <span className="task-card__type" data-testid="task-type">
+                      {typeLabel}
+                    </span>
+                  </span>
+                )}
+
+                {(view.artifactCount ?? 0) > 0 && (
+                  <div className="task-card__artifacts-row">
+                    <span className="task-card__meta-label">
+                      {t.tasks.artifacts.label}
+                    </span>
+                    {/* A closed task's deliverable set is frozen (the server
+                        409s un-pin like add), so the 移除 affordance is dropped. */}
+                    <TaskArtifactsBadge
+                      task={view}
+                      commentRecipient={executorRecipient}
+                      onRemoveArtifact={
+                        TERMINAL.has(view.status) ? undefined : onRemoveArtifact
+                      }
+                    />
+                  </div>
+                )}
+
+                {/* 建立者 — member/外包 可點(聊天泡泡); ""→— 與 未知值 純文字(無圖示).
+                    Hidden entirely when the creator IS the assignee (v6, owner
+                    2026-07-17): the row would restate the line directly above it. */}
+                {!creatorIsExecutor && (
+                  <>
+                    <span className="task-card__meta-label">{t.tasks.creatorLabel}</span>
+                    {creator.peerId ? (
+                      <button
+                        type="button"
+                        className="task-card__chip task-card__chip--link"
+                        title={t.tasks.messageCreator}
+                        aria-label={t.tasks.messageCreator}
+                        data-testid="task-creator-link"
+                        onClick={() => openChat(creator.peerId)}
+                      >
+                        {creatorAvatar ? (
+                          <Avatar size={18} kind={creatorAvatar.kind} src={creatorAvatar.src} />
+                        ) : null}
+                        <span className="task-card__creator" data-testid="task-creator">
+                          {creator.text}
+                        </span>
+                        <ChatBubbleIcon size={13} />
+                      </button>
+                    ) : (
+                      <span className="task-card__chip" data-testid="task-creator-row">
+                        <span className="task-card__creator" data-testid="task-creator">
+                          {creator.text}
+                        </span>
+                      </span>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </div>
+          <button
+            type="button"
+            className="task-card__more-toggle"
+            aria-expanded={moreOpen}
+            aria-controls={moreId}
+            data-testid="task-meta-more-toggle"
+            onClick={() => setMoreOpen((o) => !o)}
+          >
+            {moreOpen ? t.tasks.metaLess : t.tasks.metaMore}
+            {moreOpen ? <ChevronUpIcon size={14} /> : <ChevronDownIcon size={14} />}
+          </button>
         </div>
       </header>
 
@@ -2551,7 +2578,7 @@ export function TaskCard({
       <div className="task-card__progress">
         <div className="task-card__progress-bar">
           <div
-            className={`task-card__progress-fill task-card__progress-fill--${task.status}`}
+            className="task-card__progress-fill"
             style={{ width: `${progressPct}%` }}
           />
         </div>

@@ -122,9 +122,9 @@ function mockShowPicker() {
 }
 
 describe("TaskCard", () => {
-  it("shows the due date with its weekday in a 到期日 row right below 建立者, in the plain text colour while the date is beyond the lead, followed by the calendar days left", () => {
+  it("shows the due date with its weekday in a 到期日 row right below 負責人, in the plain text colour while the date is beyond the lead, followed by the calendar days left", () => {
     renderCard(mkTask({ dueTs: OCT_30_END }));
-    expect(metaLabels()).toEqual(["負責人", "建立者", "到期日"]);
+    expect(metaLabels()).toEqual(["負責人", "到期日"]);
     expect(chip().closest(".task-card__meta")).not.toBeNull();
     expect(chip().previousElementSibling).toBeNull();
     expect(chip().parentElement!.previousElementSibling!.textContent).toBe("到期日");

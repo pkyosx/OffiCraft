@@ -222,7 +222,7 @@ describe("waiting_external task: reason lives in the step (T-c514)", () => {
 
     // ② the task-level STATUS pill stays on the card.
     expect(
-      container.querySelector('[data-testid="task-status"]')?.textContent
+      container.querySelector('[data-testid="task-status"]')?.getAttribute("aria-label")
     ).toBe("等待外部");
   });
 });

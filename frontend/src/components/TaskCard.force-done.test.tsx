@@ -491,7 +491,7 @@ describe("④ what the server recorded comes back onto the card", () => {
     // The card actually moved — the row below is not decoration on an open task.
     await waitFor(() =>
       expect(
-        within(document.body).getByTestId("task-status").textContent?.trim()
+        within(document.body).getByTestId("task-status").getAttribute("aria-label")
       ).toBe(zh.tasks.status.done)
     );
     expandCard(await findByTestId("task-card"));
@@ -541,7 +541,7 @@ describe("④ what the server recorded comes back onto the card", () => {
     await waitForListedCards(1);
     await waitFor(() =>
       expect(
-        within(document.body).getByTestId("task-status").textContent?.trim()
+        within(document.body).getByTestId("task-status").getAttribute("aria-label")
       ).toBe(zh.tasks.status.done)
     );
     expandCard(await findByTestId("task-card"));
@@ -582,7 +582,7 @@ describe("④ what the server recorded comes back onto the card", () => {
 
     await waitFor(() =>
       expect(
-        within(document.body).getByTestId("task-status").textContent?.trim()
+        within(document.body).getByTestId("task-status").getAttribute("aria-label")
       ).toBe(zh.tasks.status.done)
     );
     expect(document.querySelector('[data-testid="task-forced-done"]')).toBeNull();

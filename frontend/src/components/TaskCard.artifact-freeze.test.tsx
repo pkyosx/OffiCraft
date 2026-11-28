@@ -100,8 +100,13 @@ function renderCard(task: TaskView, members: Member[] = [], rosterSettled = fals
   );
 }
 
+function openMore() {
+  fireEvent.click(screen.getByTestId("task-meta-more-toggle"));
+}
+
 async function openArtifactPopover() {
-  fireEvent.click(screen.getByTestId("task-artifacts-badge"));
+  openMore();
+  fireEvent.click(await screen.findByTestId("task-artifacts-badge"));
   await waitFor(() => expect(screen.getByText("PR #1")).toBeTruthy());
 }
 
@@ -158,7 +163,8 @@ describe("產物註解送給任務負責人", () => {
       "oc_doc_comments:att-ffffffffffff",
       JSON.stringify([{ id: "c1", excerpt: "週報", comment: "補日期" }]),
     );
-    fireEvent.click(screen.getByTestId("task-artifacts-badge"));
+    openMore();
+    fireEvent.click(await screen.findByTestId("task-artifacts-badge"));
     fireEvent.click(await screen.findByRole("button", { name: /週報/ }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "週報" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "註解" }));

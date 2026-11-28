@@ -1,7 +1,7 @@
 // GUARD (T-9ca5) — 轉派中 LOCK overlay badge.
 //
 // Contract: `reassigning` is no longer a status; it is an ORTHOGONAL lock. A
-// reassigned card shows its honest DERIVED status badge (進行中) AND a separate
+// reassigned card shows its honest DERIVED status icon (進行中) AND a separate
 // 轉派中 lock overlay badge (task-lock / .task-badge--lock-reassigning) BESIDE
 // it on the badge row — both visible, both inside the card, at every width.
 //
@@ -29,8 +29,8 @@ for (const width of [1280, 390]) {
     await expect(lock).toBeVisible();
     await expect(status).toBeVisible();
     await expect(lock).toHaveText("轉派中");
-    // The status badge shows the honest derived status, NOT the lock word.
-    await expect(status).toHaveText("進行中");
+    // The status icon names the honest derived status, NOT the lock word.
+    await expect(status).toHaveAttribute("aria-label", "進行中");
 
     // (2) the lock badge sits inside the card — never shoved past its right edge
     // (the overflow trap a badge-row addition can trip at 390).

@@ -659,7 +659,7 @@ describe("TasksPage", () => {
     await waitFor(() => {
       const badges = [
         ...document.querySelectorAll('[data-testid="task-status"]'),
-      ].map((b) => b.textContent);
+      ].map((b) => b.getAttribute("aria-label"));
       for (const [, label] of specs) {
         expect(badges).toContain(label);
       }
@@ -959,7 +959,7 @@ describe("TasksPage", () => {
       '[data-testid="task-card"]'
     )!;
     expect(
-      card.querySelector('[data-testid="task-status"]')?.textContent
+      card.querySelector('[data-testid="task-status"]')?.getAttribute("aria-label")
     ).toBe("終止");
     // Terminal task: the badge STILL drops its menu (owner ruling 2026-07-17 —
     // 「照字面永遠出，已結案時兩項變灰不可點」), but 終止 there is now greyed and

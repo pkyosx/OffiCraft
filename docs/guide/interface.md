@@ -390,21 +390,22 @@ Before a member opens a task, it first checks which task manuals apply, then ope
 
 **Fields on the task card**
 
+The first line of the card holds the status icon, the task number, the priority and, during a reassignment, the "Reassigning" marker. Below the title, "Assignee" and "Due date" are always shown, plus "Handed over from" and "Identity key" when they are set. "Type", "Artifacts" and "Creator" are behind "More" under these rows; click "More" to show them and "Less" to hide them again. Each card starts with them hidden, and clicking "More" does not open the card.
+
+- **Status icon** — The first thing on the card, drawn in the status colour: a dashed circle for Not started, a play sign in a circle for In progress, a speech bubble with "?" for Awaiting my reply, an hourglass for Waiting on external, a flag for Ready to close, a tick in a circle for Done, a cross in a circle for Terminated, and two overlapping squares for Duplicate. Hover over it to see the status name. Clicking (or tapping) it opens a menu headed by the status name: "Show the waiting reply card", "Show the waiting-external step" (when there is one), Mark duplicate, Terminate, Force close.
 - **Task number** — Click it to "Copy task number".
-- **Task type** — "Open task-type settings" next to it links to this type's task manual. A task without a manual shows "Ad-hoc".
+- **Priority** — High, Mid, Low, Frozen.
+- **Reassigning** — A marker shown after a reassignment until the new assignee takes over or the task closes. It is not a status, so a task can be "In progress" and "Reassigning" at the same time.
 - **Assignee** — The member currently working on the task. When the assignee is an outsource member, there is an extra tag showing its code name, model and effort level (low effort, mid effort, high effort, extra-high effort, max effort). When there is no assignee yet, it shows "Unassigned".
-- **Creator** — The member who opened the task; not shown when it is the same as the assignee.
+- **Due date** — On the line below "Assignee". Shows the date, plus the time when one is set, followed by "· 5 days left" or "· Overdue 2 days". With less than a day left it switches to hours, and with less than an hour to minutes. Due soon is shown in orange-yellow, overdue in red. Closed tasks show only the date. When none is set, it shows "Not set".
 - **Handed over from** — The previous assignee before the task was reassigned; not shown if it has never been reassigned.
 - **Identity key** — A field the task manual designates to tell whether two tasks are about the same thing; clickable when it is a URL.
-- **Status** — Not started, In progress, Awaiting my reply, Waiting on external, Ready to close, Done, Terminated, Duplicate.
-- **Reassigning** — A marker shown after a reassignment until the new assignee takes over or the task closes. It is not a status, so a task can be "In progress" and "Reassigning" at the same time.
-- **Priority** — High, Mid, Low, Frozen.
-- **Due date** — On the line below "Creator". Shows the date, plus the time when one is set, followed by "· 5 days left" or "· Overdue 2 days". With less than a day left it switches to hours, and with less than an hour to minutes. Due soon is shown in orange-yellow, overdue in red. Closed tasks show only the date. When none is set, it shows "Not set".
+- **Type** (under "More") — "Open task-type settings" links to this type's task manual. A task without a manual shows "Ad-hoc".
+- **Artifacts** (under "More") — How many artifacts the task has; click it to "View artifacts", where you can see versions and diffs. Not shown when there are none.
+- **Creator** (under "More") — The member who opened the task; not shown when it is the same as the assignee.
 - **Step done/total · Elapsed** — Progress and the time spent so far.
 - **Workflow** — The list of steps, each step's status, DoD, step notes ("Show note"), and dependencies.
 - **Ask** — Reply cards embedded in the task; you can "Reply in chat".
-- **Artifacts** — "View artifacts", where you can see versions and diffs.
-- **Status tag** — Clicking the status text on the task card (hover to see "Status actions") opens a menu: "Show the waiting reply card", "Show the waiting-external step" (when there is one), Mark duplicate, Terminate, Force close.
 - **Reassign** — The swap icon next to "Assignee" (hover to see "Reassign…").
 - **Message box** — The message box on the card sends a message to the assignee. The suggested replies below the box list this task manual's sentences first, then the "Task-message suggestions". Clicking the name of the assignee, creator or previous assignee (hover to see "Message the assignee", "Message the creator" or "Message the predecessor") opens your chat with that member.
 

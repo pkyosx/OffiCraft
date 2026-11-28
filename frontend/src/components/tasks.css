@@ -227,20 +227,10 @@
 .task-card:focus-visible {
   box-shadow: 0 0 0 2px var(--color-accent-soft);
 }
-/* Waiting-on-owner tasks carry a soft accent ring — they are the ones asking
- * for the owner's hand. */
-.task-card--waiting_owner {
-  border-color: color-mix(in srgb, var(--color-dot-waking) 45%, transparent);
-}
-.task-card--waiting_external {
-  border-color: color-mix(in srgb, var(--color-wait-external) 45%, transparent);
-}
 
-/* v4/v5 head: the badge row (☑ #<task id> · 優先權 chip · 狀態) leads, sharing row
-   1 with the ▸/▾ expand indicator pinned at the card's top-right (v5 — it took
-   the corner over from the deleted ⋮ menu); the title sits on row 2; then the
-   aligned label column (任務類型 / 負責人 / 建立者 / 識別鍵). There is no
-   standalone card avatar; member identity chips may contain a small Avatar. */
+/* head: the badge row (狀態 icon · ☑ #<task id> · 優先權 · 轉派中) shares row 1
+   with the ▸/▾ expand indicator pinned at the card's top-right; the title sits
+   on row 2; then the aligned label column. */
 .task-card__head {
   display: flex;
   flex-direction: column;
@@ -324,6 +314,39 @@ button.task-card__id-badge--copy:hover {
   grid-template-columns: max-content 1fr;
   align-items: center;
   gap: 7px 12px;
+}
+/* 更多 section and the 產物 row are subgrids so their chips stay on the
+   shared label column; the 產物 row is its own box so the artifact popover can
+   anchor to it on phones. */
+.task-card__more,
+.task-card__artifacts-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: center;
+  row-gap: 7px;
+}
+.task-card__more[hidden] {
+  display: none;
+}
+.task-card__more-toggle {
+  grid-column: 1 / -1;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin: 0;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.task-card__more-toggle:hover,
+.task-card__more-toggle:focus-visible {
+  color: var(--color-text);
 }
 .task-card__meta-label {
   font-size: 12.5px;
@@ -522,51 +545,15 @@ a.task-card__chip--link {
   color: var(--color-dep);
   border-color: color-mix(in srgb, var(--color-dep) 40%, transparent);
 }
-/* 任務類型 badge (v6) — row 1, same badge vocabulary as 優先權/狀態. Its own
-   teal token rather than --color-accent: in_progress is accent green, and two
-   accent badges adjacent read as one status pair. The gear inherits the badge
-   colour (overriding .task-card__chip svg's muted grey) — it belongs to the
-   badge, not to a neutral chip. */
-.task-badge--type {
-  color: var(--color-task-type);
-  border-color: color-mix(in srgb, var(--color-task-type) 40%, transparent);
-}
-/* The dot + gear must not absorb the shrink the wrapping text needs (this is
-   the only badge that shrinks — see .task-badge--type below). */
-.task-badge--type svg,
-.task-badge--type::before {
-  flex: none;
-}
-/* 產物 N — the artifact-set count badge (T-3dc5). Its own dusty-rose hue, clear
-   of every status/priority/type colour on the row; a button (clickable), so it
-   gets a hover lift. The paperclip icon leads, so the badge's leading dot is
-   suppressed (unlike the status/priority badges). */
-.task-badge--artifacts {
-  color: var(--color-artifacts);
-  border-color: color-mix(in srgb, var(--color-artifacts) 42%, transparent);
-  cursor: pointer;
-  background: none;
-  font: inherit;
-  font-size: 11.5px;
-  font-weight: 700;
-}
-.task-badge--artifacts::before {
-  display: none;
-}
-.task-badge--artifacts svg {
-  flex: none;
-}
-.task-badge--artifacts:hover,
-.task-badge--artifacts[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--color-artifacts) 12%, transparent);
-}
 
-/* ── artifact popover (T-3dc5) — the badge's floating panel, styled like the
-   chat 檔案與圖片 gallery: header + segmented tabs + a scrolling list. Anchored
-   under the badge (the row is flex-wrap; the anchor is the positioning context). */
+/* ── artifact popover (T-3dc5) — the 產物 chip's floating panel, styled like
+   the chat 檔案與圖片 gallery. Anchored under the chip (the anchor is the
+   positioning context). */
 .task-artifacts-anchor {
   position: relative;
+  justify-self: start;
   display: inline-flex;
+  min-width: 0;
 }
 .task-artifacts {
   position: absolute;
@@ -818,34 +805,6 @@ button.task-artifacts__chip:hover {
 .task-artifacts__link:hover {
   color: var(--color-accent);
   border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
-}
-button.task-card__type-chip {
-  cursor: pointer;
-  background: none;
-  font-family: inherit;
-  transition: border-color 0.15s;
-}
-button.task-card__type-chip:hover {
-  border-color: color-mix(in srgb, var(--color-task-type) 70%, transparent);
-}
-/* The type name is the one badge whose text is user data of unbounded length
-   (a manual's display name), so it — alone among the badges — opts out of
-   .task-badge's flex:none / white-space:nowrap.
-   Row 1 is flex-wrap: a name that does not fit beside 編號·優先權·狀態 wraps to
-   its OWN LINE, whole. That is owner's explicit ruling («手機上 type 自己一行
-   我接受»), taken after 候選 B measured truncation and found that cutting to
-   6 chars +「…」 STILL wrapped at 390px — it cost the name and bought no line
-   back. Do NOT add an ellipsis/max-width to "fix" the wrap; the wrap IS the
-   decision.
-   The shrink + wrap here is the floor UNDER that ruling, for the case the
-   ruling does not cover: a name longer than the whole row (298px at 390vw)
-   has no line to wrap to, and with flex:none it would push the card into
-   horizontal overflow. It wraps inside the badge instead. */
-.task-badge--type {
-  flex: 0 1 auto;
-  max-width: 100%;
-  white-space: normal;
-  overflow-wrap: anywhere;
 }
 
 /* row 2 — the fixed badge row: 優先權 chip · #<task id> badge · 狀態 badge.
@@ -1099,25 +1058,56 @@ button.task-card__prio-chip:hover {
   opacity: 1;
 }
 
-/* 狀態 badge → owner-action dropdown (v5): 標記重複 / 終止 (+ the 等我回覆 jump
-   while waiting). Same button reset + popover vocabulary as the 優先權 chip;
-   like it, the pop anchors under the badge's LEFT edge. */
+/* 狀態 icon → owner-action dropdown: the jumps, 標記重複 / 終止 / 強制結案.
+   The icon is the card's only status encoding, coloured per status with the
+   same tokens the status badges use elsewhere. The pop anchors under its left
+   edge. */
 .task-card__status {
   position: relative;
   flex: none;
   display: inline-flex;
 }
-button.task-card__status-chip {
-  margin: 0;
+button.task-card__status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: 0 0 0 -4px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
   background: transparent;
-  font: inherit;
-  font-size: 11.5px;
-  font-weight: 700;
+  color: var(--color-text-muted);
   cursor: pointer;
   transition: background 0.15s;
 }
-button.task-card__status-chip:hover {
-  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+button.task-card__status-icon:hover,
+button.task-card__status-icon[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
+}
+button.task-card__status-icon svg {
+  flex: none;
+  display: block;
+}
+button.task-card__status-icon--in_progress,
+button.task-card__status-icon--done {
+  color: var(--color-accent);
+}
+button.task-card__status-icon--waiting_owner {
+  color: var(--color-dot-waking);
+}
+button.task-card__status-icon--waiting_external {
+  color: var(--color-wait-external);
+}
+button.task-card__status-icon--ready_for_done {
+  color: var(--color-ready-for-done);
+}
+button.task-card__status-icon--terminated {
+  color: var(--color-danger);
+}
+button.task-card__status-icon--duplicated {
+  color: var(--color-status-duplicated);
 }
 .task-card__status-pop {
   left: 0;
@@ -1165,6 +1155,15 @@ button.task-card__status-chip:hover {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+.task-card__menu-head {
+  padding: 4px 10px 6px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 .task-card__menu-item {
   padding: 7px 10px;
@@ -1282,12 +1281,6 @@ button.task-card__status-chip:hover {
   border-radius: 3px;
   background: var(--color-accent);
   transition: width 0.3s;
-}
-.task-card__progress-fill--waiting_owner {
-  background: var(--color-dot-waking);
-}
-.task-card__progress-fill--waiting_external {
-  background: var(--color-wait-external);
 }
 .task-card__progress-text {
   flex: none;
@@ -2113,50 +2106,19 @@ button.task-card__waiting--dep:focus-visible {
   .task-card__progress-text {
     align-self: flex-end;
   }
-  /* 產物浮層 RWD (T-2ca0, owner 定案 v2 — 留在原地夾進畫面,非 bottom sheet)。
-     桌面版 .task-artifacts 相對於 anchor(產物 badge)以 absolute + left:0 +
-     固定寬 min(340px,78vw) 往右展開;窄螢幕下 anchor(徽章列最右)貼右緣時,
-     固定寬從偏右起點往右撐,整片撐出視窗右緣,最右的「連結」分頁被切在畫面外。
-     窄版仍「留在原地」—— 徽章列正下方的 dropdown(與桌面同一位置概念),只做
-     兩件事讓它不溢出:
-       ① 定位參考從那顆小 anchor 改成整條徽章列(滿卡片寬、靠左;T-49fb 起是
-          head-top)。把 anchor 設 static、那條列設 relative,浮層的 top/left
-          就相對它:top 落在徽章列正下方,left:0 落在卡片左內緣,往右展。
-          (桌面不套此規則 → anchor 仍是定位參考,dropdown 緊貼 badge 不變。)
-       ② 寬度夾進畫面:width: min(340px, calc(100vw - 16px)),不再固定撐出去。
-     於是無論產物 badge 落在列的哪個位置,浮層一律從卡片左緣往右展、寬度受夾,
-     right ≤ 視窗、left ≥ 0。桌面(>720px)的 absolute/anchor/left:0/top/min()
-     完全不動,dropdown 緊貼 badge 的外觀與行為不變。
-     兄弟選單(.task-card__prio / .task-card__status)有各自的 position:relative
-     容器,不受轉為定位參考影響。
-
-     T-49fb 修正 T-2ca0 的 ② —— 寬度的夾法錯了座標系。實測(375px,真 app):
-     浮層左緣 x=37(= app__main padding 22 + 卡片 border 1 + 卡片 padding 14),
-     但寬度是 `min(340px, calc(100vw - 16px))`;100vw 從「視窗左緣」起算,浮層
-     卻不是從視窗左緣長出來的。375px 時 calc = 359,min() 永遠選 340,於是右緣
-     落在 37+340 = 377 > 375 —— 溢出 +2px,再加上卡片 padding 一路往上累積,
-     `.task-card` 溢出 +25、`.tasks` 溢出 +24。`.tasks` 有 overflow-y:auto
-     (CSS 規定 overflow-x 跟著變 auto),所以整片列表自己長出橫向捲軸:owner
-     手機上一滑,#T-23cf / 自由代辦 兩顆 chip 的左緣就被捲出畫面外。
-     (實測排除其他候選:浮層 scrollWidth == clientWidth,連結列的長 branch 名
-     早已被 T-90df 的 ellipsis 截斷、tab 列也在浮層內,兩者都沒有參與撐寬。)
-     改法:別再用 vw 猜自己的左偏移,直接讓兩個橫向邊界都由「卡片自己」給——
-     定位參考改成 `.task-card__head-top`(整條 row 1,滿卡片內容寬、靠左),
-     浮層 `left:0; right:0; width:auto`。left/right 同時給定 ⇒ 可用寬 = 卡片
-     內容寬,右緣**構造上**等於卡片右內緣,卡片在視窗內浮層就一定在視窗內,
-     與視窗寬無關。over-constrained 時 LTR 忽略 right、維持靠左展開,所以
-     `max-width` 仍把它收在 340px(桌面同寬),窄機則自然縮到卡片寬。
-     定位參考從 badge-row 換成 head-top 只差一顆 expand chevron 的寬度,
-     top: calc(100%+6px) 仍是「徽章列正下方」(head-top 高度 = 徽章列高度),
-     T-2ca0「留在原地、從卡片左緣往右展」的裁決不變。 */
-  .task-card__head-top {
+  /* 產物浮層 RWD:留在原地(產物列正下方),不做 bottom sheet。定位參考改成整條
+     產物列(.task-card__artifacts-row,滿卡片內容寬、靠左),浮層 left:0 + right:0
+     ⇒ 可用寬 = 卡片內容寬,右緣構造上等於卡片右內緣,與視窗寬無關。不要改回
+     用 vw 夾寬:浮層不是從視窗左緣長出來的,calc(100vw - …) 會算錯左偏移而
+     撐出整片列表的橫向捲軸。over-constrained 時 LTR 忽略 right,max-width
+     仍收在 340px。 */
+  .task-card__artifacts-row {
     position: relative;
   }
   .task-artifacts-anchor {
     position: static;
   }
   .task-artifacts {
-    /* top 沿用 base(calc(100%+6px)),現在相對 head-top。 */
     left: 0;
     right: 0;
     width: auto;

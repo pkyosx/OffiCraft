@@ -99,7 +99,7 @@ describe("TaskCard step 徽章 i18n (T-6f11)", () => {
 
     // 兩層一致:任務層徽章與 step 層的等待外部同詞。
     const taskBadge = await findByTestId("task-status");
-    expect(taskBadge.textContent).toContain(
+    expect(taskBadge.getAttribute("aria-label")).toBe(
       zh.tasks.status.waiting_external
     );
     expect(zh.tasks.status.waiting_external).toBe(

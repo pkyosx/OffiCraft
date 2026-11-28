@@ -4,15 +4,14 @@
 //      on the card body toggles the workflow, with aria-expanded + role=button
 //      semantics on the card itself.
 //   2. INTERACTIVE elements never flip the card: the 狀態 / 優先權 dropdowns,
-//      the meta chips (assignee chat / type settings / 識別鍵 link), the
-//      message composer (paperclip / textarea / 送出), and in-card links —
+//      the meta chips (assignee chat / type settings / 識別鍵 link), the 更多
+//      toggle, the message composer (paperclip / textarea / 送出), and in-card links —
 //      their clicks do their own job only (closest() filter, not
 //      stopPropagation sprinkled per child). (The ⋮ owner menu was one of
 //      these until v5 deleted it; see TaskCard.status-menu.test.tsx.)
 //   3. An active text selection (drag ending on the card) is not a toggle.
-//   4. The ☑ #<task id> badge LEADS the fixed badge row, label-free
-//      (編號 · 優先權 · 狀態, v3), no longer on the title line or in the
-//      meta stack.
+//   4. The badge row reads 狀態 icon · ☑ #<task id> · 優先權, label-free; the
+//      id badge is not on the title line or in the meta stack.
 //   5. The 等我回覆 jump (v5): the status badge drops a menu whose 查看等我回覆卡
 //      item expands + scrolls to the embedded reply card.
 
@@ -190,7 +189,7 @@ describe("TaskCard whole-card toggle (mobile refactor)", () => {
     expect(card.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("meta chips (assignee chat / type settings) navigate without toggling", async () => {
+  it("meta chips (assignee chat / type settings) and the 更多 toggle never toggle the card", async () => {
     __injectMockTaskType({ typeKey: "review-pr", displayName: "", purpose: "" });
     __injectMockTask(
       mkTask({ title: "連結不切換", typeKey: "review-pr", executorId: "mira" })
@@ -203,6 +202,15 @@ describe("TaskCard whole-card toggle (mobile refactor)", () => {
     expect(card.getAttribute("aria-expanded")).toBe("false");
     expect(window.location.hash).toContain("#office/chat/mira");
 
+    const more = await findByTestId("task-meta-more-toggle");
+    fireEvent.click(more);
+    expect(more.getAttribute("aria-expanded")).toBe("true");
+    expect(card.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(more);
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    expect(card.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(more);
     window.location.hash = "";
     fireEvent.click(await findByTestId("task-type-link"));
     expect(card.getAttribute("aria-expanded")).toBe("false");
@@ -289,7 +297,7 @@ describe("TaskCard whole-card toggle (mobile refactor)", () => {
     expect(card.getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("the ☑ #<task id> badge leads the badge row (編號 · 優先權 · 狀態), not on the title line", async () => {
+  it("the badge row reads 狀態 icon · ☑ #<task id> · 優先權, and the id badge is not on the title line", async () => {
     const task = mkTask({ title: "編號居首" });
     __injectMockTask(task);
     const { findByTestId } = renderPage();
@@ -299,15 +307,13 @@ describe("TaskCard whole-card toggle (mobile refactor)", () => {
     expect(badge.closest(".task-card__title-line")).toBeNull();
     expect(badge.closest(".task-card__meta")).toBeNull();
     expect(badge.textContent).toContain(`#${task.taskNo}`);
-    // v3 order on the row: the id badge leads, then the 優先權 chip, then
-    // 狀態.
     const row = badge.closest(".task-card__badge-row")!;
     const prio = row.querySelector('[data-testid="task-priority"]')!;
     const status = row.querySelector('[data-testid="task-status"]')!;
     const follows = (a: Element, b: Element) =>
       a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING;
+    expect(follows(status, badge)).toBeTruthy();
     expect(follows(badge, prio)).toBeTruthy();
-    expect(follows(prio, status)).toBeTruthy();
   });
 
   it("the 等我回覆 jump lives in the status dropdown: badge → 查看等我回覆卡 expands + scrolls to the embedded reply card", async () => {

@@ -407,6 +407,9 @@ export const en: Dict = {
     messagePlaceholder: (name: string) => `Message ${name}…`,
     send: "Send",
     messageError: "Failed to send the message. Please try again.",
+    metaTypeLabel: "Type",
+    metaMore: "More",
+    metaLess: "Less",
     statusMenuLabel: "Status actions",
     priorityLabel: "Priority",
     dueLabel: "Due",
@@ -596,11 +599,12 @@ export const en: Dict = {
     expandReply: "Expand reply card",
     collapseReply: "Collapse reply card",
     // Artifact set (T-3dc5): the deliverables (file/image/link) pinned onto a
-    // task card. The 「Artifacts N」 count badge sits in the coloured badge row;
+    // task card. The card's 更多 section has an 「Artifacts」 row with the count;
     // clicking opens a popover with ONE gallery-style list, grouped
-    // file → image → link (T-49fb removed the three tabs). 0 ⇒ badge hidden.
+    // file → image → link. 0 ⇒ the row is hidden.
     artifacts: {
-      badge: "Artifacts",
+      label: "Artifacts",
+      count: (n: number) => `${n}`,
       open: "View artifacts",
       panelTitle: "Artifacts",
       imageName: "Image",

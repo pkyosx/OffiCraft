@@ -100,7 +100,7 @@ describe("轉派中 lock badge — orthogonal overlay class hook", () => {
     // The status badge stays the derived status (in_progress) — reassigning is
     // NOT a status any more, so it never borrows a status colour class.
     const status = await findByTestId("task-status");
-    expect(status.textContent).toContain("進行中");
+    expect(status.getAttribute("aria-label")).toBe("進行中");
     expect(status.classList.contains("task-badge--lock-reassigning")).toBe(
       false
     );

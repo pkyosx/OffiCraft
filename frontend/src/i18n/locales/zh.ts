@@ -450,6 +450,9 @@ export const zh = {
     messageError: "訊息送出失敗，請稍後重試",
     // owner 動作:狀態 badge 下拉(標記重複+終止,二次確認 — v5 從 ⋮ 搬過來,
     // ⋮ 本身隨後由 owner 裁示刪除);優先權改卡面 chip 就地編輯(v2)
+    metaTypeLabel: "類型",
+    metaMore: "更多",
+    metaLess: "收起",
     statusMenuLabel: "狀態操作",
     priorityLabel: "優先權",
     dueLabel: "到期日",
@@ -626,11 +629,12 @@ export const zh = {
     replySnoozedTag: "已延後",
     expandReply: "展開回覆卡",
     collapseReply: "收合回覆卡",
-    // 產物集(T-3dc5):任務卡上釘的交付物(檔案/圖片/連結)。徽章「產物 N」
-    // 在彩色徽章列;點開浮層是一份依 檔案→圖片→連結 分組的單一清單(T-49fb 之前是三個
-    // 分頁)。0 個產物時徽章不出現。
+    // 產物集(T-3dc5):任務卡上釘的交付物(檔案/圖片/連結)。卡片「更多」裡的
+    // 「產物」列顯示數量;點開浮層是一份依 檔案→圖片→連結 分組的單一清單。
+    // 0 個產物時整列不出現。
     artifacts: {
-      badge: "產物",
+      label: "產物",
+      count: (n: number) => `${n} 個`,
       open: "查看產物",
       panelTitle: "產物",
       // T-49fb: the three tabs are gone (one list). What is left of the trio is
