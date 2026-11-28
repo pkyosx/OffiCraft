@@ -317,26 +317,32 @@ func TestHandleSigningKeyRemoveApiAuthSigningKeysKeyIdRemovePost(t *testing.T) {
 			map[string]any{"key_id": rotated, "created_ts": apiAnyNumber, "is_signing": true})
 	})
 
-	t.Run("a share link minted under the removed key resolves right up to the removal and answers 401 after it", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
+	t.Run("a share link outlives the removal of the key that was signing when it was minted, while preview and legacy sigs signed by it answer 401", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
 		before, after := apiDiffSeededSides(t, h, owner)
-		minted := apiDiffShareQuery(t, h, owner, before, after, "", "")
+		shared := apiDiffShareQuery(t, h, owner, before, after)
+		legacy := "before=" + before + "&after=" + after + "&sig=" + diffSigForRing(api.keys, before, after, "", "")
+		preview := previewLinkQuery(api.keys, before, int64(nowSecs())+600)
 
 		apiRotateSigningKey(t, h, owner)
-		if status, data := apiJSON(t, h, "GET", "/api/diff?"+minted, "", ""); status != 200 {
-			t.Fatalf("a rotation must not void a minted link: %d %v", status, data)
-		}
-
 		operator := apiOwnerCredential(t, h)
 		if status, data := apiJSON(t, h, "POST", "/api/auth/signing-keys/k-legacy/remove", operator, ""); status != 200 {
 			t.Fatalf("remove: %d %v", status, data)
 		}
 
-		status, data := apiJSON(t, h, "GET", "/api/diff?"+minted, "", "")
-		if status != 401 {
-			t.Fatalf("want 401, got %d (%v)", status, data)
+		if status, data := apiJSON(t, h, "GET", "/api/diff?"+shared, "", ""); status != 200 {
+			t.Fatalf("share link after the removal: want 200, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "unauthorized", "invalid signature")
+		for name, target := range map[string]string{
+			"legacy sig":  "/api/diff?" + legacy,
+			"preview sig": "/api/chat/attachment/" + before + "?" + preview,
+		} {
+			status, data := apiJSON(t, h, "GET", target, "", "")
+			if status != 401 {
+				t.Fatalf("%s: want 401, got %d (%v)", name, status, data)
+			}
+			apiWantError(t, data, "unauthorized", "invalid signature")
+		}
 	})
 
 	t.Run("the credential that removes the key it was itself signed under is answered, and is dead on the next request", func(t *testing.T) {

@@ -117,22 +117,61 @@ func TestDiffSigFor(t *testing.T) {
 	})
 }
 
-func TestShareSigForRing(t *testing.T) {
-	t.Run("a new attachment link uses the currently signing key", func(t *testing.T) {
-		kr := newKeyring([]signingKey{{ID: "k-old", Key: []byte("old")}, {ID: "k-active", Key: []byte("active")}}, "k-active")
-		got := shareSigForRing(kr, "att-0123456789ab")
-		if got != "4FbeWRczQGIj9HZGSsM3I3CE7G7Ceoxn" {
-			t.Fatalf("ring share signature = %q, want %q", got, "4FbeWRczQGIj9HZGSsM3I3CE7G7Ceoxn")
+// Production only verifies these two sig kinds now (legacyShareSigsOpen); the
+// tests still have to mint them.
+func shareSigForRing(kr *keyring, attachmentID string) string {
+	secret := kr.signingSecret()
+	if len(secret) == 0 {
+		return ""
+	}
+	return shareSigFor(secret, attachmentID)
+}
+
+func diffSigForRing(kr *keyring, before, after, labelBefore, labelAfter string) string {
+	secret := kr.signingSecret()
+	if len(secret) == 0 {
+		return ""
+	}
+	return diffSigFor(secret, before, after, labelBefore, labelAfter)
+}
+
+func TestPreviewSigForRing(t *testing.T) {
+	kr := newKeyring([]signingKey{{ID: "k-old", Key: []byte("old")}, {ID: "k-active", Key: []byte("active")}}, "k-active")
+
+	t.Run("a preview sig is signed by the current key and verifies only with its own blob and exp", func(t *testing.T) {
+		sig := previewSigForRing(kr, "att-0123456789ab", 1_800_000_000)
+		if len(sig) != shareSigLen {
+			t.Fatalf("preview sig %q, want %d characters", sig, shareSigLen)
 		}
-		if got := kr.activeKeyID(); got != "k-active" {
-			t.Fatalf("active key id after signing = %q, want %q", got, "k-active")
+		if sig != previewSigFor([]byte("active"), "att-0123456789ab", 1_800_000_000) {
+			t.Fatalf("preview sig was not made with the signing key")
+		}
+		if !verifyPreviewSigAnyKey(kr, "att-0123456789ab", 1_800_000_000, sig) {
+			t.Fatalf("a preview sig must verify against its own blob and exp")
+		}
+		if verifyPreviewSigAnyKey(kr, "att-0123456789ab", 1_800_000_001, sig) ||
+			verifyPreviewSigAnyKey(kr, "att-0123456789ac", 1_800_000_000, sig) {
+			t.Fatalf("a preview sig verified against another exp or blob")
 		}
 	})
 
-	t.Run("a ring without a signing key returns an empty signature", func(t *testing.T) {
-		kr := newKeyring([]signingKey{{ID: "k-old", Key: []byte("old")}}, "k-missing")
-		if got := shareSigForRing(kr, "att-0123456789ab"); got != "" {
-			t.Fatalf("ring without signing key returned %q, want empty", got)
+	t.Run("a preview sig never verifies as the attachment share sig of the same blob", func(t *testing.T) {
+		if previewSigFor([]byte("active"), "att-0123456789ab", 0) == shareSigFor([]byte("active"), "att-0123456789ab") {
+			t.Fatalf("preview and share sigs collide")
+		}
+	})
+
+	t.Run("a preview sig dies with the key that made it, and an empty ring mints none", func(t *testing.T) {
+		sig := previewSigFor([]byte("old"), "att-0123456789ab", 1_800_000_000)
+		if !verifyPreviewSigAnyKey(kr, "att-0123456789ab", 1_800_000_000, sig) {
+			t.Fatalf("a retained key must still verify")
+		}
+		removed := newKeyring([]signingKey{{ID: "k-active", Key: []byte("active")}}, "k-active")
+		if verifyPreviewSigAnyKey(removed, "att-0123456789ab", 1_800_000_000, sig) {
+			t.Fatalf("a removed key's preview sig still verified")
+		}
+		if got := previewSigForRing(newKeyring(nil, ""), "att-0123456789ab", 1); got != "" {
+			t.Fatalf("empty ring minted %q", got)
 		}
 	})
 }
@@ -196,26 +235,6 @@ func TestVerifyShareSigAnyKey(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestDiffSigForRing(t *testing.T) {
-	t.Run("a new comparison link uses the currently signing key", func(t *testing.T) {
-		kr := newKeyring([]signingKey{{ID: "k-old", Key: []byte("old")}, {ID: "k-active", Key: []byte("active")}}, "k-active")
-		got := diffSigForRing(kr, "att-0123456789ab", "doc:global_context/global/current/text", "初始 & before", "after=now")
-		if got != "JeehcqMuIaaEMvNu_8um3Dw2i83Tfr2_" {
-			t.Fatalf("ring diff signature = %q, want %q", got, "JeehcqMuIaaEMvNu_8um3Dw2i83Tfr2_")
-		}
-		if got := kr.activeKeyID(); got != "k-active" {
-			t.Fatalf("active key id after signing = %q, want %q", got, "k-active")
-		}
-	})
-
-	t.Run("a ring without a signing key returns an empty comparison signature", func(t *testing.T) {
-		kr := newKeyring([]signingKey{{ID: "k-old", Key: []byte("old")}}, "k-missing")
-		if got := diffSigForRing(kr, "att-0123456789ab", "doc:global_context/global/current/text", "初始 & before", "after=now"); got != "" {
-			t.Fatalf("ring without signing key returned %q, want empty", got)
-		}
-	})
 }
 
 func TestVerifyDiffSigAnyKey(t *testing.T) {

@@ -1,6 +1,9 @@
 package main
 
-import "net/http"
+import (
+	"net/http"
+	"strconv"
+)
 
 const (
 	authPublic = "public"
@@ -26,15 +29,43 @@ type RouteSpec struct {
 	// MCPTool is the explicit MCP tool name override (paths carrying a
 	// {param}).
 	MCPTool string
-	// ShareSig admits a ?sig= share credential (sharesig.go) as a third auth
-	// path on THIS row only (precedence: Authorization header → ?token= →
-	// ?sig=), and IS the verifier. nil = this row never consults sigs.
-	ShareSig shareSigVerifier
+	// Share admits share credentials as further auth paths on THIS row only
+	// (precedence: Authorization header → ?token= → ?link= → ?sig=). nil =
+	// this row never consults them.
+	Share *shareAccess
 	// RosterRefusalInHandler: requireAuth lets a roster-removed staff/outsource
 	// caller through and the handler refuses it. /api/events only: its stop gate
 	// answers 409, the one refusal an ocagent listener of ANY version exits on — a
 	// 401 there keeps an old listener, and the session it serves, retrying forever.
 	RosterRefusalInHandler bool
+}
+
+type shareAccess struct {
+	// nil (a test table built without a store): every ?link= is gone.
+	Links shareLinkStore
+	// Opens reports whether a live stored link names exactly what r asks for.
+	Opens func(r *http.Request, l ShareLink) bool
+	// nil: this row takes no ?sig=.
+	Sig shareSigVerifier
+}
+
+type shareLinkStore interface {
+	liveShareLinkFor(token string) (*ShareLink, error)
+	writeShareLinkGone(w http.ResponseWriter, r *http.Request)
+}
+
+func attachmentShareLinkOpens(r *http.Request, l ShareLink) bool {
+	return l.Kind == shareLinkKindAttachment && l.AttachmentID != nil &&
+		*l.AttachmentID == r.PathValue("attachment_id")
+}
+
+// Read RAW, never trimmed: a padded address is a different address. Labels
+// are matched too, or a recipient could relabel a column under a valid link.
+func diffShareLinkOpens(r *http.Request, l ShareLink) bool {
+	q := r.URL.Query()
+	return l.Kind == shareLinkKindDiff &&
+		optString(l.DiffBefore) == q.Get(diffParamBefore) && optString(l.DiffAfter) == q.Get(diffParamAfter) &&
+		optString(l.LabelBefore) == q.Get(diffParamLabelBefor) && optString(l.LabelAfter) == q.Get(diffParamLabelAfter)
 }
 
 // A shareSigVerifier's subject is everything the response depends on, so a
@@ -45,13 +76,21 @@ type RouteSpec struct {
 type shareSigVerifier func(keys *keyring, r *http.Request, sig string) bool
 
 func verifyAttachmentShareSig(keys *keyring, r *http.Request, sig string) bool {
-	return verifyShareSigAnyKey(keys, r.PathValue("attachment_id"), sig)
+	q := r.URL.Query()
+	if _, hasExp := q[previewExpParam]; !hasExp {
+		return legacyShareSigsOpen && verifyShareSigAnyKey(keys, r.PathValue("attachment_id"), sig)
+	}
+	exp, err := strconv.ParseInt(q.Get(previewExpParam), 10, 64)
+	if err != nil || float64(exp) <= nowSecs() {
+		return false
+	}
+	return verifyPreviewSigAnyKey(keys, r.PathValue("attachment_id"), exp, sig)
 }
 
 // Read RAW, never trimmed: a padded address is a different address.
 func verifyDiffShareSig(keys *keyring, r *http.Request, sig string) bool {
 	q := r.URL.Query()
-	return verifyDiffSigAnyKey(keys,
+	return legacyShareSigsOpen && verifyDiffSigAnyKey(keys,
 		q.Get(diffParamBefore), q.Get(diffParamAfter),
 		q.Get(diffParamLabelBefor), q.Get(diffParamLabelAfter), sig)
 }
@@ -62,7 +101,7 @@ type routeDef struct {
 	Handler    http.HandlerFunc
 	MCPExclude bool
 	MCPTool    string
-	ShareSig   shareSigVerifier
+	Share      *shareAccess
 
 	RosterRefusalInHandler bool
 }
@@ -76,7 +115,7 @@ func (d routeDef) row(auth string, requires principalClass) routeRow {
 	return routeRow{RouteSpec{
 		Method: d.Method, Path: d.Path, Handler: d.Handler,
 		Auth: auth, Requires: requires,
-		MCPExclude: d.MCPExclude, MCPTool: d.MCPTool, ShareSig: d.ShareSig,
+		MCPExclude: d.MCPExclude, MCPTool: d.MCPTool, Share: d.Share,
 		RosterRefusalInHandler: d.RosterRefusalInHandler,
 	}}
 }
@@ -91,6 +130,7 @@ func Gated(c principalClass, d routeDef) routeRow { return d.row(authGated, c) }
 // consecutive range 0..N-1, so a new tool is APPENDED at the end — inserting
 // one mid-table renumbers every tool after it.
 func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
+	links, _ := w.Handler.(shareLinkStore)
 	rows := []routeRow{
 		Public(routeDef{
 			Method:     "GET",
@@ -535,17 +575,22 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:    w.HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet,
 			MCPExclude: true,
 			MCPTool:    "get_chat_attachment",
-			ShareSig:   verifyAttachmentShareSig,
+			Share:      &shareAccess{Links: links, Opens: attachmentShareLinkOpens, Sig: verifyAttachmentShareSig},
 		}),
 		Gated(principalMachine, routeDef{
-			Method:  "GET",
+			Method:  "POST",
 			Path:    "/api/chat/attachments/{attachment_id}/share-link",
-			Handler: w.HandleGetChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkGet,
+			Handler: w.HandleCreateChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkPost,
 			// On the MCP surface on purpose: an agent must be able to hand
-			// over a usable link. Minted links carry no credential and no
-			// expiry, and die only with their signing key (a coarse
-			// revocation) — read sharesig.go before widening this seam.
+			// over a usable link. Read api_share_links.go before widening
+			// this seam.
 			MCPTool: "get_chat_attachment_share_link",
+		}),
+		Gated(principalMachine, routeDef{
+			Method:     "GET",
+			Path:       "/api/chat/attachments/{attachment_id}/preview-link",
+			Handler:    w.HandleGetChatAttachmentPreviewLinkApiChatAttachmentsAttachmentIdPreviewLinkGet,
+			MCPExclude: true,
 		}),
 		Gated(principalMachine, routeDef{
 			Method:  "GET",
@@ -629,12 +674,12 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 
 			MCPExclude: true,
 
-			ShareSig: verifyDiffShareSig,
+			Share: &shareAccess{Links: links, Opens: diffShareLinkOpens, Sig: verifyDiffShareSig},
 		}),
 		Gated(principalMachine, routeDef{
-			Method:  "GET",
+			Method:  "POST",
 			Path:    "/api/diff/share-link",
-			Handler: w.HandleGetDiffShareLinkApiDiffShareLinkGet,
+			Handler: w.HandleCreateDiffShareLinkApiDiffShareLinkPost,
 			MCPTool: "get_diff_share_link",
 		}),
 		Gated(principalMachine, routeDef{
@@ -1557,6 +1602,18 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Path:    "/api/lore/{entry_id}",
 			Handler: w.HandleEditLoreEntryApiLoreEntryIdPatch,
 			MCPTool: "edit_lore_entry",
+		}),
+		Gated(principalAdminAgent, routeDef{
+			Method:  "GET",
+			Path:    "/api/share-links",
+			Handler: w.HandleListShareLinksApiShareLinksGet,
+			MCPTool: "list_share_links",
+		}),
+		Gated(principalAdminAgent, routeDef{
+			Method:  "DELETE",
+			Path:    "/api/share-links/{share_link_id}",
+			Handler: w.HandleRevokeShareLinkApiShareLinksShareLinkIdDelete,
+			MCPTool: "revoke_share_link",
 		}),
 	}
 	out := make([]RouteSpec, len(rows))

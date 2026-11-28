@@ -2649,7 +2649,7 @@ func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
 		}
 	})
 
-	t.Run("an HTML blob opened with the login in its address is moved to a sig-only address that may script", func(t *testing.T) {
+	t.Run("an HTML blob opened with the login in its address is moved to a preview address that may script", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		page := "<script>document.title=1</script>"
 		_, uploaded := apiJSON(t, h, "POST", "/api/chat/attachments?filename=game.html", owner, page)
@@ -2661,8 +2661,8 @@ func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
 		}
 		loc := rec.Header().Get("Location")
 		prefix := "/api/chat/attachment/" + id + "?sig="
-		if !strings.HasPrefix(loc, prefix) || len(loc) == len(prefix) || strings.Contains(loc, owner) {
-			t.Fatalf("Location: want %q followed by a sig and no login, got %q", prefix, loc)
+		if !strings.HasPrefix(loc, prefix) || !strings.Contains(loc, "&exp=") || strings.Contains(loc, owner) {
+			t.Fatalf("Location: want %q followed by a preview sig and exp and no login, got %q", prefix, loc)
 		}
 		apiWantHeaders(t, rec, map[string]string{
 			"Cache-Control":   "no-store",
@@ -2685,17 +2685,17 @@ func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
 		}
 	})
 
-	t.Run("an HTML blob may script only when its address carries the sig and nothing else", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
+	t.Run("an HTML blob may script only when its address carries a share link or a sig and nothing else", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
 		_, uploaded := apiJSON(t, h, "POST", "/api/chat/attachments?filename=game.html", owner, "<script>1</script>")
 		id := uploaded["id"].(string)
-		_, minted := apiJSON(t, h, "GET", "/api/chat/attachments/"+id+"/share-link", owner, "")
-		sig := strings.SplitN(minted["url"].(string), "?sig=", 2)[1]
+		minted := apiMintShareLink(t, h, apiAttachmentLinkTarget(id), owner, "")
+		link := strings.SplitN(minted["url"].(string), "?link=", 2)[1]
 		base := "/api/chat/attachment/" + id
 
 		for _, query := range []string{
-			"?token&sig=" + sig + "&token=" + url.QueryEscape(owner),
-			"?token=&sig=" + sig + "&token=" + url.QueryEscape(owner),
+			"?token&link=" + link + "&token=" + url.QueryEscape(owner),
+			"?token=&link=" + link + "&token=" + url.QueryEscape(owner),
 		} {
 			rec := apiRequest(t, h, "GET", base+query, "", "")
 			if rec.Code != http.StatusFound {
@@ -2703,15 +2703,42 @@ func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
 					query, rec.Code, rec.Header().Get("Content-Security-Policy"))
 			}
 		}
-		rec := apiRequest(t, h, "GET", base+"?sig="+sig+"&x=1", "", "")
+		for _, query := range []string{
+			"?link=" + link,
+			"?" + previewLinkQuery(api.keys, id, time.Now().Unix()+600),
+			"?sig=" + shareSigForRing(api.keys, id),
+		} {
+			rec := apiRequest(t, h, "GET", base+query, "", "")
+			if rec.Code != 200 || rec.Header().Get("Content-Security-Policy") != "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox" {
+				t.Fatalf("%s: want 200 with scripts allowed, got %d (CSP %q)", query, rec.Code, rec.Header().Get("Content-Security-Policy"))
+			}
+		}
+		rec := apiRequest(t, h, "GET", base+"?link="+link+"&x=1", "", "")
 		if rec.Code != 200 {
-			t.Fatalf("sig plus another param: want 200, got %d (%s)", rec.Code, rec.Body.String())
+			t.Fatalf("link plus another param: want 200, got %d (%s)", rec.Code, rec.Body.String())
 		}
 		apiWantHeaders(t, rec, map[string]string{
 			"Content-Disposition":     `inline; filename="game.html"; filename*=UTF-8''game.html`,
 			"Content-Security-Policy": "sandbox",
 			"X-Content-Type-Options":  "nosniff",
 		})
+	})
+
+	t.Run("a sig minted before links were stored still opens its blob, and a forged one answers 401", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		_, uploaded := apiJSON(t, h, "POST",
+			"/api/chat/attachments?filename=notes.txt&mime=text/plain", owner, "hello")
+		id := uploaded["id"].(string)
+
+		rec := apiRequest(t, h, "GET", "/api/chat/attachment/"+id+"?sig="+shareSigForRing(api.keys, id), "", "")
+		if rec.Code != 200 || rec.Body.String() != "hello" {
+			t.Fatalf("legacy sig: want 200 hello, got %d %q", rec.Code, rec.Body.String())
+		}
+		status, data := apiJSON(t, h, "GET", "/api/chat/attachment/"+id+"?sig=forged", "", "")
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "invalid signature")
 	})
 
 	t.Run("a stored ref that is not a minted id is never turned into a serve URL", func(t *testing.T) {
@@ -2758,7 +2785,7 @@ func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
 		} {
 			_, uploaded := apiJSON(t, h, "POST", "/api/chat/attachments?filename="+tc.filename, owner, tc.body)
 			id := uploaded["id"].(string)
-			_, minted := apiJSON(t, h, "GET", "/api/chat/attachments/"+id+"/share-link", owner, "")
+			minted := apiMintShareLink(t, h, apiAttachmentLinkTarget(id), owner, "")
 
 			for _, target := range []string{
 				"/api/chat/attachment/" + id + "?token=" + url.QueryEscape(owner),
@@ -2856,81 +2883,6 @@ func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
 
 		status, data := apiJSON(t, h, "GET",
 			"/api/chat/attachment/"+uploaded["id"].(string), "", "")
-		if status != 401 {
-			t.Fatalf("want 401, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "unauthorized", "missing credentials")
-	})
-}
-
-func TestHandleGetChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkGet(t *testing.T) {
-	t.Run("minting a link for a stored blob answers that blob's serve path carrying a signature", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
-		_, uploaded := apiJSON(t, h, "POST",
-			"/api/chat/attachments?filename=notes.txt&mime=text/plain", owner, "hello")
-		id, _ := uploaded["id"].(string)
-
-		status, data := apiJSON(t, h, "GET", "/api/chat/attachments/"+id+"/share-link", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{"url": apiAnyString})
-		url, _ := data["url"].(string)
-		prefix := "/api/chat/attachment/" + id + "?sig="
-		if !strings.HasPrefix(url, prefix) || len(url) == len(prefix) {
-			t.Fatalf("url: want %q followed by a signature, got %q", prefix, url)
-		}
-		dashboard.wantFrames()
-	})
-
-	t.Run("the minted link serves that one blob to a caller holding no credential", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
-		_, uploaded := apiJSON(t, h, "POST",
-			"/api/chat/attachments?filename=notes.txt&mime=text/plain", owner, "hello")
-		_, minted := apiJSON(t, h, "GET",
-			"/api/chat/attachments/"+uploaded["id"].(string)+"/share-link", owner, "")
-
-		rec := apiRequest(t, h, "GET", minted["url"].(string), "", "")
-		if rec.Code != 200 {
-			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
-		}
-		if rec.Body.String() != "hello" {
-			t.Fatalf("body: got %q", rec.Body.String())
-		}
-	})
-
-	t.Run("a signature this server did not mint answers 401", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
-		_, uploaded := apiJSON(t, h, "POST",
-			"/api/chat/attachments?filename=notes.txt&mime=text/plain", owner, "hello")
-
-		status, data := apiJSON(t, h, "GET",
-			"/api/chat/attachment/"+uploaded["id"].(string)+"?sig=forged", "", "")
-		if status != 401 {
-			t.Fatalf("want 401, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "unauthorized", "invalid signature")
-	})
-
-	t.Run("an attachment id nothing was stored under mints nothing and answers 404", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
-
-		status, data := apiJSON(t, h, "GET",
-			"/api/chat/attachments/att-nosuchblob/share-link", owner, "")
-		if status != 404 {
-			t.Fatalf("want 404, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "not_found", "attachment 'att-nosuchblob' not found")
-	})
-
-	t.Run("a request without credentials answers 401", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
-		_, uploaded := apiJSON(t, h, "POST",
-			"/api/chat/attachments?filename=notes.txt&mime=text/plain", owner, "hello")
-
-		status, data := apiJSON(t, h, "GET",
-			"/api/chat/attachments/"+uploaded["id"].(string)+"/share-link", "", "")
 		if status != 401 {
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}

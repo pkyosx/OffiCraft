@@ -250,18 +250,36 @@ func gateAuth(keys *keyring, ownerIatFloor func() int64, lookup func(id string) 
 	})
 }
 
-func shareSigGate(keys *keyring, verify shareSigVerifier, raw, authed http.Handler) http.Handler {
+func shareGate(keys *keyring, share *shareAccess, raw, authed http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if extractToken(r) != "" {
 			authed.ServeHTTP(w, r)
 			return
 		}
-		sig := r.URL.Query().Get("sig")
-		if sig == "" {
+		q := r.URL.Query()
+		if token := q.Get(shareLinkParam); token != "" {
+			if share.Links == nil {
+				writeError(w, http.StatusGone, shareLinkGoneMsg)
+				return
+			}
+			l, err := share.Links.liveShareLinkFor(token)
+			if err != nil {
+				internalError(w, err)
+				return
+			}
+			if l == nil || !share.Opens(r, *l) {
+				share.Links.writeShareLinkGone(w, r)
+				return
+			}
+			raw.ServeHTTP(w, r)
+			return
+		}
+		sig := q.Get("sig")
+		if sig == "" || share.Sig == nil {
 			authed.ServeHTTP(w, r)
 			return
 		}
-		if keys == nil || !verify(keys, r, sig) {
+		if keys == nil || !share.Sig(keys, r, sig) {
 			writeError(w, http.StatusUnauthorized, "invalid signature")
 			return
 		}
@@ -285,8 +303,8 @@ func buildHandler(specs []RouteSpec, keys *keyring, lookup func(id string) (*Mem
 				h = requirePrincipalClass(spec.Requires, lookup, h)
 			}
 			h = gateAuth(keys, ownerIatFloor, lookup, spec.RosterRefusalInHandler, h)
-			if spec.ShareSig != nil {
-				h = shareSigGate(keys, spec.ShareSig, spec.Handler, h)
+			if spec.Share != nil {
+				h = shareGate(keys, spec.Share, spec.Handler, h)
 			}
 		}
 		mux.Handle(spec.Method+" "+spec.Path, h)

@@ -254,15 +254,16 @@ func createTaskAs(t *testing.T, api *apiServer, body map[string]any, sub, scope 
 }
 
 // mintDiffLink calls the mint route and returns the server-relative URL.
-func mintDiffLink(t *testing.T, base, token, query string) string {
+func mintDiffLink(t *testing.T, base, token string, body DiffShareLinkCreateDTO) string {
 	t.Helper()
-	status, body := doRaw(t, "GET", base+"/api/diff/share-link?"+query, token, "", nil)
+	raw, _ := json.Marshal(body)
+	status, answer := doRaw(t, "POST", base+"/api/diff/share-link", token, "application/json", raw)
 	if status != 200 {
-		t.Fatalf("mint failed: %d %s", status, body)
+		t.Fatalf("mint failed: %d %s", status, answer)
 	}
-	var minted DiffShareLinkDTO
-	if err := json.Unmarshal([]byte(body), &minted); err != nil {
-		t.Fatalf("mint answered unparseable JSON: %v (%s)", err, body)
+	var minted ShareLinkCreatedDTO
+	if err := json.Unmarshal([]byte(answer), &minted); err != nil {
+		t.Fatalf("mint answered unparseable JSON: %v (%s)", err, answer)
 	}
 	return minted.Url
 }

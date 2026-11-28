@@ -3,13 +3,11 @@ package main
 // api_diff.go — a comparison is a URL, in two flavours:
 //
 //	internal   /diff?before=…&after=…              — a signed-in reader
-//	external   /diff?before=…&after=…&sig=…        — no login at all
+//	external   /diff?before=…&after=…&link=…       — no login at all
 //
 // The internal one is a pure function of the two addresses (`ocagent diff`
-// prints it without asking the server). The external one is minted by GET
-// /api/diff/share-link as a SERVER-RELATIVE path. No expiry and no per-link
-// revocation (owner ruling): removing the minting key from the ring
-// (keyring.go) voids every comparison link it signed.
+// prints it without asking the server). The external one is a share link
+// minted by POST /api/diff/share-link (api_share_links.go).
 
 import (
 	"net/http"
@@ -27,15 +25,16 @@ const (
 	diffParamAfter      = "after"
 	diffParamLabelBefor = "label_before"
 	diffParamLabelAfter = "label_after"
-	diffParamSig        = "sig"
+	diffParamLink       = "link"
+	diffParamLegacySig  = "sig"
 )
 
-func diffPageQuery(before, after, labelBefore, labelAfter, sig string) string {
+func diffPageQuery(before, after, labelBefore, labelAfter, link string) string {
 	q := url.Values{diffParamBefore: {before}, diffParamAfter: {after}}
 	for name, value := range map[string]string{
 		diffParamLabelBefor: labelBefore,
 		diffParamLabelAfter: labelAfter,
-		diffParamSig:        sig,
+		diffParamLink:       link,
 	} {
 		if value != "" {
 			q.Set(name, value)
@@ -53,22 +52,9 @@ func optString(p *string) string {
 	return *p
 }
 
-func (s *apiServer) HandleGetDiffShareLinkApiDiffShareLinkGet(
-	w http.ResponseWriter, r *http.Request, params HandleGetDiffShareLinkApiDiffShareLinkGetParams,
-) {
-	labelBefore, labelAfter := optString(params.LabelBefore), optString(params.LabelAfter)
-	if !diffSidesSayable(w, params.Before, params.After) {
-		return
-	}
-	sig := diffSigForRing(s.keys, params.Before, params.After, labelBefore, labelAfter)
-	writeJSON(w, http.StatusOK, DiffShareLinkDTO{
-		Url: diffPagePath + "?" + diffPageQuery(params.Before, params.After, labelBefore, labelAfter, sig),
-	})
-}
-
-// Both sides in ONE request on purpose: the sig signs exactly what one
-// request returns. The unauthenticated path is shareSigGate (server.go) on
-// this row's RouteSpec, not code here.
+// Both sides in ONE request on purpose: a share link opens exactly what one
+// request returns. The unauthenticated path is shareGate (server.go) on this
+// row's RouteSpec, not code here.
 func (s *apiServer) HandleGetDiffApiDiffGet(
 	w http.ResponseWriter, r *http.Request, params HandleGetDiffApiDiffGetParams,
 ) {

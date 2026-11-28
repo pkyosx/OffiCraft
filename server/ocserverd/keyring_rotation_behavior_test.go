@@ -362,29 +362,27 @@ func TestT62_AFailedRemovePersistDoesNotDropTheKey(t *testing.T) {
 	}
 }
 
-// TestT62_ANewShareLinkIsSignedByTheKeyThatSignsNow. Signing a fresh link with
+// TestT62_ANewPreviewLinkIsSignedByTheKeyThatSignsNow. Signing a fresh link with
 // any OTHER ring key is invisible to the eye and fatal in effect: the link would
 // be killed by the next removal of a key the operator regards as long retired,
 // silently, for a link minted seconds earlier.
-func TestT62_ANewShareLinkIsSignedByTheKeyThatSignsNow(t *testing.T) {
+func TestT62_ANewPreviewLinkIsSignedByTheKeyThatSignsNow(t *testing.T) {
 	_, keys, dal, _ := t62Stack(t, []byte(interopSecret))
 	retired := append([]byte(nil), keys.signingSecret()...)
 	if _, err := keys.rotate(dal); err != nil {
 		t.Fatalf("rotate: %v", err)
 	}
 
-	sig := shareSigForRing(keys, "att-t62")
+	const exp = 1_800_000_000
+	sig := previewSigForRing(keys, "att-t62", exp)
 	if sig == "" {
-		t.Fatalf("PREMISE FAILED: the ring must be able to sign a share link")
+		t.Fatalf("PREMISE FAILED: the ring must be able to sign a preview link")
 	}
-	// It verifies under the ring (both keys are in it) …
-	if !verifyShareSigAnyKey(keys, "att-t62", sig) {
-		t.Fatalf("a freshly minted share sig must verify")
+	if !verifyPreviewSigAnyKey(keys, "att-t62", exp, sig) {
+		t.Fatalf("a freshly minted preview sig must verify")
 	}
-	// … but NOT under the retired key alone, which is what pins it to the
-	// current signer rather than merely to "some key in the ring".
-	if verifyShareSig(retired, "att-t62", sig) {
-		t.Fatalf("a share link minted AFTER the rotation is signed by the RETIRED key — it would die at the next removal of a key the operator thinks is long gone")
+	if sig == previewSigFor(retired, "att-t62", exp) {
+		t.Fatalf("a preview link minted AFTER the rotation is signed by the RETIRED key — it would die at the next removal of a key the operator thinks is long gone")
 	}
 }
 
@@ -428,14 +426,10 @@ func TestT62_AnEmptyRingRefusesToMintRatherThanSignUnderNothing(t *testing.T) {
 	if _, err := mintJWTWithoutExpiry("m-warden", "agent", empty.signingSecret(), time.Now().Unix(), ""); !errors.Is(err, errNoSigningKey) {
 		t.Fatalf("minting a PERMANENT credential with an empty ring must fail with errNoSigningKey, got %v", err)
 	}
-	// The two share-sig mints answer the same way as each other: no key, no
-	// signature. A comparison mint that fell back to signing under the empty
-	// key would hand out a credential every reader could compute.
-	if sig := shareSigForRing(empty, "att-0123456789ab"); sig != "" {
-		t.Errorf("an empty ring signed a file link anyway: %q", sig)
-	}
-	if sig := diffSigForRing(empty, "att-0123456789ab", "att-ba9876543210", "", ""); sig != "" {
-		t.Errorf("an empty ring signed a comparison link anyway: %q", sig)
+	// A preview mint that fell back to signing under the empty key would hand
+	// out a credential every reader could compute.
+	if query := previewLinkQuery(empty, "att-0123456789ab", 1_800_000_000); query != "" {
+		t.Errorf("an empty ring signed a preview link anyway: %q", query)
 	}
 }
 
@@ -443,61 +437,64 @@ func TestT62_AnEmptyRingRefusesToMintRatherThanSignUnderNothing(t *testing.T) {
 // server-relative url it answers.
 func mintAttachmentLink(t *testing.T, base, token, attachmentID string) string {
 	t.Helper()
-	status, body := doRaw(t, "GET", base+"/api/chat/attachments/"+attachmentID+"/share-link", token, "", nil)
+	status, body := doRaw(t, "POST", base+"/api/chat/attachments/"+attachmentID+"/share-link", token, "", nil)
 	if status != 200 {
 		t.Fatalf("minting the file link failed: %d %s", status, body)
 	}
-	var minted ChatAttachmentShareLinkDTO
+	var minted ShareLinkCreatedDTO
 	if err := json.Unmarshal([]byte(body), &minted); err != nil {
 		t.Fatalf("the mint answered unparseable JSON: %v (%s)", err, body)
 	}
 	return minted.Url
 }
 
-// TestT62_RemovingAKeyKillsBothKindsOfShareLink. The comparison link (T-59) is a
-// SECOND ?sig= credential under a SECOND domain-separated key, and that
-// separation must never become a second LIFETIME: a removed key that left
-// comparison links readable would keep the reading half of its authority alive
-// through the other door, silently, for exactly the kind of key an owner removes
-// because it may have leaked. Both links are minted through their real routes,
-// both are read with NO credential at all, and both must die at the same
-// removal, with no restart in between.
-func TestT62_RemovingAKeyKillsBothKindsOfShareLink(t *testing.T) {
+// TestT62_RemovingAKeyKillsSignedLinksButNotShareLinks. Every link that is a
+// signature — the preview link and both kinds of legacy sig — must die at the
+// removal of the key that signed it, with no restart in between: a removed key
+// that left any of them readable would keep the reading half of its authority
+// alive through another door. Stored share links are not signatures and keep
+// opening. All are read with NO credential at all.
+func TestT62_RemovingAKeyKillsSignedLinksButNotShareLinks(t *testing.T) {
 	srv, keys, dal, _ := t62Stack(t, []byte(interopSecret))
 	tok := mintOwnerAt(t, keys, time.Now().Unix())
 	oldID := keys.snapshot()[0].ID
 
 	att, _ := uploadBlob(t, srv.URL, tok, "", []byte("the deliverable"))["id"].(string)
-	fileLink := mintAttachmentLink(t, srv.URL, tok, att)
-	minted, err := url.Parse(mintDiffLink(t, srv.URL, tok,
-		url.Values{"before": {att}, "after": {att}, "label_before": {"v1"}}.Encode()))
+	label := "v1"
+	minted, err := url.Parse(mintDiffLink(t, srv.URL, tok, DiffShareLinkCreateDTO{Before: att, After: att, LabelBefore: &label}))
 	if err != nil {
 		t.Fatalf("the comparison mint answered an unparseable url: %v", err)
 	}
-	// The mint answers the PAGE url; the data route behind it carries the same
-	// query, sig included.
-	comparisonRead := "/api/diff?" + minted.RawQuery
-
-	readBoth := func(stage string, want int) {
+	stored := map[string]string{
+		"FILE share link":       mintAttachmentLink(t, srv.URL, tok, att),
+		"COMPARISON share link": "/api/diff?" + minted.RawQuery,
+	}
+	signed := map[string]string{
+		"preview link":          "/api/chat/attachment/" + att + "?" + previewLinkQuery(keys, att, time.Now().Unix()+600),
+		"legacy file sig":       "/api/chat/attachment/" + att + "?sig=" + shareSigForRing(keys, att),
+		"legacy comparison sig": "/api/diff?before=" + att + "&after=" + att + "&sig=" + diffSigForRing(keys, att, att, "", ""),
+	}
+	read := func(stage string, links map[string]string, want int) {
 		t.Helper()
-		if st, body := doRaw(t, "GET", srv.URL+fileLink, "", "", nil); st != want {
-			t.Fatalf("%s: the FILE link answered %d, want %d (%s)", stage, st, want, body)
-		}
-		if st, body := doRaw(t, "GET", srv.URL+comparisonRead, "", "", nil); st != want {
-			t.Fatalf("%s: the COMPARISON link answered %d, want %d (%s)", stage, st, want, body)
+		for name, link := range links {
+			if st, body := doRaw(t, "GET", srv.URL+link, "", "", nil); st != want {
+				t.Fatalf("%s: the %s answered %d, want %d (%s)", stage, name, st, want, body)
+			}
 		}
 	}
 
-	readBoth("PREMISE FAILED", http.StatusOK)
+	read("PREMISE FAILED", stored, http.StatusOK)
+	read("PREMISE FAILED", signed, http.StatusOK)
 	if _, err := keys.rotate(dal); err != nil {
 		t.Fatalf("rotate: %v", err)
 	}
-	readBoth("after a rotation and BEFORE the removal", http.StatusOK)
+	read("after a rotation and BEFORE the removal", signed, http.StatusOK)
 
 	if err := keys.remove(dal, oldID); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
-	readBoth("after the removal", http.StatusUnauthorized)
+	read("after the removal", signed, http.StatusUnauthorized)
+	read("after the removal", stored, http.StatusOK)
 }
 
 // TestT62_TheTwoSigKindsStayNonInterchangeableAcrossTheWholeRing. Domain

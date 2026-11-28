@@ -334,6 +334,7 @@ func (s *apiServer) startSecretCardSweepCadence(period time.Duration) {
 		for {
 			time.Sleep(period)
 			surviveLockInTx("secret-card sweep cadence", func() { s.runSecretCardSweepTick(nowSecs()) })
+			surviveLockInTx("share-link prune", func() { s.pruneExpiredShareLinks(nowSecs()) })
 		}
 	}()
 }

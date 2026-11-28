@@ -1,7 +1,10 @@
 package main
 
-// Share links: an HMAC over exactly what they grant, with no expiry, no
-// per-link revocation and no stored state (owner-approved minimal design).
+// Signed links: an HMAC over exactly what they grant, with no stored state.
+// Two kinds are minted today: the cockpit's one-hour preview link (attachment id
+// + exp). The other two — an attachment sig and a comparison sig with no exp —
+// are only verified, for links handed out before share links were stored
+// (api_share_links.go); legacyShareSigsOpen decides whether they still open.
 //
 // KEY: domain-separated from the signing key (SHA-256 over a versioned label +
 // the key), NEVER the JWT key used raw — a share sig must not be convertible
@@ -12,9 +15,21 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"net/url"
+	"strconv"
 )
 
 const shareSigLen = 32
+
+// 🔴 THE ONE SWITCH for pre-stored-share-link `?sig=` URLs (attachment and
+// comparison, no `exp`): true keeps every one of them opening for as long as
+// its signing key stays in the ring. The owner has not ruled yet whether they
+// should die with the upgrade; flipping this is the whole change.
+const legacyShareSigsOpen = true
+
+const (
+	previewLinkTTLSecs = 60 * 60
+	previewExpParam    = "exp"
+)
 
 func deriveShareKey(secret []byte) []byte {
 	sum := sha256.Sum256(append([]byte("officraft.share.hmac.v1:"), secret...))
@@ -58,16 +73,37 @@ func verifyDiffSig(secret []byte, before, after, labelBefore, labelAfter, sig st
 	return hmac.Equal([]byte(diffSigFor(secret, before, after, labelBefore, labelAfter)), []byte(sig))
 }
 
-// 🔴 Both sig kinds live exactly as long as the ring key that signed them:
+func derivePreviewKey(secret []byte) []byte {
+	sum := sha256.Sum256(append([]byte("officraft.preview.hmac.v1:"), secret...))
+	return sum[:]
+}
+
+func previewSigFor(secret []byte, attachmentID string, exp int64) string {
+	mac := hmac.New(sha256.New, derivePreviewKey(secret))
+	mac.Write([]byte(url.Values{"attachment_id": {attachmentID}, "exp": {strconv.FormatInt(exp, 10)}}.Encode()))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))[:shareSigLen]
+}
+
+// 🔴 Every sig kind lives at most as long as the ring key that signed it:
 // removing a key kills every link made under it at once, with no grace period —
 // intentionally, since a key removed as possibly leaked must not keep its
-// reading authority alive through either kind of link.
-func shareSigForRing(kr *keyring, attachmentID string) string {
+// reading authority alive through any kind of link.
+func previewSigForRing(kr *keyring, attachmentID string, exp int64) string {
 	secret := kr.signingSecret()
 	if len(secret) == 0 {
 		return ""
 	}
-	return shareSigFor(secret, attachmentID)
+	return previewSigFor(secret, attachmentID, exp)
+}
+
+func verifyPreviewSigAnyKey(kr *keyring, attachmentID string, exp int64, sig string) bool {
+	ok := false
+	for _, secret := range kr.verifySecrets() {
+		if hmac.Equal([]byte(previewSigFor(secret, attachmentID, exp)), []byte(sig)) {
+			ok = true
+		}
+	}
+	return ok
 }
 
 // No early exit (here and in verifyDiffSigAnyKey): the time taken must not say
@@ -80,14 +116,6 @@ func verifyShareSigAnyKey(kr *keyring, attachmentID, sig string) bool {
 		}
 	}
 	return ok
-}
-
-func diffSigForRing(kr *keyring, before, after, labelBefore, labelAfter string) string {
-	secret := kr.signingSecret()
-	if len(secret) == 0 {
-		return ""
-	}
-	return diffSigFor(secret, before, after, labelBefore, labelAfter)
 }
 
 func verifyDiffSigAnyKey(kr *keyring, before, after, labelBefore, labelAfter, sig string) bool {
