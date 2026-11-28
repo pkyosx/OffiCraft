@@ -1655,6 +1655,39 @@ button.task-card__waiting--dep:focus-visible {
 .task-step .task-reply-card {
   margin-top: 8px;
 }
+/* Inside a step on a phone the card is ~160px wide. There an option's AI tag
+   goes under its text, and the answer box takes a line of its own above 📎 and
+   送出, instead of both being squeezed to one letter per line. */
+.task-reply-card {
+  container-type: inline-size;
+}
+@media (max-width: 480px) {
+  .task-step .task-reply-card {
+    padding: 12px;
+  }
+}
+@container (max-width: 280px) {
+  .task-reply-card .reply-option {
+    flex-wrap: wrap;
+    padding: 9px 10px;
+  }
+  .task-reply-card .reply-option__text {
+    flex-basis: calc(100% - 32px);
+  }
+  .task-reply-card .reply-option .reply-tag {
+    margin-left: 32px;
+  }
+  .task-reply-card .chat__composer-row {
+    flex-wrap: wrap;
+  }
+  .task-reply-card .chat__input {
+    order: -1;
+    flex-basis: 100%;
+  }
+  .task-reply-card .chat__send {
+    margin-left: auto;
+  }
+}
 /* 已回覆卡收合成一行摘要(可展開) */
 .task-reply-card--collapsed {
   padding: 0;
