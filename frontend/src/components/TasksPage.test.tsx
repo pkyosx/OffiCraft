@@ -13,7 +13,7 @@
 //   4. Filters: 執行者 (外包/未指派/各成員) · 類型 (各手冊類型/自由代辦) ·
 //      狀態 (六態全部).
 //   5. Card rendering: six status badges (spec copy), executor display
-//      (member name / 外包 代號·模型·投入度 / 未指派), SERVER progress
+//      (member name / 外包 代號 / 未指派), SERVER progress
 //      passthrough, transitional states (未指派→等待指派, 有執行者無節點→
 //      規劃中), gate projection (announced dashed vs armed solid), parallel
 //      stage label, deps chips, waiting_external reason row.
