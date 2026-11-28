@@ -16,8 +16,8 @@
 // under it. Today's callers:
 //   * 角色定義 / 使用者自訂 (SettingsPage) — the original two, unchanged apart
 //     from the over-cap fix below.
-//   * 系統互動 / 啟動步驟 ×2 (BootDocPage) — which pass `confirmSave`,
-//     `replaceNote` and `requireDirty`, and hold no editor state of their own.
+//   * 系統互動 / 啟動步驟 ×2 (BootDocPage) — which pass `confirmSave`
+//     and `requireDirty`, and hold no editor state of their own.
 // InsightCard and the task-manual SOP are NOT migrated here yet (a separate
 // ticket); the shell is shaped so they can be, which is
 // why `renderBody` exists at all.
@@ -120,20 +120,12 @@ export interface DocCardProps {
    * refusal below it — follow the draft instead, which is the only way a
    * cockpit-side block can be honest about a document nobody has saved yet. */
   usage?: { size: number; cap: number };
-  /** One line under the card head saying that a save REPLACES THE WHOLE
-   * DOCUMENT. Absent by default: it is a fact about every document here, but
-   * only the pages whose editor used to be per-section owe the sentence, and
-   * adding it under a page that never offered anything else would be noise. */
-  replaceNote?: string;
   /** A heading inside the card head, before the badge — for a page that shows
    * the document under a title that is not the document's own name (the role
    * page's title is the role; the card is its Duty). */
   heading?: { label: string; icon?: ReactNode };
-  /** One line under the card head that is about THIS document rather than about
-   * saving — why a read-only document has no editor (T-3201), or what belongs
-   * in the document. Separate
-   * from `replaceNote` because the two are never both true: a document nobody
-   * may write cannot be warned that saving replaces it. */
+  /** One line under the card head about THIS document — why a read-only
+   * document has no editor (T-3201), or what belongs in the document. */
   note?: ReactNode;
   /** Ask before saving. The body is the caller's, because the consequence is:
    * a mangled boot sequence means agents never come online and nobody is left
@@ -209,7 +201,6 @@ export function DocCard({
   hasSeed = false,
   isDefault: isDefaultOverride,
   usage,
-  replaceNote,
   heading,
   note,
   confirmSave,
@@ -575,11 +566,6 @@ export function DocCard({
         {failed !== null && !pending && (
           <div className="set-error" data-testid="doc-card-save-error">
             {failed || t.settings.docActionFailed}
-          </div>
-        )}
-        {replaceNote && (
-          <div className="doc-card__note" data-testid="doc-card-replace-note">
-            {replaceNote}
           </div>
         )}
         {note && (

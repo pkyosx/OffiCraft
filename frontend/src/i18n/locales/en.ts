@@ -2601,8 +2601,6 @@ export const en: Dict = {
     cancel: "Cancel",
     reset: "Reset",
     editorPlaceholder: "Write in Markdown…",
-    docReplaceNote:
-      "Saving replaces the editable part with what is in the editor; any section not in the editor is gone.",
     docReadOnlyHead: "Read-only (written by the program, not editable)",
     docActionFailed: "That did not go through — try again.",
     docOverCapLead: "Now ",

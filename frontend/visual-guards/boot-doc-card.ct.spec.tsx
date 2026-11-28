@@ -71,7 +71,6 @@ for (const width of [320, 375, 390, 1040]) {
       const over = (el: Element) => el.scrollWidth - el.clientWidth;
       return {
         head: over(document.querySelector(".doc-card__head")!),
-        note: over(document.querySelector(".doc-card__note")!),
         card: over(document.querySelector(".doc-card")!),
         surface: over(document.querySelector(".settings")!),
         page:
