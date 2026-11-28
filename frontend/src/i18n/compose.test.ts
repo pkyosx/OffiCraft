@@ -14,7 +14,6 @@ import { makeMessages, effortText } from "./compose";
 import { applyWording } from "./wording";
 import { MESSAGE_KEYS } from "./messageKeys.generated";
 import type { ActivityWait, Effort, MemberActivity } from "../types";
-import type { DueRemaining } from "../lib/dueDate";
 
 type Lang = "zh" | "en";
 const DICTS: Record<Lang, Dict> = { zh, en };
@@ -68,7 +67,6 @@ type Arg =
   | null
   | MemberActivity
   | ActivityWait
-  | DueRemaining
   | { id: string; reason: string }[];
 /** [language, message, arguments, the text that must appear on screen]. */
 const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
@@ -140,13 +138,6 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "taskReassignTitle", ["T-1234"], "轉派 T-1234"],
     ["zh", "taskDueDate", [1793375999], "2026/10/30（五）"],
     ["zh", "taskDueDateTime", [1792650600], "2026/10/22（四） 14:30"],
-    ["zh", "taskOverdueDays", [1], "已逾期 1 天"],
-    ["zh", "taskOverdueDays", [2], "已逾期 2 天"],
-    ["zh", "taskDueRemaining", [{ overdue: false, amount: 5, unit: "day" }], "還有 5 天"],
-    ["zh", "taskDueRemaining", [{ overdue: false, amount: 19, unit: "hour" }], "還有 19 小時"],
-    ["zh", "taskDueRemaining", [{ overdue: false, amount: 25, unit: "minute" }], "還有 25 分鐘"],
-    ["zh", "taskDueRemaining", [{ overdue: true, amount: 2, unit: "day" }], "已逾期 2 天"],
-    ["zh", "taskDueRemaining", [{ overdue: true, amount: 3, unit: "hour" }], "已逾期 3 小時"],
     ["zh", "taskDueLead", [1440], "1 天"],
     ["zh", "taskDueLead", [120], "2 小時"],
     ["zh", "taskDueLead", [90], "90 分鐘"],
@@ -218,9 +209,6 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "sharedDocDeleteConfirmBody", ["Review Rule"], "要永久刪除「Review Rule」嗎？檔案與所有版本都會刪除，無法復原。"],
     ["zh", "sharedDocEditHint", [], "下載後在電腦上修改，再用「上傳新版本」換上去。"],
     ["zh", "sharedDocUpdated", ["Mira", "11/17 16:05"], "Mira · 11/17 16:05"],
-    ["zh", "sharedDocUpdatedAgo", ["Mira", 3 * 86400 + 7200], "3 天前 · Mira"],
-    ["zh", "sharedDocUpdatedAgo", ["Mira", 5400], "1 小時前 · Mira"],
-    ["zh", "sharedDocUpdatedAgo", ["Mira", 30], "1 分鐘前 · Mira"],
     ["zh", "outsourceLabel", ["O-7"], "外包 · O-7"],
     ["zh", "groupHeading", ["前端", 3], "前端 · 3"],
     ["zh", "groupDeleteConfirm", ["前端"], "刪除「前端」？成員會回到未分組。"],
@@ -373,12 +361,6 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "taskReassignTitle", ["T-1234"], "Reassign T-1234"],
     ["en", "taskDueDate", [1793375999], "Fri, Oct 30, 2026"],
     ["en", "taskDueDateTime", [1792631100], "Thu, Oct 22, 2026 09:05"],
-    ["en", "taskOverdueDays", [1], "Overdue 1 day"],
-    ["en", "taskOverdueDays", [2], "Overdue 2 days"],
-    ["en", "taskDueRemaining", [{ overdue: false, amount: 1, unit: "day" }], "1 day left"],
-    ["en", "taskDueRemaining", [{ overdue: false, amount: 19, unit: "hour" }], "19 hours left"],
-    ["en", "taskDueRemaining", [{ overdue: true, amount: 2, unit: "day" }], "Overdue 2 days"],
-    ["en", "taskDueRemaining", [{ overdue: true, amount: 1, unit: "minute" }], "Overdue 1 minute"],
     ["en", "taskDueLead", [1440], "1 day"],
     ["en", "taskDueLead", [2880], "2 days"],
     ["en", "taskDueLead", [60], "1 hour"],
@@ -447,9 +429,6 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "sharedDocDeleteConfirmBody", ["Review Rule"], "Permanently delete \u201cReview Rule\u201d? The file and every version are deleted. This cannot be undone."],
     ["en", "sharedDocEditHint", [], "Download it, edit it on your computer, then put it back with \u201cUpload new version\u201d."],
     ["en", "sharedDocUpdated", ["Mira", "11/17 16:05"], "Mira · 11/17 16:05"],
-    ["en", "sharedDocUpdatedAgo", ["Mira", 3 * 86400 + 7200], "3 days ago · Mira"],
-    ["en", "sharedDocUpdatedAgo", ["Mira", 86400], "1 day ago · Mira"],
-    ["en", "sharedDocUpdatedAgo", ["Mira", 2 * 3600], "2 hours ago · Mira"],
     ["en", "outsourceLabel", ["O-7"], "Outsource · O-7"],
     ["en", "groupHeading", ["Frontend", 3], "Frontend · 3"],
     ["en", "groupDeleteConfirm", ["Frontend"], "Delete \u201cFrontend\u201d? Its members go back to Ungrouped."],

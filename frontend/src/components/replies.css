@@ -981,14 +981,9 @@
   font-weight: 600;
   color: var(--color-text-strong);
 }
-/* The due date as a line of text, not the task card's chip: the full date and
- * its state are about as wide as a phone card, so it has to be able to wrap. */
+/* The due date as a line of text, not the task card's chip. */
 .reply-card__task-due {
   font-size: 12px;
-}
-.reply-card__task-due-label {
-  margin-right: 6px;
-  color: var(--color-text-muted);
 }
 .reply-card__task .task-card__due-chip {
   display: inline;
@@ -998,11 +993,6 @@
   background: none;
   font-size: 12px;
 }
-.reply-card__task .task-card__due-remaining {
-  margin-left: 4px;
-  font-size: 12px;
-}
-
 /* ---- 稍後再看 ---- */
 .reply-snooze {
   display: flex;

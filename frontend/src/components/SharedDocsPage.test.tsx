@@ -143,6 +143,13 @@ afterEach(() => {
   localStorage.clear();
 });
 
+/** 「11/25 10:00」: the doc's last update in the cards' month/day and 24h time. */
+async function updatedAt(id: string): Promise<string> {
+  const d = new Date((await api.getSharedDoc(id)).updatedTs * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 describe("SharedDocsPage", () => {
   it("lists every doc as its own card in the list, no table: the short ID, the kind as an icon named by its tooltip and the actions on the first line, the name with the description under it, then 建立者 and 最後更新 as label/value rows", async () => {
     vi.spyOn(Date, "now").mockReturnValue((1763366700 + 3 * 86400 + 7200) * 1000);
@@ -171,7 +178,7 @@ describe("SharedDocsPage", () => {
     expect(cellTexts(api規格)).toEqual([
       "#sd-0c41e9",
       "API 規格GitHub 上的 spec/openapi.json，改 wire 前先讀",
-      "建立者Mira最後更新22 天前 · Mira",
+      `建立者Mira最後更新Mira · ${await updatedAt("sd-0c41e97a2b58")}`,
     ]);
     const creator = (id: string) => {
       const chip = within(row(id)).getByTestId("shared-doc-creator");
@@ -183,7 +190,7 @@ describe("SharedDocsPage", () => {
     expect(cellTexts(review)).toEqual([
       "#sd-3f9a2c",
       "Review RulePR 審查時逐項核對的規則與退件標準",
-      "建立者Mira最後更新3 天前 · Mira",
+      `建立者Mira最後更新Mira · ${await updatedAt("sd-3f9a2c71b0e4")}`,
     ]);
     const head = (id: string) =>
       Array.from(row(id).firstElementChild!.querySelectorAll("[data-testid]")).map((el) => el.getAttribute("data-testid"));
@@ -340,7 +347,7 @@ describe("SharedDocsPage", () => {
     const updated = within(row("sd-3f9a2c71b0e4")).getByTestId("shared-doc-updated");
     expect([updated.tagName, updated.getAttribute("aria-label"), updated.title]).toEqual([
       "BUTTON",
-      "3 天前 · Mira · 查看版本紀錄",
+      `Mira · ${await updatedAt("sd-3f9a2c71b0e4")} · 查看版本紀錄`,
       "查看版本紀錄",
     ]);
     fireEvent.click(updated);
@@ -351,8 +358,8 @@ describe("SharedDocsPage", () => {
     const restored = await api.getSharedDoc("sd-3f9a2c71b0e4");
     expect(restored.attachmentId).toBe("att-5d0c11a2b3b0");
     await waitFor(() =>
-      expect(within(row("sd-3f9a2c71b0e4")).getByTestId("shared-doc-updated").textContent).toBe(
-        "1 分鐘前 · CEO（你）",
+      expect(within(row("sd-3f9a2c71b0e4")).getByTestId("shared-doc-updated").textContent).toMatch(
+        /^CEO（你） · \d{1,2}\/\d{1,2} \d{2}:\d{2}$/,
       ),
     );
     expect(window.location.hash).toBe("#shared-docs");
@@ -817,8 +824,8 @@ describe("SharedDocsPage", () => {
       versionCount: 3,
     });
     await waitFor(() =>
-      expect(within(review!).getByTestId("shared-doc-updated").textContent).toBe(
-        "1 分鐘前 · CEO（你）",
+      expect(within(review!).getByTestId("shared-doc-updated").textContent).toMatch(
+        /^CEO（你） · \d{1,2}\/\d{1,2} \d{2}:\d{2}$/,
       ),
     );
     expect(window.location.hash).toBe("#shared-docs");

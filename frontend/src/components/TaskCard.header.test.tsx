@@ -193,7 +193,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     expect(card.getAttribute("aria-expanded")).toBe("true");
     expect(labels()).toEqual(["負責人", "到期日", "類型", "產物", "建立者", "識別鍵"]);
     const region = meta.querySelector('[data-testid="task-meta-more"]')!;
-    const dueValue = meta.querySelector(".task-card__due-label")!.nextElementSibling!;
+    const dueValue = meta.querySelector(".task-card__due")!;
     expect(dueValue.nextElementSibling).toBe(region);
     expect(region.querySelector('[data-testid="task-type-link"]')).toBeTruthy();
     expect(

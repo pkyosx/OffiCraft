@@ -413,7 +413,6 @@ export function ReplyCardTaskBox({
       )}
       {task.dueTs != null && (
         <div className="reply-card__task-due">
-          <span className="reply-card__task-due-label">{t.replies.taskDueLabel}</span>
           <TaskDueChip
             dueTs={task.dueTs}
             leadMinutes={effectiveLeadMinutes(task.dueSoonLeadMinutes, workspaceLeadMinutes)}

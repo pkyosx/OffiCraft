@@ -91,13 +91,15 @@ export function formatDayLabel(
  * no 今天-vs-date drift between cards on the same page.
  */
 export function formatAbsolute(tsSeconds: number, nowSeconds: number): string {
+  return `${formatAbsoluteDate(tsSeconds, nowSeconds)} ${formatClock(tsSeconds)}`;
+}
+
+/** formatAbsolute without the time: "7/13", or "2025/12/31" in another year. */
+export function formatAbsoluteDate(tsSeconds: number, nowSeconds: number): string {
   const d = new Date(tsSeconds * 1000);
   const now = new Date(nowSeconds * 1000);
-  const hm = formatClock(tsSeconds);
   const md = `${d.getMonth() + 1}/${d.getDate()}`;
-  return d.getFullYear() === now.getFullYear()
-    ? `${md} ${hm}`
-    : `${d.getFullYear()}/${md} ${hm}`;
+  return d.getFullYear() === now.getFullYear() ? md : `${d.getFullYear()}/${md}`;
 }
 
 /**

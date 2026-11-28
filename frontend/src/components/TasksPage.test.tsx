@@ -1106,7 +1106,7 @@ describe("TasksPage", () => {
     fireEvent.change(input, { target: { value: "2099-10-30" } });
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(async () =>
-      expect((await findByTestId("task-due")).textContent).toBe("2099/10/30（五）")
+      expect((await findByTestId("task-due")).textContent).toBe("2099/10/30")
     );
   });
 

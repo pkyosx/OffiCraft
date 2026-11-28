@@ -152,7 +152,7 @@ for (const width of [320, 390, 1440]) {
           rowCount: rows.length,
           maxRight: Math.max(...rows.map((n) => n.getBoundingClientRect().right)),
           labelLefts: labels,
-          dueLabelLeft: meta.querySelector(".task-card__due-label")!.getBoundingClientRect().left,
+          dueLabelLeft: due.previousElementSibling!.getBoundingClientRect().left,
           followsDue: due.nextElementSibling === more,
           dueBottom: due.getBoundingClientRect().bottom,
           moreTop: more.getBoundingClientRect().top,

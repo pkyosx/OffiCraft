@@ -33,7 +33,7 @@
 import type { Dict } from "./locales/zh";
 import type { ActivityWait, Effort, MemberActivity } from "../types";
 import { dayStartOf, formatAbsolute, formatClock, formatResetTime } from "../lib/dateFormat";
-import { splitLeadMinutes, type DueRemaining, type LeadUnit } from "../lib/dueDate";
+import { splitLeadMinutes, type LeadUnit } from "../lib/dueDate";
 import { durationParts } from "../lib/duration";
 
 /** The UI languages a wording overlay keys on (mirrors i18n's `Language`;
@@ -56,8 +56,6 @@ export interface Messages {
   taskReassignTitle: (taskNo: string) => string;
   taskDueDate: (tsSeconds: number) => string;
   taskDueDateTime: (tsSeconds: number) => string;
-  taskOverdueDays: (days: number) => string;
-  taskDueRemaining: (remaining: DueRemaining) => string;
   taskDueLead: (minutes: number) => string;
   taskDueLeadWorkspace: (minutes: number) => string;
   taskCountSummary: (overdue: number, dueSoon: number, open: number) => string;
@@ -112,7 +110,6 @@ export interface Messages {
   sharedDocListedCount: (n: number) => string;
   sharedDocEditHint: () => string;
   sharedDocUpdated: (by: string, when: string) => string;
-  sharedDocUpdatedAgo: (by: string, secondsAgo: number) => string;
   // ── office ──
   outsourceLabel: (codename: string) => string;
   groupHeading: (name: string, count: number) => string;
@@ -365,18 +362,6 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       const pad = (n: number) => String(n).padStart(2, "0");
       return `${messages.taskDueDate(tsSeconds)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     },
-    taskOverdueDays: (days) =>
-      `${tasks.overdueDaysLead} ${days} ${
-        days === 1 ? tasks.overdueDaysTailOne : tasks.overdueDaysTailMany
-      }`,
-    taskDueRemaining: ({ overdue, amount, unit }) => {
-      if (overdue && unit === "day") return messages.taskOverdueDays(amount);
-      const span = counted(amount, ...leadUnitWords[unit]);
-      const parts = overdue
-        ? [tasks.overdueDaysLead, span]
-        : [tasks.dueRemainingLead, span, tasks.dueRemainingTail];
-      return parts.filter((part) => part !== "").join(" ");
-    },
     taskDueLead: (minutes) => {
       const { amount, unit } = splitLeadMinutes(minutes);
       return counted(amount, ...leadUnitWords[unit]);
@@ -529,19 +514,6 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     sharedDocEditHint: () =>
       `${t.sharedDocs.editHintLead}${t.sharedDocs.uploadVersion}${t.sharedDocs.editHintTail}`,
     sharedDocUpdated: (by, when) => `${by} · ${when}`,
-    // 「3 天前 · Mira」/「3 days ago · Mira」: the largest whole unit only.
-    sharedDocUpdatedAgo: (by, secondsAgo) => {
-      const sd = t.sharedDocs;
-      const { days, hours, minutes } = durationParts(secondsAgo);
-      const ago =
-        days > 0
-          ? counted(days, sd.updatedAgoDayOne, sd.updatedAgoDayMany)
-          : hours > 0
-            ? counted(hours, sd.updatedAgoHourOne, sd.updatedAgoHourMany)
-            : counted(minutes, sd.updatedAgoMinuteOne, sd.updatedAgoMinuteMany);
-      return `${ago}${sp}${sd.updatedAgoTail} · ${by}`;
-    },
-
     // The outsource identity label has ONE source of the word 外包 now: the
     // section title. It used to have two (a title leaf and an identically
     // worded template), so a theme could re-word one and not the other.

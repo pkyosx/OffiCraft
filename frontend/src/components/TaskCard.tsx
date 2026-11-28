@@ -89,10 +89,9 @@ import {
   LEAD_UNIT_MINUTES,
   LEAD_UNITS,
   type LeadUnit,
-  dueRemaining,
   effectiveLeadMinutes,
+  formatDue,
   dueTsFromInputs,
-  hasDueTime,
   leadMinutesFromDraft,
   splitLeadMinutes,
   toDateInputValue,
@@ -840,25 +839,12 @@ export function TaskCard({
   };
   const dueEditable = !closed && onSetDue !== undefined;
   const { nowSec, due } = useDueState(dueTs, leadMinutes, !closed);
-  const dueRemainingText =
-    dueTs === null || closed ? null : msg.taskDueRemaining(dueRemaining(dueTs, nowSec));
-  const dueDateText =
-    dueTs === null
-      ? null
-      : hasDueTime(dueTs)
-        ? msg.taskDueDateTime(dueTs)
-        : msg.taskDueDate(dueTs);
+  const dueDateText = dueTs === null ? null : formatDue(dueTs, nowSec);
   const dueRowShown = dueTs !== null || dueEditable;
   const dueTone = due === null || closed || due.kind === "later" ? null : due.kind;
   const dueToneClass = dueTone ? ` task-card__due-date--${dueTone}` : "";
-  const dueRemainingId = useId();
-  const dueSoonId = useId();
-  const dueDescribedBy =
-    dueRemainingText === null
-      ? undefined
-      : dueTone === "soon"
-        ? `${dueRemainingId} ${dueSoonId}`
-        : dueRemainingId;
+  const dueStatusId = useId();
+  const dueDescribedBy = dueTone === null ? undefined : dueStatusId;
   const [confirmOpen, setConfirmOpen] = useState(false);
   // 強制結案 (T-192) gets its own confirm rather than sharing one with
   // 標記重複/終止: collapsing named closes into one dialog with a status
@@ -1944,7 +1930,7 @@ export function TaskCard({
 
           {dueRowShown && (
             <>
-              <span className="card-meta__label task-card__due-label">{t.tasks.dueLabel}</span>
+              <span className="card-meta__label">{t.tasks.dueLabel}</span>
               <div className="task-card__due" ref={dueRef}>
                 {dueEditable ? (
                   <button
@@ -1973,18 +1959,9 @@ export function TaskCard({
                     {dueDateText}
                   </span>
                 )}
-                {dueRemainingText !== null && (
-                  <span
-                    id={dueRemainingId}
-                    className={`task-card__due-remaining${dueToneClass}`}
-                    data-testid="task-due-remaining"
-                  >
-                    {dueRemainingText}
-                  </span>
-                )}
-                {dueTone === "soon" && (
-                  <span id={dueSoonId} className="task-card__due-status" data-testid="task-due-alert">
-                    {t.tasks.dueSoonHint}
+                {dueTone !== null && (
+                  <span id={dueStatusId} className="task-card__due-status" data-testid="task-due-alert">
+                    {dueTone === "soon" ? t.tasks.dueSoonHint : t.tasks.dueOverdueHint}
                   </span>
                 )}
                 {dueOpen && (

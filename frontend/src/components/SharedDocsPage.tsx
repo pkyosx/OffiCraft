@@ -37,6 +37,7 @@ import {
   UploadIcon,
 } from "./icons";
 import { CopyIdChip } from "./IdChips";
+import { formatAbsolute } from "../lib/dateFormat";
 import "./confirm-modal.css";
 import "./card-meta.css";
 import "./inline-edit.css";
@@ -772,7 +773,7 @@ function SharedDocList({
                 <CreatorChip id={doc.createdBy} name={actorName(doc.createdBy)} member={actorMember(doc.createdBy)} />
                 <span className="card-meta__label">{d.updatedLabel}</span>
                 <UpdatedButton
-                  text={msg.sharedDocUpdatedAgo(actorName(doc.updatedBy), nowSecs - doc.updatedTs)}
+                  text={msg.sharedDocUpdated(actorName(doc.updatedBy), formatAbsolute(doc.updatedTs, nowSecs))}
                   onOpen={() => setHistoryId(doc.id)}
                 />
               </div>

@@ -1573,7 +1573,7 @@ describe("RepliesPage", () => {
     localStorage.removeItem("oc_replies_sort");
   });
 
-  it("a card naming a task → a box right under the first line: the number chip led by the jump icon (查看任務 → #tasks/<id>, the box's only button) and priority, then the title, then 到期 with the date in its tone", async () => {
+  it("a card naming a task → a box right under the first line: the number chip led by the jump icon (查看任務 → #tasks/<id>, the box's only button) and priority, then the title, then the due date written M/D in its tone", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(
       mkCard({
@@ -1632,9 +1632,11 @@ describe("RepliesPage", () => {
     ).toBe("15 3 21 3 21 9");
     expect(over.querySelector('[data-testid="reply-task-priority"]')!.textContent).toBe("高");
     expect(over.querySelector(".reply-card__task-title")!.textContent).toBe("修好登入");
-    expect(over.querySelector(".reply-card__task-due")!.textContent).toMatch(
-      /^到期2026\/9\/30（三）已逾期 \d+ 天$/
-    );
+    const due = over.querySelector<HTMLElement>('[data-testid="reply-task-due"]')!;
+    const shown = [...due.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE).map((n) => n.textContent).join("");
+    expect(shown).toBe(new Date().getFullYear() === 2026 ? "9/30" : "2026/9/30");
+    expect(due.getAttribute("title")).toBe(`到期 ${shown}`);
+    expect(due.textContent).toBe(`到期 ${shown}已逾期`);
     expect(over.querySelector('[data-testid="reply-task-due"]')!.className).toBe(
       "task-card__chip task-card__due-chip task-card__due-date--overdue"
     );

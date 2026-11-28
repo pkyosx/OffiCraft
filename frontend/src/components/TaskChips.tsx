@@ -4,7 +4,7 @@
 
 import { useI18n } from "../i18n";
 import { useDueState } from "../hooks/useDueState";
-import { dueRemaining, hasDueTime } from "../lib/dueDate";
+import { formatDue } from "../lib/dueDate";
 import { JumpToMessageIcon } from "./replyCardActionIcons";
 import "./tasks.css";
 import "./office.css";
@@ -70,17 +70,22 @@ export function TaskDueChip({
   leadMinutes: number;
   testId?: string;
 }) {
-  const { t, msg } = useI18n();
+  const { t } = useI18n();
   const { nowSec, due } = useDueState(dueTs, leadMinutes);
   const tone = due === null || due.kind === "later" ? "" : ` task-card__due-date--${due.kind}`;
+  const text = formatDue(dueTs, nowSec);
   return (
-    <span className={`task-card__chip task-card__due-chip${tone}`} data-testid={testId}>
-      {hasDueTime(dueTs) ? msg.taskDueDateTime(dueTs) : msg.taskDueDate(dueTs)}
-      <span className={`task-card__due-remaining${tone}`}>
-        {msg.taskDueRemaining(dueRemaining(dueTs, nowSec))}
-      </span>
-      {due?.kind === "soon" && (
-        <span className="task-card__due-status">{t.tasks.dueSoonHint}</span>
+    <span
+      className={`task-card__chip task-card__due-chip${tone}`}
+      data-testid={testId}
+      title={`${t.replies.taskDueLabel} ${text}`}
+    >
+      <span className="task-card__due-status">{t.replies.taskDueLabel} </span>
+      {text}
+      {due !== null && due.kind !== "later" && (
+        <span className="task-card__due-status">
+          {due.kind === "soon" ? t.tasks.dueSoonHint : t.tasks.dueOverdueHint}
+        </span>
       )}
     </span>
   );

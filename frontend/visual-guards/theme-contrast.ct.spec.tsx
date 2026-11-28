@@ -270,7 +270,7 @@ for (const theme of BUILTIN_THEME_IDS) {
 }
 
 for (const theme of BUILTIN_THEME_IDS) {
-  test(`${theme}: the task card's red overdue and orange due-soon date, and the time left beside it, clear AA (≥4.5:1)`, async ({
+  test(`${theme}: the task card's red overdue and orange due-soon date clear AA (≥4.5:1)`, async ({
     mount,
     page,
   }) => {
@@ -287,7 +287,6 @@ for (const theme of BUILTIN_THEME_IDS) {
       await cmp.update(<TaskCardDueStory dueTs={dueTs} />);
       for (const [part, loc] of [
         ["date", cmp.getByTestId("task-due")],
-        ["left", cmp.getByTestId("task-due-remaining")],
       ] as const) {
         if (tone === "later" && part === "date") continue;
         await expect(loc).toBeVisible();

@@ -230,6 +230,10 @@ const sameLine = (a: { y: number; height: number }, b: { y: number; height: numb
   Math.abs(a.y + a.height / 2 - (b.y + b.height / 2));
 
 const TWO_HOURS_OVERDUE = Math.floor(Date.now() / 1000 / 60) * 60 - 2 * 3600 - 30;
+const shortStamp = (ts: number) => {
+  const d = new Date(ts * 1000);
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
 const isoDay = (ts: number) => {
   const d = new Date(ts * 1000);
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
@@ -239,17 +243,17 @@ const DUE_ROW_CASES = [320, 375, 390].flatMap((width) =>
   (["zh", "en"] as const).flatMap((language) =>
     (
       [
-        ["without a time", OVERDUE_2020],
-        ["with 15:41", OVERDUE_2020_1541],
-        ["two hours overdue", TWO_HOURS_OVERDUE],
+        ["without a time", OVERDUE_2020, "2020/1/1"],
+        ["with 15:41", OVERDUE_2020_1541, "2020/1/1 15:41"],
+        ["two hours overdue", TWO_HOURS_OVERDUE, shortStamp(TWO_HOURS_OVERDUE)],
       ] as const
-    ).map(([label, dueTs]) => ({ width, language, label, dueTs }))
+    ).map(([label, dueTs, text]) => ({ width, language, label, dueTs, text }))
   )
 );
 
-for (const { width, language, label, dueTs } of DUE_ROW_CASES) {
+for (const { width, language, label, dueTs, text } of DUE_ROW_CASES) {
   {
-    test(`at ${width}px ${language} the 到期日 row with its red date and the time overdue, and the due popover ${label} with date and time on one line and 「[n] [unit] 前」 on one line, stay inside the card`, async ({
+    test(`at ${width}px ${language} the 到期日 row with its red date written month/day, and the due popover ${label} with date and time on one line and 「[n] [unit] 前」 on one line, stay inside the card`, async ({
       mount,
       page,
     }) => {
@@ -262,8 +266,7 @@ for (const { width, language, label, dueTs } of DUE_ROW_CASES) {
       const content = (await cmp.locator(".card-meta").boundingBox())!;
       const chip = (await cmp.getByTestId("task-due").boundingBox())!;
       expect(chip.x + chip.width).toBeLessThanOrEqual(content.x + content.width);
-      const left = (await cmp.getByTestId("task-due-remaining").boundingBox())!;
-      expect(left.x + left.width).toBeLessThanOrEqual(content.x + content.width);
+      await expect(cmp.getByTestId("task-due")).toHaveText(text);
       expect(
         await cmp.locator(".task-card").evaluate((el) => el.scrollWidth - el.clientWidth)
       ).toBe(0);
@@ -283,14 +286,11 @@ for (const { width, language, label, dueTs } of DUE_ROW_CASES) {
           dueLabel: firstLine(labels[1]),
           dueCell: box(meta.querySelector(".task-card__due")),
           dueDateText: firstLine(meta.querySelector("[data-testid='task-due']")!),
-          remaining: box(meta.querySelector("[data-testid='task-due-remaining']")),
         };
       });
       const mid = (b: { top: number; bottom: number }) => (b.top + b.bottom) / 2;
       expect.soft(Math.abs(mid(rows.dueLabel) - mid(rows.dueDateText)), "到期日 label on the date's line").toBeLessThan(2);
       expect.soft(Math.abs(mid(rows.assigneeLabel) - mid(rows.assigneeChip)), "負責人 label on the chip's line").toBeLessThan(2);
-      expect.soft(rows.remaining.left, "relative time stays in the value column").toBeGreaterThanOrEqual(rows.dueCell.left - 0.5);
-      expect.soft(rows.remaining.left, "relative time clears the label column").toBeGreaterThan(rows.dueLabel.right);
       expect.soft(rows.dueCell.top, "到期日 row below 負責人").toBeGreaterThanOrEqual(rows.assigneeChip.bottom);
 
       await cmp.getByTestId("task-due").click();

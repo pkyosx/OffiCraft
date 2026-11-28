@@ -805,13 +805,7 @@ button.task-card__prio-chip:hover {
 }
 
 /* 到期日 value cell: stretched over the whole value column so the popover
-   anchored in it has the card's width to work with on a phone. When the
-   relative time wraps to a second line, the baseline keeps the label on the
-   date's line instead of centred between the two. */
-.task-card__due-label,
-.task-card__due {
-  align-self: baseline;
-}
+   anchored in it has the card's width to work with on a phone. */
 .task-card__due {
   position: relative;
   justify-self: stretch;
@@ -824,18 +818,6 @@ button.task-card__prio-chip:hover {
 .task-card__due-chip.task-card__due-date--soon {
   position: relative;
 }
-/* Declared before the tone classes so a due-soon or overdue tone wins. */
-.task-card__due-remaining {
-  font-size: 12.5px;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
-/* The plain declaration is the fallback for Safari before 17.4, which drops
-   the alt-text form and would lose the separator. */
-.task-card__due-remaining::before {
-  content: "· ";
-  content: "· " / "";
-}
 .task-card__due-date--overdue {
   color: var(--color-danger);
 }
@@ -845,8 +827,8 @@ button.task-card__prio-chip:hover {
 .task-card__due-date--unset {
   color: var(--color-text-muted);
 }
-/* Only the colour says due soon on screen; this carries the words to screen
-   readers. */
+/* Only the colour says due soon or overdue on screen; this carries the words
+   to screen readers. */
 .task-card__due-status {
   position: absolute;
   width: 1px;

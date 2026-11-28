@@ -44,8 +44,9 @@ for (const viewport of [
     const dueStatus = cmp
       .getByTestId("reply-task-due")
       .first()
-      .locator(".task-card__due-status");
-    await expect(dueStatus).toHaveText(/\S/);
+      .locator(".task-card__due-status")
+      .last();
+    await expect(dueStatus).toHaveText("快到期");
     await expect(dueStatus).not.toHaveAttribute("aria-hidden", "true");
   });
 }

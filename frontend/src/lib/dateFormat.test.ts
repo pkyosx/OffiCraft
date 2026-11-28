@@ -9,6 +9,7 @@ import {
   splitByDay,
   formatDayLabel,
   formatAbsolute,
+  formatAbsoluteDate,
   formatClock,
   formatResetTime,
   type DayLabelDict,
@@ -150,6 +151,11 @@ describe("formatAbsolute", () => {
     expect(formatAbsolute(ts(2025, 12, 31, 8, 0), now)).toBe(
       "2025/12/31 08:00",
     );
+  });
+
+  it("without the time it is the same date, the year only in another year", () => {
+    expect(formatAbsoluteDate(ts(2026, 7, 11, 23, 59), now)).toBe("7/11");
+    expect(formatAbsoluteDate(ts(2027, 1, 2, 9, 0), now)).toBe("2027/1/2");
   });
 });
 
