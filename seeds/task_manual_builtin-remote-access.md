@@ -71,6 +71,7 @@ If not, stop and open a reply card asking the user to reassign the task to a mem
 Check whether forwarding to the console already exists. If so, identify its method, URL, and how it is started, and confirm:
 
 - Whether it points to the current console port.
+- Whether the URL is an `https://` URL with a valid certificate. Forwarding reachable only over `http://` is not listed as reusable.
 - Whether the URL can be used persistently rather than being a temporary URL.
 - Whether it is already set to run automatically after boot.
 - Whether it also serves other services, and whether changing its settings could affect existing services.
@@ -94,7 +95,7 @@ If other machines connect through the current forwarding URL, changing or shutti
 
 Open a decision reply card and, based on the state confirmed above, ask the user to decide which forwarding method to use this time.
 
-If existing forwarding meets the need and can be used persistently, offer a "Keep the current forwarding" option, and explain its URL, access scope, and whether other machines use it.
+If existing forwarding meets the need, uses an `https://` URL with a valid certificate, and can be used persistently, offer a "Keep the current forwarding" option, and explain its URL, access scope, and whether other machines use it.
 
 Describe the remaining options by the user's own situation, without requiring them to understand forwarding tools in advance:
 
@@ -120,7 +121,9 @@ If changing the forwarding would affect other studio machines, the reply card mu
 
 Proceed according to the forwarding method confirmed in step 2.
 
-If the user chose to keep the current forwarding, do not recreate or modify it; confirm its run-at-boot setting, then verify the forwarding URL directly.
+The final forwarding URL must be an `https://` URL with a valid certificate. Over plain HTTP the login password travels unencrypted, and passkeys, Add to Home Screen, and push notifications do not work.
+
+If the user chose to keep the current forwarding, do not recreate or modify it; confirm its run-at-boot setting, then verify the forwarding URL with checks 5 and 6 below.
 
 If new forwarding needs to be set up:
 
@@ -128,7 +131,8 @@ If new forwarding needs to be set up:
 2. Complete the necessary account logins.
 3. Create forwarding that points to the console's local port.
 4. Set it to run automatically after boot.
-5. Open the forwarding URL from the console computer, and confirm the response is the console login page, not an error page or another service.
+5. Open the forwarding URL's `https://` address from the console computer without skipping certificate checks (for example, do not use `curl -k`), and confirm the certificate is valid and the response is the console login page, not an error page or another service.
+6. For cloudflared and Tailscale Funnel, also open the `http://` form of the same URL, and confirm it either redirects to `https://` or does not connect. It must not show the login page.
 
 For operations that need administrator privileges or an account login, open an action reply card per the rules above, and continue after the user performs them.
 
@@ -141,10 +145,13 @@ If using cloudflared:
 - On macOS, you must not use `sudo` when installing the boot service; otherwise it is installed at the wrong level and cannot read the user's configuration file.
 - On Linux, when installing the service with `sudo`, you must specify the full path of the configuration file with `--config`.
 - Do not take the service being in a running state as proof of success; you must actually confirm through the forwarding URL that the console login page opens normally.
+- If the `http://` form of the URL shows the login page, open an action reply card asking the user to turn on "Always Use HTTPS" for the domain in Cloudflare. After the reply, check the `http://` form again.
 
 ### Tailscale
 
 On macOS the `tailscale` command is not on PATH; when the Tailscale app is not open, the command keeps waiting — it neither exits nor shows an error.
+
+Tailscale forwarding gets an `https://<machine name>.<tailnet name>.ts.net` URL only when HTTPS certificates are enabled for the Tailscale account. If they are not enabled, open an action reply card asking the user to enable HTTPS certificates in the Tailscale admin console, then set up the forwarding again. Do not use `tailscale serve --http`, and do not fall back to an `http://` address or the machine's Tailscale IP address.
 
 ### Tailscale Funnel
 
@@ -160,16 +167,17 @@ If it cannot be resolved, keep the existing working forwarding — do not disabl
 
 **Completion condition**
 
-- The forwarding checks the AI can perform are done, and the forwarding URL is confirmed to return the console login page.
+- The forwarding checks the AI can perform are done, and the forwarding URL is confirmed to be an `https://` URL with a valid certificate that returns the console login page.
+- For cloudflared and Tailscale Funnel, the `http://` form of the URL does not show the login page.
 - The forwarding is set to run automatically after boot.
-- The final forwarding URL has been recorded.
+- The final `https://` forwarding URL has been recorded.
 - Connection results that need confirmation from an external device are left for the user's acceptance in step 4.
 
 ## 4. User acceptance
 
 Open an action reply card asking the user to verify remote access from the device they will actually use. The card provides everything needed for acceptance at once:
 
-- **Forwarding URL**: provide the final forwarding URL and ask the user to open it and log in. If two-factor authentication is enabled, also confirm that two-factor authentication completes normally.
+- **Forwarding URL**: provide the final `https://` forwarding URL and ask the user to open it and log in. If two-factor authentication is enabled, also confirm that two-factor authentication completes normally.
 - **How to connect**: provide the steps for the forwarding method used this time:
   - Tailscale (devices in the account only): install the Tailscale app on the phone, log in to the same account as the console computer, then open the forwarding URL.
   - Tailscale Funnel: turn off Tailscale on the phone and open the forwarding URL over a mobile network.

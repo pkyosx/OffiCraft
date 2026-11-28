@@ -333,7 +333,7 @@ func apiTestBuiltinTaskManualRows(capChars int) []any {
 			"purpose":          "Help the Owner turn on or adjust remote connections so a phone or another computer can reach the console at an HTTPS URL — including turning it on for the first time, and later changing the forwarding method or the URL.",
 			"fields":           []any{},
 			"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
-			"sop_md_chars":     15049,
+			"sop_md_chars":     16576,
 			"sop_md_cap_chars": capChars,
 			"updated_ts":       0,
 			"is_seed":          true,
