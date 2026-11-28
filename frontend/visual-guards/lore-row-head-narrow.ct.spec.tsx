@@ -1,6 +1,8 @@
 // 傳承 directory cards, section pages and row heads at phone and desktop width:
 // the directory's group headings read on one line with their chevron and
-// 全部收合 leaves no sideways scroll (its touch box included),
+// 全部收合 leaves no sideways scroll (its touch box included), the directory's
+// toolbar row holds the count left with 篩選 and 全部收合 right and the 條目編號
+// field in the funnel's panel,
 // the tags (id → type → state → scope) wrap as whole pills, the head's
 // actions (編輯, the app-wide .doc-btn--edit, and the 收合 chevron) stay inside
 // the head without overlapping them, no open card has a clamped body, the 撰寫人／生效期
@@ -269,20 +271,12 @@ function assertNoHScroll(width: number, g: { pageOver: number; loreOver: number 
   expect.soft(g.loreOver, `[${width}px] .lore horizontal scroll`).toBeLessThanOrEqual(1);
 }
 
-for (const width of [390, 1440]) {
-  test(`the directory lists every target inside its row @${width}px`, async ({ mount, page }) => {
-    await mountAt(mount, page, width, false, "");
-    const g = await measure(page);
-    assertNoHScroll(width, g);
-    assertSectionHeadsContained(width, g.sections);
-    expect(g.rows.length, `[${width}px] the directory shows no cards`).toBe(0);
-  });
-
+for (const width of [320, 390, 1440]) {
   for (const [visit, dirCollapsed] of [
     ["a first visit", null],
     ["every group open", []],
   ] as const) {
-    test(`on ${visit} the directory's group headings read on one line and 全部收合 leaves no sideways scroll @${width}px`, async ({ mount, page }) => {
+    test(`on ${visit} the directory's group headings read on one line, and its toolbar row holds the count left with 篩選 and 全部收合 right, the 條目編號 field in ${width > 720 ? "the panel" : "the sheet"}, no sideways scroll @${width}px`, async ({ mount, page }) => {
       await page.setViewportSize({ width, height: 900 });
       const cmp = await mount(<LoreRowHeadStory dirCollapsed={dirCollapsed === null ? null : [...dirCollapsed]} />);
       await expect(cmp.locator('[data-testid="lore-collapse-all"]')).toBeVisible();
@@ -299,6 +293,18 @@ for (const width of [390, 1440]) {
           loreOver: lore ? lore.scrollWidth - lore.clientWidth : -2,
           lore: box(lore),
           button: box(document.querySelector('[data-testid="lore-collapse-all"]')),
+          funnel: box(document.querySelector('[data-testid="lore-directory-filter-toggle"]')),
+          toolbar: box(document.querySelector('[data-testid="lore-directory-filter"]')),
+          firstHeading: box(document.querySelector('[data-testid^="lore-group-heading-"]')),
+          count: (() => {
+            const n = document.querySelector('[data-testid="lore-directory-filter-summary"]') as HTMLElement | null;
+            if (!n) return null;
+            const range = document.createRange();
+            range.selectNodeContents(n);
+            const t = range.getBoundingClientRect();
+            return { text: n.textContent ?? "", box: box(n)!, textMid: (t.top + t.bottom) / 2, cut: n.scrollWidth > n.clientWidth + 0.5 };
+          })(),
+          idOnPage: document.querySelector('[data-testid="lore-directory-id"]') !== null,
           headings: [...document.querySelectorAll('[data-testid^="lore-group-heading-"]')].map((h) => {
             const label = h.querySelector(".chat-groups__heading-label");
             const range = document.createRange();
@@ -322,6 +328,22 @@ for (const width of [390, 1440]) {
         expect.soft(g.button.right, `[${width}px] 全部收合 inside .lore`).toBeLessThanOrEqual(g.lore.right + 1);
         expect.soft(g.button.right - g.button.left, `[${width}px] 全部收合 width`).toBeGreaterThanOrEqual(28);
       }
+      expect(g.count, `[${width}px] directory count`).not.toBeNull();
+      expect(g.funnel, `[${width}px] directory funnel`).not.toBeNull();
+      if (g.count && g.funnel && g.button && g.lore && g.toolbar && g.firstHeading) {
+        const mid = (b: Box) => (b.top + b.bottom) / 2;
+        expect.soft(g.count.text, `[${width}px] count text`).toMatch(/^[\d,]+ 筆傳承$/);
+        expect.soft(g.count.cut, `[${width}px] count whole`).toBe(false);
+        expect.soft(Math.abs(g.count.box.left - g.toolbar.left), `[${width}px] count left edge`).toBeLessThanOrEqual(1);
+        expect.soft(g.count.box.right, `[${width}px] count ends left of the funnel`).toBeLessThanOrEqual(g.funnel.left);
+        expect.soft(g.funnel.right, `[${width}px] funnel before 全部收合`).toBeLessThanOrEqual(g.button.left);
+        expect.soft(Math.abs(g.button.right - g.toolbar.right), `[${width}px] 全部收合 at the row's right end`).toBeLessThanOrEqual(1);
+        expect.soft(Math.abs(mid(g.funnel) - mid(g.button)), `[${width}px] funnel and 全部收合 on one line`).toBeLessThanOrEqual(1);
+        expect.soft(Math.abs(g.count.textMid - mid(g.funnel)), `[${width}px] count on the funnel's line`).toBeLessThanOrEqual(2);
+        expect.soft(Math.abs(g.funnel.bottom - g.funnel.top - (g.button.bottom - g.button.top)), `[${width}px] funnel and 全部收合 same height`).toBeLessThanOrEqual(0.5);
+        expect.soft(g.toolbar.bottom, `[${width}px] toolbar above the groups`).toBeLessThanOrEqual(g.firstHeading.top + 0.5);
+      }
+      expect.soft(g.idOnPage, `[${width}px] 條目編號 field on the page while the panel is closed`).toBe(false);
       expect(g.headings.map((h) => h.text), `[${width}px] group headings`).toEqual([
         expect.stringMatching(/^所有人 · \d+$/),
         expect.stringMatching(/^正職成員 · \d+$/),
@@ -340,8 +362,34 @@ for (const width of [390, 1440]) {
         }
         if (g.lore) expect.soft(h.heading.right, `${tag} heading inside .lore`).toBeLessThanOrEqual(g.lore.right + 1);
       }
+
+      await page.getByTestId("lore-directory-filter-toggle").click();
+      const layer = page.getByTestId(width > 720 ? "lore-directory-filter-pop" : "lore-directory-filter-sheet");
+      await expect(layer).toBeVisible();
+      const field = layer.locator('.filter-panel__field:has([data-testid="lore-directory-id"])');
+      await expect(field.locator(".filter-panel__label")).toHaveText("條目編號");
+      const lb = (await layer.boundingBox())!;
+      expect.soft(lb.x, `[${width}px] filter layer left edge`).toBeGreaterThanOrEqual(0);
+      expect.soft(lb.x + lb.width, `[${width}px] filter layer right edge`).toBeLessThanOrEqual(width + 0.5);
+      const ib = (await page.getByTestId("lore-directory-id").boundingBox())!;
+      expect.soft(ib.x + ib.width, `[${width}px] 條目編號 inside the layer`).toBeLessThanOrEqual(lb.x + lb.width + 0.5);
+      if (width > 720 && g.funnel) {
+        expect.soft(lb.y, `[${width}px] panel hangs under the funnel`).toBeGreaterThanOrEqual(g.funnel.bottom);
+      }
+      assertNoHScroll(width, await pageAndLoreOver(page));
     });
   }
+
+}
+
+for (const width of [390, 1440]) {
+  test(`the directory lists every target inside its row @${width}px`, async ({ mount, page }) => {
+    await mountAt(mount, page, width, false, "");
+    const g = await measure(page);
+    assertNoHScroll(width, g);
+    assertSectionHeadsContained(width, g.sections);
+    expect(g.rows.length, `[${width}px] the directory shows no cards`).toBe(0);
+  });
 
   test(`every section page keeps each card's badges, actions and meta line inside it @${width}px`, async ({ mount, page }) => {
     const cmp = await mountAt(mount, page, width, false, "");

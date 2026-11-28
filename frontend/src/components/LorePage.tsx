@@ -236,6 +236,16 @@ function scopeOpts(def: { kind: LoreScopeKind; scopeKey: string }): LoreListOpti
   return { scopeKinds: [def.kind], scopeKeys: [def.scopeKey] };
 }
 
+/** Live entries across the directory. A member's count already includes the
+ * 所有人 entries its boot document walks, so those are counted once. */
+function directoryEntryTotal(defs: SectionDef[]): number {
+  const everyone = defs.find((d) => d.kind === "everyone")?.target.entryCount ?? 0;
+  return defs.reduce(
+    (n, d) => n + (d.kind === "agent" ? Math.max(0, d.target.entryCount - everyone) : d.target.entryCount),
+    0,
+  );
+}
+
 /** `212`, `L-212` and `l-212` all mean L-212; null when the text is not an id. */
 function normalizeEntryId(raw: string): string | null {
   const v = raw.trim();
@@ -1133,10 +1143,12 @@ function LoreView({
 
   // ── 目錄的編號搜尋 ──────────────────────────────────────────────────────
   const [dirSearch, setDirSearch] = useState("");
+  const [dirApplied, setDirApplied] = useState("");
   const [dirNote, setDirNote] = useState<string | null>(null);
   async function jumpToEntry(raw: string) {
     setDirNote(null);
     const v = raw.trim();
+    setDirApplied(v);
     if (v === "") return;
     const id = normalizeEntryId(v);
     if (id === null) {
@@ -1506,39 +1518,62 @@ function LoreView({
     return (
       <div className="lore" ref={scrollRef} data-testid="lore-page">
         {errors}
-        <div className="lore__dir-search">
-          <IdFilterInput
-            value={dirSearch}
-            onChange={setDirSearch}
-            onCommit={(v) => void jumpToEntry(v)}
-            label={t.lore.directoryIdLabel}
-            testId="lore-directory-id"
-            widthCh={7}
-          />
-          {dirNote && (
-            <span className="lore__dir-note" role="status" data-testid="lore-directory-note">
-              {dirNote}
-            </span>
-          )}
-          <button
-            type="button"
-            className="chat-groups__tool chat-groups__tool--icon lore__collapse-all"
-            aria-label={collapseLabel}
-            title={collapseLabel}
-            disabled={shown.length === 0}
-            data-testid="lore-collapse-all"
-            onClick={() => {
-              const next = new Set(dirCollapsed);
-              for (const g of shown) {
-                if (anyExpanded) next.add(g.kind);
-                else next.delete(g.kind);
-              }
-              onDirCollapsedChange(next);
-            }}
-          >
-            {anyExpanded ? <ChevronsDownUpIcon size={16} /> : <ChevronsUpDownIcon size={16} />}
-          </button>
-        </div>
+        <FilterPanel
+          testId="lore-directory-filter"
+          clearLabel={t.lore.clearFilters}
+          onClear={
+            dirSearch !== "" || dirApplied !== "" || dirNote
+              ? () => {
+                  setDirSearch("");
+                  setDirApplied("");
+                  setDirNote(null);
+                }
+              : undefined
+          }
+          collapse={{ title: t.lore.filterDialogTitle, activeCount: dirApplied !== "" ? 1 : 0 }}
+          summary={budgetsReady ? msg.loreListedCount(directoryEntryTotal(defs)) : undefined}
+          actions={
+            <button
+              type="button"
+              className="filter-panel__trigger lore__collapse-all"
+              aria-label={collapseLabel}
+              title={collapseLabel}
+              disabled={shown.length === 0}
+              data-testid="lore-collapse-all"
+              onClick={() => {
+                const next = new Set(dirCollapsed);
+                for (const g of shown) {
+                  if (anyExpanded) next.add(g.kind);
+                  else next.delete(g.kind);
+                }
+                onDirCollapsedChange(next);
+              }}
+            >
+              {anyExpanded ? <ChevronsDownUpIcon size={14} /> : <ChevronsUpDownIcon size={14} />}
+            </button>
+          }
+        >
+          <FilterField label={t.lore.directoryIdLabel} wide>
+            <IdFilterInput
+              value={dirSearch}
+              onChange={setDirSearch}
+              onCommit={(v) => void jumpToEntry(v)}
+              label={t.lore.directoryIdLabel}
+              testId="lore-directory-id"
+              widthCh={7}
+            />
+            {dirNote && (
+              <span className="lore__dir-note" data-testid="lore-directory-panel-note">
+                {dirNote}
+              </span>
+            )}
+          </FilterField>
+        </FilterPanel>
+        {dirNote && (
+          <div className="lore__dir-note" role="status" data-testid="lore-directory-note">
+            {dirNote}
+          </div>
+        )}
         {shown.map((g) => {
           const collapsed = dirCollapsed.has(g.kind);
           return (

@@ -1926,8 +1926,8 @@ describe("LorePage — 適用範圍選單", () => {
 
 const TARGETS: LoreBudgetTargetView[] = [
   { scopeKind: "everyone", scopeKey: "", capChars: 10000, usedChars: 6240, entryCount: 14, droppedCount: 0 },
-  { scopeKind: "agent", scopeKey: "mira", capChars: 10000, usedChars: 9640, entryCount: 11, droppedCount: 4 },
-  { scopeKind: "agent", scopeKey: "ow-7d8ad859dd9b", capChars: 10000, usedChars: 7120, entryCount: 6, droppedCount: 0 },
+  { scopeKind: "agent", scopeKey: "mira", capChars: 10000, usedChars: 9640, entryCount: 25, droppedCount: 4 },
+  { scopeKind: "agent", scopeKey: "ow-7d8ad859dd9b", capChars: 10000, usedChars: 7120, entryCount: 20, droppedCount: 0 },
   { scopeKind: "manual", scopeKey: "review-pr", capChars: 10000, usedChars: 3210, entryCount: 8, droppedCount: 0 },
 ];
 
@@ -2006,8 +2006,8 @@ describe("LorePage — 目錄與段落頁", () => {
     await waitFor(() =>
       expect(headerTexts(container)).toEqual([
         "所有人14 筆全部讀得到6,240 字・每位成員都會讀",
-        "Mira11 筆4 筆讀不到9,640 / 10,000 字",
-        "O-1796 筆全部讀得到7,120 / 10,000 字",
+        "Mira25 筆4 筆讀不到9,640 / 10,000 字",
+        "O-17920 筆全部讀得到7,120 / 10,000 字",
         "PR 審查8 筆全部讀得到3,210 / 10,000 字",
       ]),
     );
@@ -2030,8 +2030,20 @@ describe("LorePage — 目錄與段落頁", () => {
     expect(container.querySelector('[data-testid="lore-section-dropped"]')!.textContent).toBe(
       "4 筆讀不到",
     );
-    // Filters belong to a section page.
     expect(container.querySelector('[data-testid="lore-filter"]')).toBeNull();
+    // 所有人's 14 ride inside each member's count and are counted once.
+    expect(screen.getByTestId("lore-directory-filter-summary").textContent).toBe("39 筆傳承");
+    const bar = screen.getByTestId("lore-directory-filter-toggle").parentElement!;
+    expect(Array.from(bar.children).map((el) => el.getAttribute("data-testid"))).toEqual([
+      "lore-directory-filter-toggle",
+      "lore-collapse-all",
+    ]);
+    expect(screen.queryByTestId("lore-directory-filter-count")).toBeNull();
+    expect(screen.queryByTestId("lore-directory-id")).toBeNull();
+    openFilters();
+    const field = screen.getByTestId("lore-directory-id").closest(".filter-panel__field")!;
+    expect(screen.getByTestId("lore-directory-filter-fields").contains(field)).toBe(true);
+    expect(field.querySelector(".filter-panel__label")!.textContent).toBe("條目編號");
     expect(renderedIds(container)).toEqual([]);
     expect(list).not.toHaveBeenCalled();
   });
@@ -2588,10 +2600,15 @@ describe("LorePage — 目錄與段落頁", () => {
     const { container } = renderPage();
     await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
 
+    expect(screen.queryByTestId("lore-directory-filter-count")).toBeNull();
     searchFor("lore-directory-id", "審查");
     expect(container.querySelector('[data-testid="lore-directory-note"]')!.textContent).toBe(
       "這裡只找條目編號（例如 L-212）；要用標題找，先進到一段裡",
     );
+    expect(screen.getByTestId("lore-directory-panel-note").textContent).toBe(
+      "這裡只找條目編號（例如 L-212）；要用標題找，先進到一段裡",
+    );
+    expect(screen.getByTestId("lore-directory-filter-count").textContent).toBe("1");
     expect(list).not.toHaveBeenCalled();
 
     searchFor("lore-directory-id", "L-999");
@@ -2599,6 +2616,11 @@ describe("LorePage — 目錄與段落頁", () => {
       expect(container.querySelector('[data-testid="lore-directory-note"]')!.textContent).toBe("找不到 L-999"),
     );
     expect(window.location.hash).toBe("");
+
+    fireEvent.click(screen.getByTestId("lore-directory-filter-clear"));
+    expect(screen.getByTestId<HTMLInputElement>("lore-directory-id").value).toBe("");
+    expect(screen.queryByTestId("lore-directory-filter-count")).toBeNull();
+    expect(container.querySelector('[data-testid="lore-directory-note"]')).toBeNull();
   });
 
   it("the section page's search box sends an id as entryIds and any other text as a title search q, within that section", async () => {
@@ -2676,7 +2698,8 @@ describe("LorePage — 目錄與段落頁", () => {
     // The URL moves first; the hashchange comes later. Typing re-renders the
     // directory in between.
     history.pushState(null, "", window.location.pathname + "#lore/agent/mira");
-    fireEvent.change(container.querySelector('[data-testid="lore-directory-id"]')!, { target: { value: "2" } });
+    openFilters();
+    fireEvent.change(document.querySelector('[data-testid="lore-directory-id"]')!, { target: { value: "2" } });
     await new Promise((r) => setTimeout(r, 20));
     expect(list).not.toHaveBeenCalled();
 

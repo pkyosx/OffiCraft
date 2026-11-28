@@ -60,30 +60,25 @@ a.lore__back:focus-visible {
 }
 
 /* ── the directory ── */
-.lore__dir-search {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  min-width: 0;
-}
 .lore__dir-note {
   font-size: 12.5px;
   color: var(--color-text-muted);
   overflow-wrap: anywhere;
   min-width: 0;
 }
-/* 全部收合 is chat-groups.css's toolbar icon, pushed to the row's right end. */
-.lore__collapse-all {
-  margin-left: auto;
+/* 全部收合 wears the funnel's look beside it. */
+.lore__collapse-all:disabled {
+  cursor: default;
+  opacity: 0.4;
 }
-/* The office's 44px tap box reaches 8px past the button's right edge; here
- * that edge is the scrollport's, so the box grows leftward instead or the
- * page scrolls sideways on a phone. The extra class outranks chat-groups.css
- * whichever stylesheet loads last. */
+/* A 44px-tall tap box that grows only into the gap before the funnel: its
+ * right edge is the scrollport's, so growing rightward would scroll the page
+ * sideways on a phone. */
 @media (max-width: 720px), (hover: none) {
-  .lore__dir-search .lore__collapse-all::after {
-    inset: -8px 0 -8px -16px;
+  .lore__collapse-all::after {
+    content: "";
+    position: absolute;
+    inset: -8px 0 -8px -8px;
   }
 }
 a.lore-target {
