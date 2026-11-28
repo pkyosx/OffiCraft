@@ -595,13 +595,16 @@ func TestPruneDeadShareLinks(t *testing.T) {
 		live := apiShareLinkID(apiMintShareLink(t, h, apiAttachmentLinkTarget(id), owner, ""))
 		forever := apiShareLinkID(apiMintShareLink(t, h, apiAttachmentLinkTarget(id), owner, `{"expires_ts":null}`))
 		apiMintShareLink(t, h, apiAttachmentLinkTarget(collectedBlob), owner, `{"expires_ts":null}`)
+		before, after := apiDiffSeededSides(t, h, owner)
+		diff := apiShareLinkID(apiMintShareLink(t, h, "/api/diff/share-link", owner,
+			`{"before":"`+before+`","after":"`+after+`","expires_ts":null}`))
 		apiExpireShareLinkNow(t, d, expired)
 		apiCollectBlob(t, d, collectedBlob)
 
 		if n, err := d.PruneDeadShareLinks(nowSecs()); err != nil || n != 2 {
 			t.Fatalf("PruneDeadShareLinks = (%d, %v), want (2, nil)", n, err)
 		}
-		apiWantIDs(t, "rows left", apiShareLinkRowIDs(t, d), live, forever)
+		apiWantIDs(t, "rows left", apiShareLinkRowIDs(t, d), live, forever, diff)
 	})
 
 	t.Run("the background sweep deletes an expired row on its own", func(t *testing.T) {

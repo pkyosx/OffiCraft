@@ -2372,7 +2372,7 @@ export const en: Dict = {
     removeButton: "Remove",
     removeConfirmTitle: "Remove this key?",
     removeConfirmBody:
-      "Everything this key signed stops working the moment you confirm, with no grace period and no notice to anyone: credentials signed by it are refused, and cockpit preview links and share links made before this update break too. Links made with the Share link button are not affected; to stop one of those, revoke it on the Sharing tab.",
+      "Everything this key signed stops working the moment you confirm, with no grace period and no notice to anyone: credentials signed by it are refused, and the temporary links used to view web pages, PDFs and videos, plus share links made before this update, break too. Share links made from the share menu or by AI members are not affected; to stop one of those, revoke it on the Sharing tab.",
     removeConfirmWarden:
       "⚠️ Any machine that has not moved to the new key disconnects the moment you remove this one; an offline machine can only move once it comes back online. Make sure every machine has moved to the new key before removing.",
     removeConfirmCancel: "Cancel",

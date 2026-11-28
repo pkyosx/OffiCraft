@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, fireEvent, waitFor, screen, within } from "@testing-library/react";
+import { act, render, fireEvent, waitFor, screen, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
 import { ApiError } from "../api/errors";
@@ -54,6 +54,7 @@ describe("ShareLinkMenu", () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it("lists the target's live links newest first, with ∞ for a permanent one", async () => {
@@ -158,6 +159,7 @@ describe("ShareLinkMenu", () => {
     });
     writeText.mockRejectedValueOnce(new DOMException("denied", "NotAllowedError"));
     const url = `${window.location.origin}/api/chat/attachment/${ATT}?link=tok`;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
 
     mount();
     fireEvent.click(screen.getByTestId("share-generate"));
@@ -166,6 +168,16 @@ describe("ShareLinkMenu", () => {
     expect(field.value).toBe(url);
     expect(field.readOnly).toBe(true);
     expect(screen.getByTestId("share-generate").getAttribute("aria-label")).toBe("已產生連結，但複製失敗");
+
+    act(() => vi.advanceTimersByTime(5000));
+    vi.useRealTimers();
+    expect((screen.getByTestId("share-uncopied-url") as HTMLInputElement).value).toBe(url);
+
+    writeText.mockRejectedValueOnce(new DOMException("denied", "NotAllowedError"));
+    fireEvent.click(screen.getByTestId("share-uncopied-copy"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2));
+    expect((screen.getByTestId("share-uncopied-url") as HTMLInputElement).value).toBe(url);
+
     fireEvent.click(screen.getByTestId("share-uncopied-copy"));
 
     await waitFor(() => expect(screen.queryByTestId("share-uncopied")).toBeNull());
