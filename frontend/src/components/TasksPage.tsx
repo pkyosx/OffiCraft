@@ -609,7 +609,7 @@ export function TasksPage() {
             label={t.tasks.filterIdLabel}
             testId="filter-task-id"
             // 「T-」 + up to five digits (owner `rc-b2beb7b1fd3c`「任務可先假設到
-            // 萬位數」). The field also holds its label and takes the wider.
+            // 萬位數」).
             widthCh={7}
           />
         </FilterField>
