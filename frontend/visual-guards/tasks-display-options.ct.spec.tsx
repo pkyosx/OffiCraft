@@ -2,7 +2,9 @@
 // its label must clear AA in every built-in theme (closed and open, since the
 // open state paints a fill), and the button must hold the filter row's right
 // edge at desktop and phone widths without pushing the page sideways; a
-// non-default choice puts a dot inside the button's own box.
+// non-default choice puts a dot inside the button's own box. On a computer its
+// panel hangs under the button; on a phone (任務頁 and 請示頁 alike) it is the
+// 篩選 bottom sheet, with the select and its longest choice fully visible.
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Locator, Page } from "@playwright/test";
 import { AppPageStory } from "./stories/RepliesFilterPanelStory";
@@ -60,6 +62,62 @@ async function horizontalOverflow(page: Page) {
   }));
 }
 
+/** Where the open 顯示方式 layer sits, and whether its select shows every
+ * choice whole (text plus the native arrow inside the select's content box). */
+async function displayLayer(page: Page, selectTestId: string) {
+  return page.evaluate((selectTestId) => {
+    const r = (el: Element | null) => {
+      if (!el) return null;
+      const b = el.getBoundingClientRect();
+      return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+    };
+    const sel = document.querySelector<HTMLSelectElement>(`[data-testid="${selectTestId}"]`)!;
+    const cs = getComputedStyle(sel);
+    const ctx = document.createElement("canvas").getContext("2d")!;
+    ctx.font = cs.font;
+    return {
+      sheet: r(document.querySelector('[data-testid="display-options-sheet"]')),
+      pop: r(document.querySelector('[data-testid="display-options-panel"]')),
+      button: r(document.querySelector('[data-testid="display-options"]')),
+      select: r(sel),
+      room: sel.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight),
+      widest: Math.max(...Array.from(sel.options).map((o) => ctx.measureText(o.text).width)),
+      vw: window.innerWidth,
+      vh: window.innerHeight,
+      page: document.documentElement.scrollWidth - window.innerWidth,
+    };
+  }, selectTestId);
+}
+
+const SELECT_ARROW = 20;
+
+function expectDisplayLayer(width: number, g: Awaited<ReturnType<typeof displayLayer>>) {
+  expect(g.page, `[${width}px] page horizontal overflow`).toBeLessThanOrEqual(1);
+  expect(g.select!.left, `[${width}px] select left edge`).toBeGreaterThanOrEqual(0);
+  expect(g.select!.right, `[${width}px] select right edge`).toBeLessThanOrEqual(g.vw);
+  if (width <= 720) {
+    expect(g.pop, `[${width}px] no anchored panel on a phone`).toBeNull();
+    const sh = g.sheet!;
+    expect(sh, `[${width}px] bottom sheet`).not.toBeNull();
+    expect(Math.abs(sh.bottom - g.vh), `[${width}px] sheet on the bottom edge`).toBeLessThanOrEqual(1);
+    expect(sh.left).toBeLessThanOrEqual(0.5);
+    expect(sh.right).toBeGreaterThanOrEqual(g.vw - 0.5);
+    expect(sh.bottom - sh.top, `[${width}px] sheet at most 70% tall`).toBeLessThanOrEqual(g.vh * 0.7 + 1);
+    expect(g.select!.left).toBeGreaterThanOrEqual(sh.left);
+    expect(g.select!.right).toBeLessThanOrEqual(sh.right);
+    expect(g.select!.top).toBeGreaterThanOrEqual(sh.top);
+    expect(g.select!.bottom).toBeLessThanOrEqual(sh.bottom);
+    expect(g.widest + SELECT_ARROW, `[${width}px] the longest choice whole in the select`).toBeLessThanOrEqual(g.room);
+  } else {
+    expect(g.sheet, `[${width}px] no sheet on a computer`).toBeNull();
+    const pop = g.pop!;
+    expect(pop, `[${width}px] anchored panel`).not.toBeNull();
+    expect(Math.abs(pop.right - g.button!.right), `[${width}px] panel right edge on the button's`).toBeLessThanOrEqual(1);
+    expect(pop.top, `[${width}px] panel under the button`).toBeGreaterThan(g.button!.bottom - 1);
+    expect(pop.left).toBeGreaterThanOrEqual(0);
+  }
+}
+
 for (const theme of BUILTIN_THEME_IDS) {
   test(`${theme}: the 顯示方式 label clears AA (≥4.5:1) closed and open`, async ({
     mount,
@@ -83,8 +141,8 @@ for (const theme of BUILTIN_THEME_IDS) {
   });
 }
 
-for (const width of [1280, 390, 360, 320]) {
-  test(`width ${width}: 顯示方式 holds the filter row's right edge with the funnel right beside it, its badge unclipped, and its panel stays on screen`, async ({
+for (const width of [1440, 1280, 390, 375, 360, 320]) {
+  test(`width ${width}: 顯示方式 holds the filter row's right edge with the funnel right beside it, its badge unclipped, and it opens ${width > 720 ? "a panel under it" : "the bottom sheet"} with nothing clipped`, async ({
     mount,
     page,
   }) => {
@@ -119,22 +177,39 @@ for (const width of [1280, 390, 360, 320]) {
     expect(b.x + b.width).toBeGreaterThan(funnel.x + funnel.width);
 
     await trigger.click();
-    const panel = (await cmp.getByTestId("display-options-panel").boundingBox())!;
-    expect(Math.abs(panel.x + panel.width - (button.x + button.width))).toBeLessThanOrEqual(1);
-    expect(panel.x).toBeGreaterThanOrEqual(0);
-    expect(panel.y).toBeGreaterThan(button.y + button.height - 1);
+    await expect(page.getByTestId(width > 720 ? "display-options-panel" : "display-options-sheet")).toBeVisible();
+    expectDisplayLayer(width, await displayLayer(page, "group-by"));
 
     const overflow = await horizontalOverflow(page);
     expect(overflow.page, "page horizontal overflow").toBeLessThanOrEqual(1);
     expect(overflow.list, "list horizontal overflow").toBeLessThanOrEqual(1);
 
     await expect(cmp.getByTestId("display-options-changed")).toHaveCount(0);
-    await cmp.getByTestId("group-by").selectOption("executor");
+    await page.getByTestId("group-by").selectOption("executor");
+    await expect(page.getByTestId("display-options-sheet")).toHaveCount(0);
+    await expect(page.getByTestId("display-options-panel")).toHaveCount(0);
     const dot = (await cmp.getByTestId("display-options-changed").boundingBox())!;
     expect(dot.width, "a non-default choice dots the button").toBeGreaterThan(4);
     expect(dot.x).toBeGreaterThanOrEqual(button.x);
     expect(dot.x + dot.width).toBeLessThanOrEqual(button.x + button.width);
     expect(dot.y).toBeGreaterThanOrEqual(button.y);
     await expect(trigger).toHaveAccessibleName("顯示方式：已改為負責人");
+  });
+}
+
+for (const width of [1440, 390, 375]) {
+  test(`width ${width}: the 請示頁's 顯示方式 opens ${width > 720 ? "a panel under it" : "the bottom sheet"} with every 排序依據 choice whole`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 800 });
+    const cmp = await mount(<AppPageStory page="replies" theme="office-light" />);
+    await cmp.getByTestId("display-options").click();
+    await expect(page.getByTestId(width > 720 ? "display-options-panel" : "display-options-sheet")).toBeVisible();
+    expectDisplayLayer(width, await displayLayer(page, "replies-sort"));
+    if (width <= 720) {
+      await page.getByTestId("display-options-backdrop").click({ position: { x: 10, y: 10 } });
+      await expect(page.getByTestId("display-options-sheet")).toHaveCount(0);
+    }
   });
 }

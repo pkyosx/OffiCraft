@@ -1693,7 +1693,7 @@ describe("TasksPage", () => {
     expect(queryByTestId("tasks-filter-pop")).toBeNull();
   });
 
-  it("on a phone the funnel opens a bottom sheet with 完成, and tapping the dim area closes it", async () => {
+  it("on a phone the funnel and 顯示方式 each open a bottom sheet with 完成, closed by 完成, the dim area or Esc, and a 分組依據 choice applies at once", async () => {
     const saved = window.matchMedia;
     window.matchMedia = ((query: string) => ({
       matches: query.includes("max-width"),
@@ -1716,6 +1716,33 @@ describe("TasksPage", () => {
       fireEvent.click(getByTestId("tasks-filter-toggle"));
       fireEvent.click(getByTestId("tasks-filter-backdrop"));
       expect(queryByTestId("tasks-filter-sheet")).toBeNull();
+
+      const display = getByTestId("display-options");
+      fireEvent.click(display);
+      const sheet = getByTestId("display-options-sheet");
+      expect(getByRole("dialog", { name: "顯示方式" })).toBe(sheet);
+      expect(queryByTestId("display-options-panel")).toBeNull();
+      expect(sheet.contains(getByTestId("group-by"))).toBe(true);
+      expect(document.activeElement).toBe(sheet);
+      expect(getByTestId("display-options-done").textContent).toBe("完成");
+      fireEvent.mouseDown(getByTestId("group-by"));
+      expect(queryByTestId("display-options-sheet")).not.toBeNull();
+      fireEvent.click(getByTestId("display-options-done"));
+      expect(queryByTestId("display-options-sheet")).toBeNull();
+      expect(document.activeElement).toBe(display);
+
+      fireEvent.click(display);
+      fireEvent.click(getByTestId("display-options-backdrop"));
+      expect(queryByTestId("display-options-sheet")).toBeNull();
+
+      fireEvent.click(display);
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(queryByTestId("display-options-sheet")).toBeNull();
+
+      fireEvent.click(display);
+      fireEvent.change(getByTestId("group-by"), { target: { value: "status" } });
+      expect(queryByTestId("display-options-sheet")).toBeNull();
+      await waitFor(() => expect(laneKeys()).toEqual(["in_progress"]));
     } finally {
       window.matchMedia = saved;
     }

@@ -221,6 +221,60 @@ function useAnchoredBox(
   return box;
 }
 
+/** The phone layer: a sheet rising from the bottom over a dimmed backdrop, a
+ * title row with 完成, and a scrolling body. The caller owns focus and Esc. */
+export function BottomSheet({
+  testId,
+  title,
+  rootRef,
+  onClose,
+  footer,
+  children,
+}: {
+  testId: string;
+  title: string;
+  rootRef: RefObject<HTMLDivElement>;
+  onClose: () => void;
+  footer?: ReactNode;
+  children: ReactNode;
+}) {
+  const { t } = useI18n();
+  const visible = useVisibleBox(true);
+  const titleId = useId();
+  const closeOnBackdrop = (e: MouseEvent) => {
+    if (e.target === e.currentTarget) onClose();
+  };
+  return (
+    <div
+      className="filter-panel__sheet-backdrop"
+      style={visible}
+      data-testid={`${testId}-backdrop`}
+      onClick={closeOnBackdrop}
+    >
+      <div
+        ref={rootRef}
+        className="filter-panel__sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        data-testid={`${testId}-sheet`}
+      >
+        <div className="filter-panel__sheet-head">
+          <h2 id={titleId} className="filter-panel__title">
+            {title}
+          </h2>
+          <button type="button" className="filter-panel__done" data-testid={`${testId}-done`} onClick={onClose}>
+            {t.common.filterDone}
+          </button>
+        </div>
+        <div className="filter-panel__sheet-body">{children}</div>
+        {footer}
+      </div>
+    </div>
+  );
+}
+
 function FilterLayer({
   testId,
   title,
@@ -240,9 +294,7 @@ function FilterLayer({
   trigger: RefObject<HTMLButtonElement | null>;
   children: ReactNode;
 }) {
-  const { t } = useI18n();
   const mobile = useIsMobile();
-  const visible = useVisibleBox(mobile);
   const anchored = useAnchoredBox(!mobile, trigger);
   const rootRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -281,10 +333,6 @@ function FilterLayer({
     return () => document.removeEventListener("mousedown", onDocDown, true);
   });
 
-  const closeOnBackdrop = (e: MouseEvent) => {
-    if (e.target === e.currentTarget) close();
-  };
-
   const footer = (applied || onClear) && (
     <div className="filter-panel__foot">
       <span className="filter-panel__applied" data-testid={`${testId}-applied`}>
@@ -311,38 +359,9 @@ function FilterLayer({
   return createPortal(
     <FilterLayerContext.Provider value={true}>
       {mobile ? (
-        <div
-          className="filter-panel__sheet-backdrop"
-          style={visible}
-          data-testid={`${testId}-backdrop`}
-          onClick={closeOnBackdrop}
-        >
-          <div
-            ref={rootRef}
-            className="filter-panel__sheet"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={titleId}
-            tabIndex={-1}
-            data-testid={`${testId}-sheet`}
-          >
-            <div className="filter-panel__sheet-head">
-              <h2 id={titleId} className="filter-panel__title">
-                {title}
-              </h2>
-              <button
-                type="button"
-                className="filter-panel__done"
-                data-testid={`${testId}-done`}
-                onClick={close}
-              >
-                {t.common.filterDone}
-              </button>
-            </div>
-            <div className="filter-panel__sheet-body">{grid}</div>
-            {footer}
-          </div>
-        </div>
+        <BottomSheet testId={testId} title={title} rootRef={rootRef} onClose={close} footer={footer}>
+          {grid}
+        </BottomSheet>
       ) : (
         <div
           ref={rootRef}
