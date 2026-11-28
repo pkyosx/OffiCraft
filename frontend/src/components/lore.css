@@ -295,7 +295,22 @@ button.lore-dir-card__name--link:hover {
   gap: 10px;
   min-width: 0;
 }
+/* The 篩選 funnel sits at the title's right end, like 請示頁's beside its tabs. */
+.lore-section__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.lore-section__title-row > .filter-panel {
+  flex: none;
+  margin-left: auto;
+}
+.lore-section__title-row .filter-panel__bar {
+  padding-top: 0;
+}
 .lore-section__title {
+  flex: 1 1 auto;
   display: flex;
   flex-wrap: wrap;
   align-items: center;

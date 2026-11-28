@@ -11,6 +11,8 @@ export const zh = {
     filterAppliedLead: "已套用",
     filterAppliedTailOne: "個條件",
     filterAppliedTailMany: "個條件",
+    textShowAll: "展開全文",
+    textShowLess: "收起",
   },
   // ── 逐行比對（components/DiffView）——版本紀錄的差異呈現 ──
   diff: {
@@ -145,6 +147,7 @@ export const zh = {
     stagedSavedRereadFailed: "已儲存，但重新讀取失敗，請重新整理頁面",
     // 篩選列
     clearFilters: "清除篩選",
+    filterDialogTitle: "篩選傳承",
     idSearchLabel: "編號或標題",
     loreTypeInstructionConflict: "指示衝突",
     loreTypeInstructionSupplement: "指示補充",

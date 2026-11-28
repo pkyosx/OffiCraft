@@ -8,6 +8,7 @@ import { useSecrets } from "../hooks/useSecrets";
 import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
 import type { SecretView } from "../types";
+import { ClampedText } from "./ClampedText";
 import { ConfirmModal } from "./ConfirmModal";
 import {
   CheckIcon,
@@ -233,7 +234,7 @@ function SecretRow({
           data-testid="secret-note"
         >
           <span className="secrets__label">{d.colNote}</span>
-          <span className="secrets__note">{secret.note}</span>
+          <ClampedText text={secret.note} testId="secret-note-text" />
         </div>
       )}
       <div className="secrets__row-line" data-testid="secret-last-accessed">

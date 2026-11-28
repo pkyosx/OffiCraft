@@ -33,6 +33,7 @@ import { zh } from "../i18n/locales/zh";
 import { formatAbsolute } from "../lib/dateFormat";
 import { clearLocale, useEnglishLocale } from "../test/effortOptions";
 import { LORE_DIR_COLLAPSED_KEY, openEveryLoreDirGroup } from "../test/loreDirectory";
+import { openFilters, openFiltersWhenReady } from "../test/tasksFilter";
 import type {
   ChatAttachmentInput,
   LoreBudgetTargetView,
@@ -643,15 +644,16 @@ describe("LorePage — 篩選器複選", () => {
     return (calls[calls.length - 1][0] ?? {}) as Record<string, unknown>;
   }
 
-  function tick(container: HTMLElement, testId: string, value: string) {
-    const trigger = container.querySelector<HTMLElement>(
+  function tick(testId: string, value: string) {
+    openFilters();
+    const trigger = document.querySelector<HTMLElement>(
       `[data-testid="${testId}"]`,
     );
     if (!trigger) throw new Error(`no ${testId} filter`);
     if (trigger.getAttribute("aria-expanded") !== "true") {
       fireEvent.click(trigger);
     }
-    const box = container.querySelector<HTMLElement>(
+    const box = document.querySelector<HTMLElement>(
       `[data-testid="${testId}-opt-${value}"] input`,
     );
     if (!box) throw new Error(`no ${testId} option ${value}`);
@@ -670,7 +672,9 @@ describe("LorePage — 篩選器複選", () => {
       offset: 0,
     });
 
-    tick(container, "lore-filter-state", "retired");
+    expect(screen.queryByTestId("lore-filter-count")).toBeNull();
+
+    tick("lore-filter-state", "retired");
 
     await waitFor(() =>
       expect(lastOpts(spy)).toEqual({
@@ -681,21 +685,20 @@ describe("LorePage — 篩選器複選", () => {
         offset: 0,
       }),
     );
+    expect(screen.getByTestId("lore-filter-count").textContent).toBe("1");
+    expect(screen.getByTestId("lore-filter-clear")).not.toBeNull();
   });
 
-  it("sends the ticked types as loreTypes, lists all five in order, and 清除篩選 drops them", async () => {
+  it("sends the ticked types as loreTypes, counts each narrowed field once on the funnel, and 清除篩選 drops them all", async () => {
     const spy = stubList(page([mkEntry({ id: "L-1" })]));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
-    expect(
-      container.querySelector('[data-testid="lore-filter-clear"]'),
-    ).toBeNull();
+    openFilters();
+    expect(screen.queryByTestId("lore-filter-clear")).toBeNull();
 
-    fireEvent.click(
-      container.querySelector<HTMLElement>('[data-testid="lore-filter-type"]')!,
-    );
+    fireEvent.click(screen.getByTestId("lore-filter-type"));
     const options = Array.from(
-      container.querySelectorAll('[data-testid^="lore-filter-type-opt-"]'),
+      document.querySelectorAll('[data-testid^="lore-filter-type-opt-"]'),
     ).map((el) => [el.getAttribute("data-testid"), el.textContent]);
     expect(options).toEqual([
       ["lore-filter-type-opt-instruction_conflict", "指示衝突"],
@@ -706,7 +709,7 @@ describe("LorePage — 篩選器複選", () => {
     ]);
 
     const mira = { scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], limit: 30, offset: 0 };
-    tick(container, "lore-filter-type", "owner_decision");
+    tick("lore-filter-type", "owner_decision");
     await waitFor(() =>
       expect(lastOpts(spy)).toEqual({
         states: ["pinned", "active"],
@@ -714,7 +717,7 @@ describe("LorePage — 篩選器複選", () => {
         ...mira,
       }),
     );
-    tick(container, "lore-filter-type", "other");
+    tick("lore-filter-type", "other");
     await waitFor(() =>
       expect(lastOpts(spy)).toEqual({
         states: ["pinned", "active"],
@@ -722,31 +725,42 @@ describe("LorePage — 篩選器複選", () => {
         ...mira,
       }),
     );
+    expect(screen.getByTestId("lore-filter-count").textContent).toBe("1");
+    searchFor("lore-filter-id", "審查");
+    await waitFor(() => expect(lastOpts(spy)).toHaveProperty("q", "審查"));
+    expect(screen.getByTestId("lore-filter-count").textContent).toBe("2");
 
-    fireEvent.click(
-      container.querySelector<HTMLElement>('[data-testid="lore-filter-clear"]')!,
-    );
+    fireEvent.click(screen.getByTestId("lore-filter-clear"));
     await waitFor(() =>
       expect(lastOpts(spy)).toEqual({ states: ["pinned", "active"], ...mira }),
     );
-    expect(
-      container.querySelector('[data-testid="lore-filter-clear"]'),
-    ).toBeNull();
+    expect(screen.queryByTestId("lore-filter-clear")).toBeNull();
+    expect(screen.queryByTestId("lore-filter-count")).toBeNull();
+    expect(screen.getByTestId<HTMLInputElement>("lore-filter-id").value).toBe("");
   });
 
-  it("has the id box, the type and state filters inline in its row, and no 撰寫人 filter: the section already names whose entries these are", async () => {
+  it("keeps the id box, the type and state filters behind a closed funnel in the section title row, labelled in the panel it opens, with no 撰寫人 filter", async () => {
     const spy = stubList(page([mkEntry({ id: "L-1" })]));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
 
-    const filters = Array.from(container.querySelectorAll('[data-testid^="lore-filter-"]'))
+    const toggle = screen.getByTestId("lore-filter-toggle");
+    expect(container.querySelector('[data-testid="lore-section-head"]')!.contains(toggle)).toBe(true);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector('[data-testid^="lore-filter-id"]')).toBeNull();
+    expect(document.querySelector('[data-testid="lore-filter-type"]')).toBeNull();
+
+    openFilters();
+    const panel = screen.getByRole("dialog", { name: zh.lore.filterDialogTitle });
+    const grid = screen.getByTestId("lore-filter-fields");
+    expect(panel.contains(grid)).toBe(true);
+    expect(
+      Array.from(grid.querySelectorAll(".filter-panel__label")).map((el) => el.textContent),
+    ).toEqual([zh.lore.idSearchLabel, zh.lore.filterTypeNoun, zh.lore.filterStateNoun]);
+    const filters = Array.from(grid.querySelectorAll('[data-testid^="lore-filter-"]'))
       .map((el) => el.getAttribute("data-testid")!)
-      .filter((id) => !/-opt-|-clear$|-fields$/.test(id) && id !== "lore-filter");
+      .filter((id) => !/-opt-/.test(id));
     expect(filters).toEqual(["lore-filter-id", "lore-filter-type", "lore-filter-state"]);
-    const row = container.querySelector('[data-testid="lore-filter-fields"]')!;
-    for (const id of filters) {
-      expect(row.contains(container.querySelector(`[data-testid="${id}"]`))).toBe(true);
-    }
     expect(lastOpts(spy)).not.toHaveProperty("authorIds");
   });
 
@@ -755,10 +769,9 @@ describe("LorePage — 篩選器複選", () => {
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
 
+    openFilters();
     const labelOf = (testId: string) =>
-      container
-        .querySelector<HTMLElement>(`[data-testid="${testId}"]`)!
-        .textContent!.replace(/\s+/g, "");
+      screen.getByTestId(testId).textContent!.replace(/\s+/g, "");
 
     expect(labelOf("lore-filter-type")).toBe("所有類型");
     expect(labelOf("lore-filter-state")).toBe("狀態·2");
@@ -789,17 +802,18 @@ describe("LorePage — 順序跟任務頁一致", () => {
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
 
+    openFilters();
     const fields = ["lore-filter-id", "lore-filter-type", "lore-filter-state"];
     const idsInDomOrder = () =>
-      Array.from(container.querySelectorAll('[data-testid^="lore-filter-"]'))
+      Array.from(document.querySelectorAll('[data-testid^="lore-filter-"]'))
         .map((el) => el.getAttribute("data-testid")!)
         .filter((id) => fields.includes(id));
 
     expect(idsInDomOrder()).toEqual(fields);
 
-    fireEvent.click(container.querySelector<HTMLElement>('[data-testid="lore-filter-type"]')!);
+    fireEvent.click(screen.getByTestId("lore-filter-type"));
     fireEvent.click(
-      container.querySelector<HTMLElement>('[data-testid="lore-filter-type-opt-other"] input')!,
+      document.querySelector<HTMLElement>('[data-testid="lore-filter-type-opt-other"] input')!,
     );
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
     expect(idsInDomOrder()).toEqual(fields);
@@ -1939,8 +1953,9 @@ function openSection(container: HTMLElement, key: string) {
   fireEvent.click(target);
 }
 
-function searchFor(container: HTMLElement, testId: string, text: string) {
-  const box = container.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`)!;
+function searchFor(testId: string, text: string) {
+  openFilters();
+  const box = document.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`)!;
   fireEvent.change(box, { target: { value: text } });
   fireEvent.keyDown(box, { key: "Enter" });
 }
@@ -2198,8 +2213,9 @@ describe("LorePage — 目錄與段落頁", () => {
     expect(container.querySelector('[data-testid="lore-back"]')!.getAttribute("href")).toBe("#lore");
     expect(
       Array.from(container.querySelector('[data-testid="lore-page"]')!.children).map((el) => el.getAttribute("data-testid")),
-    ).toEqual(["lore-back", "lore-filter", "lore-section-head", "lore-section"]);
+    ).toEqual(["lore-back", "lore-section-head", "lore-section"]);
     const head = container.querySelector<HTMLElement>('[data-testid="lore-section-head"]')!;
+    expect(head.querySelector('[data-testid="lore-filter-toggle"]')).not.toBeNull();
     expect(head.querySelector('[data-testid="lore-section-name"]')!.textContent).toBe("Mira");
     expect(head.querySelector('[data-testid="lore-section-count"]')!.textContent).toBe("11 筆");
     expect(head.querySelector('[data-testid="lore-section-dropped"]')!.textContent).toBe("4 筆讀不到");
@@ -2326,9 +2342,9 @@ describe("LorePage — 目錄與段落頁", () => {
     const { container } = renderPage();
     await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
     openSection(container, "agent:mira");
-    await waitFor(() => expect(container.querySelector('[data-testid="lore-filter-id"]')).not.toBeNull());
+    await openFiltersWhenReady();
 
-    searchFor(container, "lore-filter-id", "審查");
+    searchFor("lore-filter-id", "審查");
 
     await waitFor(() => expect(renderedIds(container)).toEqual(["L-231", "L-205"]));
     expect(renderedIds(container).map((id) => rowById(container, id).dataset.dimmed)).toEqual([
@@ -2354,9 +2370,10 @@ describe("LorePage — 目錄與段落頁", () => {
     openSection(container, "agent:mira");
     await waitFor(() => expect(renderedIds(container)).toEqual(["L-1", "L-2"]));
 
-    fireEvent.click(container.querySelector<HTMLElement>('[data-testid="lore-filter-state"]')!);
+    openFilters();
+    fireEvent.click(document.querySelector<HTMLElement>('[data-testid="lore-filter-state"]')!);
     fireEvent.click(
-      container.querySelector<HTMLElement>('[data-testid="lore-filter-state-opt-retired"] input')!,
+      document.querySelector<HTMLElement>('[data-testid="lore-filter-state-opt-retired"] input')!,
     );
 
     await waitFor(() => expect(renderedIds(container)).toEqual(["L-1", "L-2", "L-9"]));
@@ -2376,7 +2393,7 @@ describe("LorePage — 目錄與段落頁", () => {
     const { container } = renderPage();
     await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
 
-    searchFor(container, "lore-directory-id", "212");
+    searchFor("lore-directory-id", "212");
 
     await waitFor(() => expect(window.location.hash).toBe("#lore/agent/mira/entry/L-212"));
     expect(list.mock.calls[0][0]).toEqual({
@@ -2423,7 +2440,7 @@ describe("LorePage — 目錄與段落頁", () => {
     );
     const { container } = renderPage();
     await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
-    searchFor(container, "lore-directory-id", "L-9");
+    searchFor("lore-directory-id", "L-9");
 
     await waitFor(() => expect(renderedIds(container)).toEqual(["L-198", "L-9"]));
     expect(list.mock.calls.slice(1).map((c) => c[0])).toEqual([
@@ -2437,7 +2454,7 @@ describe("LorePage — 目錄與段落頁", () => {
     stubList(page([mkEntry({ id: "L-5", scopeKind: "agent", scopeKey: "m-left" })]));
     const { container } = renderPage();
     await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
-    searchFor(container, "lore-directory-id", "L-5");
+    searchFor("lore-directory-id", "L-5");
     await waitFor(() =>
       expect(container.querySelector('[data-testid="lore-directory-note"]')?.textContent).toBe(
         "L-5 所在的段落已經不在了（成員已離開或手冊已刪除）",
@@ -2474,11 +2491,12 @@ describe("LorePage — 目錄與段落頁", () => {
         : miraPage(Array.from({ length: 30 }, () => mkEntry({ id: `L-${1000 + n++}` }))),
     );
     window.location.hash = "#lore/agent/mira/entry/L-9";
-    const { container } = renderPage();
+    renderPage();
     await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
 
-    fireEvent.click(container.querySelector<HTMLElement>('[data-testid="lore-filter-state"]')!);
-    fireEvent.click(container.querySelector<HTMLElement>('[data-testid="lore-filter-state-opt-retired"] input')!);
+    openFilters();
+    fireEvent.click(document.querySelector<HTMLElement>('[data-testid="lore-filter-state"]')!);
+    fireEvent.click(document.querySelector<HTMLElement>('[data-testid="lore-filter-state-opt-retired"] input')!);
     await waitFor(() => expect(list).toHaveBeenCalledTimes(3));
     page2.resolve(miraPage([]));
     await new Promise((r) => setTimeout(r, 30));
@@ -2501,7 +2519,7 @@ describe("LorePage — 目錄與段落頁", () => {
 
     fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
     await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
-    searchFor(container, "lore-directory-id", "L-9");
+    searchFor("lore-directory-id", "L-9");
 
     await waitFor(() => expect(renderedIds(container)).toHaveLength(31));
     expect(rowById(container, "L-9").classList.contains("lore-row--highlight")).toBe(true);
@@ -2544,13 +2562,13 @@ describe("LorePage — 目錄與段落頁", () => {
     const { container } = renderPage();
     await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
 
-    searchFor(container, "lore-directory-id", "審查");
+    searchFor("lore-directory-id", "審查");
     expect(container.querySelector('[data-testid="lore-directory-note"]')!.textContent).toBe(
       "這裡只找條目編號（例如 L-212）；要用標題找，先進到一段裡",
     );
     expect(list).not.toHaveBeenCalled();
 
-    searchFor(container, "lore-directory-id", "L-999");
+    searchFor("lore-directory-id", "L-999");
     await waitFor(() =>
       expect(container.querySelector('[data-testid="lore-directory-note"]')!.textContent).toBe("找不到 L-999"),
     );
@@ -2566,7 +2584,7 @@ describe("LorePage — 目錄與段落頁", () => {
     await waitFor(() => expect(list).toHaveBeenCalled());
     const sentFor = async (typed: string) => {
       list.mockClear();
-      searchFor(container, "lore-filter-id", typed);
+      searchFor("lore-filter-id", typed);
       await waitFor(() => expect(list).toHaveBeenCalled());
       const { entryIds, q, scopeKeys } = list.mock.calls[0][0]!;
       return { entryIds, q, scopeKeys };
@@ -2585,9 +2603,9 @@ describe("LorePage — 目錄與段落頁", () => {
     const { container } = renderPage();
     await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
     openSection(container, "agent:mira");
-    await waitFor(() => expect(container.querySelector('[data-testid="lore-filter-id"]')).not.toBeNull());
+    await openFiltersWhenReady();
 
-    searchFor(container, "lore-filter-id", "L-999");
+    searchFor("lore-filter-id", "L-999");
 
     await waitFor(() =>
       expect(container.querySelector('[data-testid="lore-empty"]')?.textContent).toBe(
@@ -2608,7 +2626,7 @@ describe("LorePage — 目錄與段落頁", () => {
     ]);
     expect(container.querySelector('[data-testid="lore-section-name"]')!.textContent).toBe("PR 審查");
 
-    searchFor(container, "lore-filter-id", "審查");
+    searchFor("lore-filter-id", "審查");
     await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
 
     fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
@@ -2620,7 +2638,8 @@ describe("LorePage — 目錄與段落頁", () => {
     expect(list.mock.calls[2][0]).toEqual({
       states: ["pinned", "active"], scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], limit: 30, offset: 0,
     });
-    expect(container.querySelector<HTMLInputElement>('[data-testid="lore-filter-id"]')!.value).toBe("");
+    openFilters();
+    expect(document.querySelector<HTMLInputElement>('[data-testid="lore-filter-id"]')!.value).toBe("");
   });
 
   it("a page re-render between the URL change and its hashchange does not load the new section into the old page", async () => {
@@ -3172,8 +3191,9 @@ function chooseStateOn(container: HTMLElement, entryId: string, next: LoreEntryV
   fireEvent.click(row.querySelector(`[data-testid="lore-state-${next}"]`)!);
 }
 
-function search(container: HTMLElement, text: string) {
-  const box = container.querySelector<HTMLInputElement>('[data-testid="lore-filter-id"]')!;
+function search(text: string) {
+  openFilters();
+  const box = document.querySelector<HTMLInputElement>('[data-testid="lore-filter-id"]')!;
   fireEvent.change(box, { target: { value: text } });
   fireEvent.keyDown(box, { key: "Enter" });
 }
@@ -3189,9 +3209,9 @@ describe("LorePage — 晚到的回應", () => {
       o?.q === "bbb" ? page([mkEntry({ id: "L-2" })]) : slow.promise,
     );
     const { container } = await renderOpen();
-    await waitFor(() => expect(container.querySelector('[data-testid="lore-filter-id"]')).not.toBeNull());
+    await openFiltersWhenReady();
 
-    search(container, "bbb");
+    search("bbb");
     await waitFor(() => expect(renderedIds(container)).toEqual(["L-2"]));
     slow.resolve(page([mkEntry({ id: "L-1" })]));
     await new Promise((r) => setTimeout(r, 20));

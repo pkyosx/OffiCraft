@@ -1,8 +1,8 @@
-/* FilterPanel — the 篩選 shell (inline row, or a funnel that opens an anchored
- * panel / phone sheet). Self-contained: FilterPanel.tsx imports this file itself.
+/* FilterPanel — the 篩選 shell (a funnel that opens an anchored panel / phone
+ * sheet). Self-contained: FilterPanel.tsx imports this file itself.
  * Colours are theme tokens only.
  *
- * 🔴 NO `margin` ON THE ROW: both host pages are flex columns that space their
+ * 🔴 NO `margin` ON THE ROW: the host pages are flex columns that space their
  * own children; a component that adds outer spacing shows up only as "why is
  * there a gap there" on a phone. No border or background on the row either. */
 .filter-panel {
@@ -12,32 +12,8 @@
   gap: 10px;
 }
 
-.filter-panel__fields {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
-
-/* Inside the fields flow, so on a phone the actions share the last line of
- * fields instead of taking a line of their own; `margin-left: auto` keeps them
- * on that line's right edge. */
-.filter-panel__actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* Inline row: no 「one field per row on a phone」 rule — owner asked for the
- * fields to sit side by side and wrap only when they run out of room
- * (`rc-5d2e6d48a108`), and a `flex-basis: 100%` would also make the id field
- * full-bleed. */
-
-/* 清除篩選: the inline row's last item, or the panel footer's right end. A
- * link rather than a filled button: it is the least-used control. */
+/* 清除篩選: the panel footer's right end. A link rather than a filled button:
+ * it is the least-used control. */
 .filter-panel__clear {
   border: 0;
   background: transparent;
@@ -54,7 +30,7 @@
   text-decoration: underline;
 }
 
-/* ── collapsed shape: funnel + the page's actions ─────────────────────────── */
+/* ── the bar: funnel + the page's actions ── */
 .filter-panel__bar {
   margin-left: auto;
   display: flex;
@@ -124,7 +100,7 @@
   font-weight: 600;
   color: var(--color-text-muted);
 }
-/* A field fills its cell; the inline row's per-id width is a row concern. */
+/* A field fills its cell; `widthCh` sizes the field only outside the panel. */
 .filter-panel__field .id-filter-field {
   display: grid;
   width: 100%;

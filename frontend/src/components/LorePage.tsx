@@ -86,7 +86,7 @@ import { Avatar } from "./Avatar";
 import { HeadingBody } from "./ChatGroupHeading";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { DocumentHistoryEntry } from "./DocumentHistoryEntry";
-import { FilterPanel } from "./FilterPanel";
+import { FilterField, FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
 import { InstantHint } from "./InstantHint";
 import { Markdown } from "./Markdown";
@@ -453,6 +453,9 @@ function LoreView({
     appliedSearch !== "" || loreTypes.size > 0 || statesNarrow;
   const statesAtDefault =
     states.size === DEFAULT_STATES.length && DEFAULT_STATES.every((s) => states.has(s));
+  const activeFilterCount = [appliedSearch !== "", loreTypes.size > 0, !statesAtDefault].filter(
+    Boolean,
+  ).length;
 
   function clearFilters() {
     setSearchDraft("");
@@ -1610,70 +1613,78 @@ function LoreView({
 
       {currentDef && (
         <>
-          <FilterPanel
-            testId="lore-filter"
-            clearLabel={t.lore.clearFilters}
-            onClear={narrowing || !statesAtDefault ? clearFilters : undefined}
-          >
-            <IdFilterInput
-              value={searchDraft}
-              onChange={setSearchDraft}
-              onCommit={(v) => setAppliedSearch(v.trim())}
-              label={t.lore.idSearchLabel}
-              testId="lore-filter-id"
-              widthCh={7}
-            />
-            <MultiSelectFilter
-              noun={t.lore.filterTypeNoun}
-              allLabel={t.lore.filterTypeAll}
-              testId="lore-filter-type"
-              options={LORE_TYPES.map((lt) => ({ value: lt, label: loreTypeLabel(t, lt) }))}
-              selected={loreTypes}
-              onChange={(next) => setLoreTypes(next as Set<LoreType>)}
-            />
-            <MultiSelectFilter
-              noun={t.lore.filterStateNoun}
-              allLabel={t.lore.filterStateAll}
-              testId="lore-filter-state"
-              options={[
-                { value: "pinned", label: t.lore.statePinned },
-                { value: "active", label: t.lore.stateActive },
-                { value: "retired", label: t.lore.stateRetired },
-              ]}
-              selected={states}
-              onChange={(next) => setStates(next as Set<LoreEntryState>)}
-            />
-          </FilterPanel>
-
           <div className="lore-section__head" data-testid="lore-section-head">
-            <div className="lore__group-title lore-section__title">
-              {sectionLead(currentDef)}
-              {currentDef.kind === "manual" ? (
-                // The way back to the manual for every viewer; the card scope tag offers it only to those who may move entries.
-                <button
-                  type="button"
-                  className="lore-section__name lore-section__name--link"
-                  data-testid="lore-section-name"
-                  title={msg.loreOpenManual(sectionName(currentDef))}
-                  aria-label={msg.loreOpenManual(sectionName(currentDef))}
-                  onClick={() => openManual(currentDef.scopeKey)}
-                >
-                  {sectionName(currentDef)}
-                </button>
-              ) : (
-                <span className="lore-section__name" data-testid="lore-section-name">
-                  {sectionName(currentDef)}
+            <div className="lore-section__title-row">
+              <div className="lore__group-title lore-section__title">
+                {sectionLead(currentDef)}
+                {currentDef.kind === "manual" ? (
+                  // The way back to the manual for every viewer; the card scope tag offers it only to those who may move entries.
+                  <button
+                    type="button"
+                    className="lore-section__name lore-section__name--link"
+                    data-testid="lore-section-name"
+                    title={msg.loreOpenManual(sectionName(currentDef))}
+                    aria-label={msg.loreOpenManual(sectionName(currentDef))}
+                    onClick={() => openManual(currentDef.scopeKey)}
+                  >
+                    {sectionName(currentDef)}
+                  </button>
+                ) : (
+                  <span className="lore-section__name" data-testid="lore-section-name">
+                    {sectionName(currentDef)}
+                  </span>
+                )}
+                <span className="lore__group-count">
+                  {" · "}
+                  <span data-testid="lore-section-count">{msg.loreEntryCount(currentDef.target.entryCount)}</span>
                 </span>
-              )}
-              <span className="lore__group-count">
-                {" · "}
-                <span data-testid="lore-section-count">{msg.loreEntryCount(currentDef.target.entryCount)}</span>
-              </span>
-              {currentDef.target.droppedCount > 0 && (
-                <span className="lore-section__dropped" data-testid="lore-section-dropped">
-                  {msg.loreDropped(currentDef.target.droppedCount)}
-                </span>
-              )}
+                {currentDef.target.droppedCount > 0 && (
+                  <span className="lore-section__dropped" data-testid="lore-section-dropped">
+                    {msg.loreDropped(currentDef.target.droppedCount)}
+                  </span>
+                )}
+              </div>
+              <FilterPanel
+                testId="lore-filter"
+                clearLabel={t.lore.clearFilters}
+                onClear={activeFilterCount > 0 ? clearFilters : undefined}
+                collapse={{ title: t.lore.filterDialogTitle, activeCount: activeFilterCount }}
+              >
+                <FilterField label={t.lore.idSearchLabel} wide>
+                  <IdFilterInput
+                    value={searchDraft}
+                    onChange={setSearchDraft}
+                    onCommit={(v) => setAppliedSearch(v.trim())}
+                    label={t.lore.idSearchLabel}
+                    testId="lore-filter-id"
+                    widthCh={7}
+                  />
+                </FilterField>
+                <FilterField label={t.lore.filterTypeNoun}>
+                  <MultiSelectFilter
+                    noun={t.lore.filterTypeNoun}
+                    allLabel={t.lore.filterTypeAll}
+                    testId="lore-filter-type"
+                    options={LORE_TYPES.map((lt) => ({ value: lt, label: loreTypeLabel(t, lt) }))}
+                    selected={loreTypes}
+                    onChange={(next) => setLoreTypes(next as Set<LoreType>)}
+                  />
+                </FilterField>
+                <FilterField label={t.lore.filterStateNoun}>
+                  <MultiSelectFilter
+                    noun={t.lore.filterStateNoun}
+                    allLabel={t.lore.filterStateAll}
+                    testId="lore-filter-state"
+                    options={[
+                      { value: "pinned", label: t.lore.statePinned },
+                      { value: "active", label: t.lore.stateActive },
+                      { value: "retired", label: t.lore.stateRetired },
+                    ]}
+                    selected={states}
+                    onChange={(next) => setStates(next as Set<LoreEntryState>)}
+                  />
+                </FilterField>
+              </FilterPanel>
             </div>
             {renderSummary(currentDef, sd)}
           </div>

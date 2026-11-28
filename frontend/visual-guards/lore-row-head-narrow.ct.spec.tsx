@@ -6,7 +6,7 @@
 // the head without overlapping them, no open card has a clamped body, the 撰寫人／生效期
 // label/value grid stays inside the card, a folded row (讀不到 or folded by its
 // 收合) holds one line, the message box's 📎, input and 送出 sit on one row
-// inside the card with room to type, the section head's title, bar and legend stay
+// inside the card with room to type, the section head's title, 篩選 funnel, bar and legend stay
 // inside it, the 適用範圍 menu opens inside the viewport, the inline editor fits,
 // the unsaved-changes bar holds one line on the screen's bottom edge without
 // covering the last card, a staged card keeps its height with its ↺ marks inside
@@ -379,7 +379,7 @@ for (const width of [390, 1440]) {
     assertHeadContained(width, l4!);
   });
 
-  test(`a member's section head sits on the page under the filters, not on a card, and its legend swatches match the bar @${width}px`, async ({ mount, page }) => {
+  test(`a member's section head sits on the page under the back link, not on a card, with the 篩選 funnel at its title row's right end opening ${width > 720 ? "a panel under it" : "a bottom sheet"}, and its legend swatches match the bar @${width}px`, async ({ mount, page }) => {
     await mountAt(mount, page, width, false, MIRA);
     await expect(page.locator('[data-testid="lore-bar-everyone"]')).toBeVisible();
     const look = await page.evaluate(() => {
@@ -394,11 +394,21 @@ for (const width of [390, 1440]) {
         ownBar: bg(document.querySelector('[data-testid="lore-bar-own"]')),
         swatches: [...head.querySelectorAll(".lore-dir-card__swatch")].map((el) => bg(el)),
         order: [
-          [bottom('[data-testid="lore-back"]'), top('[data-testid="lore-filter"]')],
-          [bottom('[data-testid="lore-filter"]'), top(".lore-section__title")],
+          [bottom('[data-testid="lore-back"]'), top(".lore-section__title")],
           [bottom(".lore-section__title"), top('[data-testid="lore-section-bar"]')],
           [bottom('[data-testid="lore-section-summary"]'), top('[data-testid="lore-row"]')],
         ],
+        funnel: (() => {
+          const f = head.querySelector('[data-testid="lore-filter-toggle"]');
+          const t = document.querySelector(".lore-section__title")!.getBoundingClientRect();
+          if (!f) return null;
+          const r = f.getBoundingClientRect();
+          return {
+            rightGap: head.getBoundingClientRect().right - r.right,
+            leftOfFunnel: r.left - t.right,
+            midDelta: Math.abs((r.top + r.bottom) / 2 - (t.top + t.bottom) / 2),
+          };
+        })(),
         titleLines: (() => {
           const t = document.querySelector(".lore-section__title")!;
           return new Set([...t.children].map((c) => Math.round(c.getBoundingClientRect().top + c.getBoundingClientRect().height / 2))).size;
@@ -411,6 +421,23 @@ for (const width of [390, 1440]) {
       expect.soft(above, `[${width}px] head order step ${i}`).toBeLessThanOrEqual(below + 0.5),
     );
     expect.soft(look.titleLines, `[${width}px] name · count and 讀不到 on one line`).toBe(1);
+    expect(look.funnel, `[${width}px] 篩選 funnel in the section head`).not.toBeNull();
+    expect.soft(Math.abs(look.funnel!.rightGap), `[${width}px] funnel right edge vs head`).toBeLessThanOrEqual(1);
+    expect.soft(look.funnel!.leftOfFunnel, `[${width}px] title ends left of the funnel`).toBeGreaterThanOrEqual(0);
+    expect.soft(look.funnel!.midDelta, `[${width}px] funnel centred on the title line`).toBeLessThanOrEqual(3);
+
+    await page.getByTestId("lore-filter-toggle").click();
+    const layer = page.getByTestId(width > 720 ? "lore-filter-pop" : "lore-filter-sheet");
+    await expect(layer).toBeVisible();
+    await expect(page.getByTestId("lore-filter-id")).toBeVisible();
+    const lb = (await layer.boundingBox())!;
+    expect.soft(lb.x, `[${width}px] filter layer left edge`).toBeGreaterThanOrEqual(0);
+    expect.soft(lb.x + lb.width, `[${width}px] filter layer right edge`).toBeLessThanOrEqual(width + 0.5);
+    if (width > 720) {
+      const fb = (await page.getByTestId("lore-filter-toggle").boundingBox())!;
+      expect.soft(lb.y, `[${width}px] panel hangs under the funnel`).toBeGreaterThanOrEqual(fb.y + fb.height);
+      expect.soft(Math.abs(lb.x + lb.width - (fb.x + fb.width)), `[${width}px] panel right edge on the funnel's`).toBeLessThanOrEqual(1);
+    }
     expect.soft(look.swatches, `[${width}px] legend swatches`).toEqual([look.everyoneBar, look.ownBar]);
     expect.soft(look.everyoneBar, `[${width}px] two bar colours`).not.toBe(look.ownBar);
     assertNoHScroll(width, await pageAndLoreOver(page));

@@ -8,11 +8,6 @@
 // panel here comes from `RepliesPage`, exactly as the owner meets it: delete the
 // `<FilterPanel>` from that page and this guard has nothing to measure.
 //
-// The second export mounts the shared shell in its INLINE shape (the one 傳承頁
-// wears) with four fields, to ask whether the row WRAPS them at a phone width.
-// 任務頁 and 請示頁 fold their fields behind a funnel; those are measured through
-// the first two exports.
-//
 // What is stand-in is only the DATA: CT builds with the mock api seam
 // (`src/api/index.ts`, USE_MOCK defaults on), so the cards behind the panel are
 // the mock's. That is the right trade — the question here is "does this panel
@@ -20,7 +15,7 @@
 // rather than in the fetch.
 //
 // ⚠️ THE ANCESTOR CHAIN IS LOAD-BEARING (a lesson inherited from the story this
-// replaces, and the reason it is repeated in both exports). A bare `width: 100%`
+// replaces, and the reason it is repeated in each story). A bare `width: 100%`
 // mount lets the container grow to its content, so NO width mutant can ever
 // overflow it and the whole guard goes green-by-construction. `.app > .app__main`
 // with chrome.css loaded is where the 1040px cap and the 22px gutters live.
@@ -30,13 +25,9 @@
 // so the guard can ask the same question under each built-in without the story
 // re-implementing theming.
 import { I18nProvider } from "../../src/i18n";
-import { zh } from "../../src/i18n/locales/zh";
 import { RepliesPage } from "../../src/components/RepliesPage";
 import App from "../../src/App";
 import { ReplyCardsProvider } from "../../src/hooks/useReplyCards";
-import { FilterPanel } from "../../src/components/FilterPanel";
-import { IdFilterInput } from "../../src/components/IdFilterInput";
-import { MultiSelectFilter } from "../../src/components/MultiSelectFilter";
 import { LS_THEME } from "../../src/lib/themePaint";
 import type { BuiltinThemeId } from "../../src/lib/themeBundleCore";
 import "../../src/components/chrome.css"; // .app / .app__main — the real width cap
@@ -44,7 +35,7 @@ import "../../src/components/chrome.css"; // .app / .app__main — the real widt
 // stylesheet of its own — it relies on its host (`TasksPage`) having imported
 // `tasks.css`. That is a live exception to frontend/.claude/rules/
 // css-layout-traps.md 「用了哪份 CSS 的 class,就要自己 import 那份 CSS」, and it
-// is why this line exists: without it the second export's dropdowns render with
+// is why this line exists: without it the 請示頁 story's dropdowns render with
 // UA styling and the wrapping guard would measure boxes the product never
 // paints — the exact green-by-construction failure this file was rewritten to
 // end. If that component ever imports its own CSS, delete this line rather than
@@ -91,63 +82,6 @@ export function AppPageStory({
       <ReplyCardsProvider>
         <App onLogout={() => {}} />
       </ReplyCardsProvider>
-    </I18nProvider>
-  );
-}
-
-/** The SHARED shell alone, inline, with four fields. Both components are the
- * shipped ones; only the option lists are dictated, so a wrapping guard does
- * not depend on any page's data. */
-export function FilterFieldsStory({ theme }: { theme: BuiltinThemeId }) {
-  window.localStorage.setItem(LS_THEME, theme);
-  document.documentElement.setAttribute("data-theme", theme);
-  const noop = () => undefined;
-  return (
-    <I18nProvider>
-      <div className="app" style={{ width: "100vw", maxWidth: "100vw" }}>
-        <main className="app__main">
-          <FilterPanel
-            testId="replies-filter"
-            clearLabel={zh.replies.clearFilters}
-          >
-            <IdFilterInput
-              value=""
-              onChange={noop}
-              onCommit={noop}
-              label="任務編號"
-              testId="filter-task-id"
-              widthCh={10}
-            />
-            <MultiSelectFilter
-              noun="負責人"
-              allLabel="所有負責人"
-              options={[
-                { value: "mira", label: "陳小明" },
-                { value: "kyle", label: "林大華" },
-              ]}
-              selected={new Set(["mira"])}
-              onChange={noop}
-              testId="filter-executor"
-            />
-            <MultiSelectFilter
-              noun="類型"
-              allLabel="所有類型"
-              options={[{ value: "feature", label: "功能開發" }]}
-              selected={new Set(["feature"])}
-              onChange={noop}
-              testId="filter-type"
-            />
-            <MultiSelectFilter
-              noun="狀態"
-              allLabel="所有狀態"
-              options={[{ value: "in_progress", label: "進行中" }]}
-              selected={new Set(["in_progress"])}
-              onChange={noop}
-              testId="filter-status"
-            />
-          </FilterPanel>
-        </main>
-      </div>
     </I18nProvider>
   );
 }

@@ -34,7 +34,7 @@ iOS Safari 在字小於 16px 的 input／textarea／select 聚焦時會放大整
 
 ⇒ 動這幾格的 padding／radius／border／字級時，兩份一起看；只改一份就會讓兩頁的篩選欄位在同一個畫面上長得不一樣，而測試與 lint 都不會叫。
 
-清除鈕只有一份：`filter-panel.css` 的 `.filter-panel__clear`，傳承頁長在欄位那一排的最後一格，任務頁與請示頁長在篩選面板的底部。
+清除鈕只有一份：`filter-panel.css` 的 `.filter-panel__clear`，長在篩選面板的底部。
 
 ## lazy fetch
 

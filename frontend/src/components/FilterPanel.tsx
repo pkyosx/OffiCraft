@@ -1,14 +1,9 @@
-// FilterPanel — the 篩選 shell of a list page. Two shapes:
+// FilterPanel — the 篩選 shell of a list page: a funnel button (with a count of
+// the conditions in force) beside the page's actions. The funnel opens the
+// fields in a dropdown panel anchored under it (the 顯示方式 panel's look), or a
+// bottom sheet on a phone. It always starts closed, on every visit.
 //
-//   · inline (no `collapse` prop) — the fields sit in a row above the list,
-//     always visible. 傳承頁 uses this shape.
-//   · collapsed (`collapse` given) — the row holds only a funnel button (with a
-//     count of the conditions in force) beside the page's actions. The funnel
-//     opens the fields in a dropdown panel anchored under it (the 顯示方式
-//     panel's look), or a bottom sheet on a phone. 任務頁 and 請示頁 use this
-//     shape. It always starts closed, on every visit.
-//
-// Two rules hold in both shapes:
+// Two rules hold:
 //   1. Every field takes effect the moment it changes — there is no Apply. The
 //      list behind an open panel is already the filtered one.
 //   2. The ID field commits on Enter or blur only (IdFilterInput): a committed
@@ -42,7 +37,7 @@ import "./filter-panel.css";
  * popover above the layer instead of being clipped by the scrolling box. */
 export const FilterLayerContext = createContext(false);
 
-/** One labelled field of the collapsed panel's grid. */
+/** One labelled field of the panel's grid. */
 export function FilterField({
   label,
   wide = false,
@@ -81,30 +76,10 @@ export function FilterPanel({
   /** Controls that are not filters (顯示方式), held at the row's right end,
    * outside what 清除篩選 clears. */
   actions?: ReactNode;
-  /** Opt into the funnel + panel shape. `activeCount` is the number of fields
-   * holding a condition, as the host counts them; it is the funnel's badge. */
-  collapse?: { title: string; activeCount: number };
+  /** `activeCount` is the number of fields holding a condition, as the host
+   * counts them; it is the funnel's badge. */
+  collapse: { title: string; activeCount: number };
 }) {
-  if (!collapse) {
-    return (
-      <div className="filter-panel" data-testid={testId}>
-        <div className="filter-panel__fields" data-testid={`${testId}-fields`}>
-          {children}
-          {onClear && (
-            <button
-              type="button"
-              className="filter-panel__clear"
-              data-testid={`${testId}-clear`}
-              onClick={onClear}
-            >
-              {clearLabel}
-            </button>
-          )}
-          {actions && <div className="filter-panel__actions">{actions}</div>}
-        </div>
-      </div>
-    );
-  }
   return (
     <CollapsedFilterPanel
       testId={testId}

@@ -7,8 +7,7 @@
 // its own markup once kept this guard green for a layout no page rendered.
 //
 // The shape measured: on 任務頁 and 請示頁 the row holds a funnel; the fields
-// open in a panel anchored under it (desktop) or a bottom sheet (≤720px). 傳承頁
-// keeps the fields inline in the row, which `FilterFieldsStory` stands in for.
+// open in a panel anchored under it (desktop) or a bottom sheet (≤720px).
 //
 // What is asserted is geometry and computed colour:
 //   (1) the panel / sheet and every field in it stay inside the viewport with
@@ -16,16 +15,14 @@
 //       opened inside floats above the layer instead of being clipped by it;
 //       the desktop panel hangs under the funnel, right edges aligned, with
 //       nothing dimming the page, and is dismissed like 顯示方式;
-//   (2) the inline row WRAPS several fields inside the column at 320px, CJK
-//       labels on one line;
-//   (3) the folded row is page content — the list starts below it;
-//   (4) the ID field is distinguishable from the box behind it under every
+//   (2) the folded row is page content — the list starts below it;
+//   (3) the ID field is distinguishable from the box behind it under every
 //       built-in theme (a border, a fill or both; deliberately not a ≥3:1
 //       threshold — that border ratio is inherited from `.tasks__filter`);
-//   (5) emptying the 編號 box is an escape from an applied filter, and 清除篩選
+//   (4) emptying the 編號 box is an escape from an applied filter, and 清除篩選
 //       shows only while something is filtered;
-//   (6) the shell adds no spacing of its own below the row;
-//   (7) on 請示頁 the three list labels hold one line inside the column at
+//   (5) the shell adds no spacing of its own below the row;
+//   (6) on 請示頁 the three list labels hold one line inside the column at
 //       320, 390 and 1440 in both languages, with the funnel and 顯示方式 on
 //       the same line beside them on a desktop and on one line below them on a
 //       phone, and no sort wording in the row.
@@ -35,7 +32,6 @@ import { BUILTIN_THEME_IDS, expectBuiltinApplied } from "./builtinThemes";
 import {
   AppPageStory,
   RepliesPageStory,
-  FilterFieldsStory,
 } from "./stories/RepliesFilterPanelStory";
 
 type Rgba = { r: number; g: number; b: number; a: number };
@@ -75,44 +71,6 @@ function sameColour(a: Rgba, b: Rgba): boolean {
     Math.abs(a.g - b.g) < 0.5 &&
     Math.abs(a.b - b.b) < 0.5
   );
-}
-
-/** Line boxes + vertical spill of an element's own TEXT, measured with a Range
- * per text node (one client rect per line box) against the element's border
- * box.
- *
- * ⚠️ A Range over the whole element would count a caret `<svg>` as a line box,
- * so this walks TEXT NODES only, and counts DISTINCT line tops rather than
- * rects — a label split across two text nodes on one line is still one line. */
-async function labelGeometry(el: Locator) {
-  return await el.evaluate((node) => {
-    const box = node.getBoundingClientRect();
-    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-    const rects: DOMRect[] = [];
-    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-      if (!n.textContent || !n.textContent.trim()) continue;
-      const range = document.createRange();
-      range.selectNodeContents(n);
-      rects.push(...Array.from(range.getClientRects()));
-    }
-    if (rects.length === 0) throw new Error("no text in this element");
-    const tops = new Set(rects.map((r) => Math.round(r.top)));
-    return {
-      lines: tops.size,
-      spillAbove: box.top - Math.min(...rects.map((r) => r.top)),
-      spillBelow: Math.max(...rects.map((r) => r.bottom)) - box.bottom,
-    };
-  });
-}
-
-/** Horizontal overflow of one element, and of the page. */
-async function overflow(locator: Locator) {
-  return await locator.evaluate((node) => ({
-    self: node.scrollWidth - node.clientWidth,
-    page:
-      document.documentElement.scrollWidth -
-      document.documentElement.clientWidth,
-  }));
 }
 
 const FULL_ID = "rc-428906235337"; // 15 chars, the real shape (api_replycards.go:283)
@@ -259,46 +217,6 @@ for (const width of [320, 1040]) {
     expect(m.page, "page horizontal overflow").toBeLessThanOrEqual(1);
   });
 }
-
-test("width 320: several 篩選 fields WRAP inside the inline row, and their CJK labels keep to one line", async ({
-  mount,
-  page,
-}) => {
-  await page.setViewportSize({ width: 320, height: 900 });
-  const cmp = await mount(<FilterFieldsStory theme="office" />);
-
-  const fields = cmp.getByTestId("replies-filter-fields");
-  await expect(fields).toBeVisible();
-
-  const o = await overflow(fields);
-  expect.soft(o.self, "篩選 fields horizontal overflow").toBeLessThanOrEqual(1);
-  expect.soft(o.page, "page horizontal overflow").toBeLessThanOrEqual(1);
-
-  const layout = await fields.evaluate((node) => {
-    const tops = Array.from(node.children).map((n) =>
-      Math.round(n.getBoundingClientRect().top)
-    );
-    return { rows: new Set(tops).size, count: tops.length };
-  });
-  expect.soft(layout.rows, "distinct rows the 篩選 fields occupy").toBeGreaterThan(1);
-  // Fewer rows than fields: they sit side by side and wrap only when out of
-  // room (owner rc-5d2e6d48a108), not one field per row.
-  expect
-    .soft(layout.rows, "rows vs fields — equal means every field took a row of its own")
-    .toBeLessThan(layout.count);
-
-  const fieldsBox = (await fields.boundingBox())!;
-  for (const testId of ["filter-executor", "filter-type", "filter-status"]) {
-    const trigger = cmp.getByTestId(testId);
-    const box = (await trigger.boundingBox())!;
-    expect.soft(box.x + box.width, `${testId} right edge vs the fields box`)
-      .toBeLessThanOrEqual(fieldsBox.x + fieldsBox.width + 1);
-    const geo = await labelGeometry(trigger);
-    expect.soft(geo.lines, `${testId} label line boxes`).toBe(1);
-    expect.soft(geo.spillAbove, `${testId} label spilling above its trigger`).toBeLessThanOrEqual(0.5);
-    expect.soft(geo.spillBelow, `${testId} label spilling below its trigger`).toBeLessThanOrEqual(0.5);
-  }
-});
 
 test("the folded 篩選 row is page content: the list starts below it", async ({
   mount,

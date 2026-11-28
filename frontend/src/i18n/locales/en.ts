@@ -20,6 +20,8 @@ export const en: Dict = {
     filterAppliedLead: "",
     filterAppliedTailOne: "filter applied",
     filterAppliedTailMany: "filters applied",
+    textShowAll: "Show all",
+    textShowLess: "Show less",
   },
   diff: {
     ariaLabel: "Line-by-line comparison",
@@ -141,6 +143,7 @@ export const en: Dict = {
     stagedReasonClose: ")",
     stagedSavedRereadFailed: "Saved, but the section could not be reloaded. Please refresh the page.",
     clearFilters: "Clear filters",
+    filterDialogTitle: "Filter lore",
     idSearchLabel: "ID or title",
     loreTypeInstructionConflict: "Instruction conflict",
     loreTypeInstructionSupplement: "Instruction supplement",
