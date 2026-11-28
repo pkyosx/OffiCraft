@@ -225,10 +225,10 @@ describe("AuthGate — the wall speaks the station's language", () => {
   });
 
   it("keeps this browser's language when the station never chose one", async () => {
-    localStorage.setItem("oc.language", "en");
+    localStorage.setItem("oc.language", "zh");
     stubProbe(true, false, "");
     const utils = renderGate();
-    expect(await utils.findByPlaceholderText(en.login.passwordPlaceholder)).toBeTruthy();
-    expect(localStorage.getItem("oc.language")).toBe("en");
+    expect(await utils.findByPlaceholderText(zh.login.passwordPlaceholder)).toBeTruthy();
+    expect(localStorage.getItem("oc.language")).toBe("zh");
   });
 });

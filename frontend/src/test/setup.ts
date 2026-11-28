@@ -26,8 +26,9 @@ afterEach(() => resetChatDrafts());
 
 // The shipped default language is English, but most suites assert Chinese text
 // and many clear or remove `oc.language` between cases, so a seeded storage key
-// would not hold. A suite about the default itself calls
-// `vi.unmock("../i18n/defaultLanguage")` (path relative to that suite).
+// would not hold. A suite about the default itself loads the real module with
+// `vi.doUnmock` plus `vi.resetModules()` (see importWithShippedDefaultLanguage
+// in i18n/index.test.tsx).
 vi.mock("../i18n/defaultLanguage", () => ({ DEFAULT_LANGUAGE: "zh" }));
 
 // T-8115: hooks/sharedServerSettings caches the /api/settings snapshot at module

@@ -237,20 +237,23 @@ describe("I18nProvider dual-layer theme/language", () => {
     expect(localStorage.getItem("oc.language")).toBe("zh");
   });
 
-  it("resetPreferences keeps the language in effect (logout lands on a login wall in the same language)", () => {
-    localStorage.setItem("oc.language", "en");
-    localStorage.setItem("oc.theme", "office-light");
-    render(
-      <I18nProvider>
-        <Probe />
-        <Capture />
-      </I18nProvider>
-    );
-    act(() => ctx.resetPreferences());
-    expect(screen.getByTestId("probe").dataset.lang).toBe("en");
-    expect(screen.getByTestId("probe").dataset.theme).toBe("office");
-    expect(localStorage.getItem("oc.language")).toBe("en");
-  });
+  it.each(["zh", "en"] as const)(
+    "resetPreferences keeps the language in effect (%s; logout lands on a login wall in the same language)",
+    (lang) => {
+      localStorage.setItem("oc.language", lang);
+      localStorage.setItem("oc.theme", "office-light");
+      render(
+        <I18nProvider>
+          <Probe />
+          <Capture />
+        </I18nProvider>
+      );
+      act(() => ctx.resetPreferences());
+      expect(screen.getByTestId("probe").dataset.lang).toBe(lang);
+      expect(screen.getByTestId("probe").dataset.theme).toBe("office");
+      expect(localStorage.getItem("oc.language")).toBe(lang);
+    }
+  );
 });
 
 describe("I18nProvider following another tab's settings", () => {
