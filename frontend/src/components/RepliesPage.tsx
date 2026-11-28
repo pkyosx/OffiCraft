@@ -1550,7 +1550,6 @@ export function RepliesPage({
     opts: {
       testId: string;
       className: string;
-      status: StatusKey;
       stamp: ReactNode;
       expirable?: boolean;
       actions?: ReactNode;
@@ -1597,19 +1596,7 @@ export function RepliesPage({
           * T-a20b: it is agent-authored free text like the body, so it goes
           * through Markdown; the light row carries it, so this costs no read. */}
         <ReplyCardLinkComments from={row.from} recipientFor={docCommentRecipientFor}>
-          <div className="reply-card__title-line">
-            {/* Only 近期已回覆 mixes two statuses; under the other labels the
-              * label itself already says what every card is. */}
-            {view === "answered" && (opts.status === "answered" || opts.status === "expired") && (
-              <span
-                className={`reply-tag reply-tag--${opts.status} reply-card__status`}
-                data-testid="reply-status-tag"
-              >
-                {opts.status === "expired" ? t.replies.statusExpired : t.replies.statusAnswered}
-              </span>
-            )}
-            <Markdown source={row.summary} className="reply-card__summary doc-md" />
-          </div>
+          <Markdown source={row.summary} className="reply-card__summary doc-md" />
           {open &&
             (card ? (
               <ReplyCardMentionProvider
@@ -1641,7 +1628,6 @@ export function RepliesPage({
     return renderCard(row, {
       testId: asSnoozed ? "snoozed-card" : "waiting-card",
       className: asSnoozed ? "reply-card reply-card--snoozed" : "reply-card",
-      status: asSnoozed ? "snoozed" : "waiting",
       // ONE stamp, at the head's right edge, AFTER 標為過期 (owner 2026-09-11).
       // 🔴 No absolute 開卡 stamp beside it — owner saw one on this very head and
       // answered「我不想知道絕對時間 相對時間已經夠了」. A snoozed card says when it
@@ -1732,7 +1718,6 @@ export function RepliesPage({
     const ts = handledTsOf(row);
     return renderCard(row, {
       testId: expired ? "expired-card" : "answered-card",
-      status: expired ? "expired" : "answered",
       className: `reply-card ${
         expired ? "reply-card--expired" : "reply-card--answered"
       }`,

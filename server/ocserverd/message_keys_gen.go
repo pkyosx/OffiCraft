@@ -1208,8 +1208,6 @@ var messageKeys = map[string]bool{
 	"replies.sortDue":                                  true,
 	"replies.sortLabel":                                true,
 	"replies.sortPriority":                             true,
-	"replies.statusAnswered":                           true,
-	"replies.statusExpired":                            true,
 	"replies.tabAnswered":                              true,
 	"replies.tabAnsweredHint":                          true,
 	"replies.tabSnoozed":                               true,

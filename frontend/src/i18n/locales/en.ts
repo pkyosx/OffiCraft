@@ -654,8 +654,6 @@ export const en: Dict = {
     tabAnswered: "Recently answered",
     tabAnsweredHint: "last 24h",
     // The tag on each card under Recently answered.
-    statusAnswered: "Answered",
-    statusExpired: "Expired",
     empty: "✓ No pending asks",
     emptyFiltered: "No asks match the current filter",
     emptySnoozed: "No reply cards set aside for later",

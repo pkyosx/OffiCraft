@@ -196,7 +196,7 @@ The member's dot shows "Online", but no reply or progress comes. Possible causes
 - **A reply card is waiting for you**: when a member hits something you need to decide, it opens a reply card and stops, continuing only after you reply; the Assistant can also reply for you. While other reply cards on the same task are still unanswered, the task stays at "Awaiting my reply". Reply cards are listed in the Ask tab.
 - **The task's status**:
   - **Waiting on external**: waiting for a permission, someone else's reply, or a certain time. It is not a problem with the member itself.
-  - **Ready to close**: every step is done, and the task is waiting for its owner to close it. If the owner does not finish up, the menu on the task card's "Ready to close" label has "Force close"; **force closing cannot be undone**.
+  - **Ready to close**: every step is done, and the task is waiting for its owner to close it. If the owner does not finish up, the menu on the task card's status icon (a flag for "Ready to close") has "Force close"; **force closing cannot be undone**.
   - **Frozen**: a task whose priority is Frozen stops moving forward.
 
   For what each task status means, see [Tracking task progress](tasks.md).

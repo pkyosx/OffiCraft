@@ -691,8 +691,6 @@ export const zh = {
     tabAnswered: "近期已回覆",
     tabAnsweredHint: "近 24 小時",
     // 近期已回覆清單裡每張卡的狀態標籤。
-    statusAnswered: "已回覆",
-    statusExpired: "已過期",
     // 全部處理完的空狀態
     empty: "✓ 目前沒有待處理的請示",
     // 篩掉之後什麼都不剩的空狀態。跟上面那句是兩件事:上面是「你回完了」,

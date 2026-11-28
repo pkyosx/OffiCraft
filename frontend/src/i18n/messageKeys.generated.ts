@@ -1207,8 +1207,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "replies.sortDue",
   "replies.sortLabel",
   "replies.sortPriority",
-  "replies.statusAnswered",
-  "replies.statusExpired",
   "replies.tabAnswered",
   "replies.tabAnsweredHint",
   "replies.tabSnoozed",

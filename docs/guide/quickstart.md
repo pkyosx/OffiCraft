@@ -110,7 +110,7 @@ After all steps are done, the task status changes to "**Ready to close**". The t
 2. You look over the results. If everything is fine, reply that the review is approved. If something needs changing, say so directly; Mira makes the changes and asks you to review again.
 3. After the review is approved, Mira closes the task, the status changes to "**Done**", and the task moves to the "Closed" section.
 
-A task is **not** closed automatically when time runs out. If the assigned member can no longer finish it, you can click the status tag on the task card (for example "Ready to close") and choose "**Force close**" from the menu. **Force close cannot be undone.**
+A task is **not** closed automatically when time runs out. If the assigned member can no longer finish it, you can click the status icon at the start of the task card's first line (for "Ready to close" it is a flag; hover over it to see the status name) and choose "**Force close**" from the menu. **Force close cannot be undone.**
 
 You have now gone through the whole process once:
 

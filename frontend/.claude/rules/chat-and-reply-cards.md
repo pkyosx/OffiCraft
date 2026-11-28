@@ -117,7 +117,7 @@ ChatReplyCard 的 doReanswer 保留單卡 refetch：終態 delta 可能被刻意
 ## 請示卡頁的排序、任務列與稍後再看
 
 - 請示頁一次列一份清單，由清單上方的單選標籤（`ReplyListTabs`，`role="tablist"`，`replies-tab-<view>`）決定：等待回覆（`waiting`，預設）／稍後再看（`snoozed`）／近期已回覆（`answered`＝已回覆＋已過期）。選中的標籤不存、不進 hash，每次進頁面都是等待回覆；左右鍵、Home、End 換標籤並移焦點（roving tabindex）。每個標籤印篩選後的張數（`replies-tab-count-<view>`）；近期已回覆的張數在 `handledLoaded` 之前不印。篩選 dialog 的四個欄位作用在選中的標籤上，「清除篩選」不動標籤。
-- 狀態標籤（`reply-status-tag`）只在近期已回覆下畫，分已回覆／已過期；其他兩個標籤下每張卡的狀態就是標籤本身，不重複標。已回覆／已過期只列 server 的 24 小時窗（標籤列旁 `replies-answered-window` 寫「近 24 小時」），**只在選了近期已回覆時才撈**；套用編號時不撈，那張卡由 `getReplyCard` 回答。
+- 卡片標題前沒有狀態標籤：近期已回覆下每張卡是已回覆或已過期，由卡頭右端的 `.reply-card__answered-at`（`已回覆／已過期 <時間>`）說明，另外兩個標籤下卡的狀態就是標籤本身。已回覆／已過期只列 server 的 24 小時窗（標籤列旁 `replies-answered-window` 寫「近 24 小時」），**只在選了近期已回覆時才撈**；套用編號時不撈，那張卡由 `getReplyCard` 回答。
 - 開著的卡自己換了清單時留在原處，直到切換標籤：別處回答或標為過期（`readCard` 讀到 status 變了 → `pinned`，帶當下的標籤），以及等待回覆／稍後再看之間被時間或別的視窗搬動（`heldOpen`：仍展開、上一輪畫在這份清單、不是這一頁自己按的延後／取消延後，`ownMoveIdsRef`）。`setView` 清掉兩者。
 - 等待回覆預設依開卡時間新到舊；「顯示方式」的排序依據（`lib/replyCardSort.ts`，localStorage `oc_replies_sort`）只排等待回覆，稍後再看依回來時間、近期已回覆依處理時間，都不受它影響。任務優先序的順序取 `lib/taskPriority.ts` 的 `priorityRank`（跟任務頁同一份），沒有任務的卡排在凍結後面。
 - 選了等待回覆時，目前的排序依據印在標籤旁（`replies-sort-active`），預設的開卡時間也照印；「顯示方式」面板選了就自己收起（`DisplayOptions` 共用，任務頁的分組依據同樣）。標籤列在電腦上跟註記、漏斗、顯示方式同一行；窄螢幕上標籤自己一行，註記與按鈕換到下一行（`.replies__head` 換行，標籤本身不換行；只有 320 寬的英文「Recently answered」會以「…」截斷，張數照留）。⚠️ 標籤不要加 `transition`：切換後的那一幀會讓 `reply-desk` 的名字欄截圖比對多出 1 階的像素差而紅。量在 `visual-guards/replies-filter-panel.ct.spec.tsx`（320／390／1440，中英）。

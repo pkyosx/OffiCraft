@@ -395,19 +395,6 @@
   white-space: nowrap;
 }
 
-.reply-card__title-line {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-.reply-card__title-line > .reply-card__summary {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.reply-card__status {
-  margin-top: 1px;
-  user-select: none;
-}
 .reply-card__summary {
   font-size: 14px;
   font-weight: 600;

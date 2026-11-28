@@ -743,7 +743,7 @@ describe("RepliesPage", () => {
     expect(workersSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("opens on 等待回覆 with each label's count, lists only that label's cards untagged, and fetches the handled lists only once 近期已回覆 is selected", async () => {
+  it("opens on 等待回覆 with each label's count, lists only that label's cards (handled ones stamped 已回覆／已過期 in the head), and fetches the handled lists only once 近期已回覆 is selected", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(mkCard({ id: "rc-wait", createdTs: now - 60 }));
     __injectMockReplyCard(mkCard({ id: "rc-later", createdTs: now - 30, snoozedUntilTs: now + 3600 }));
@@ -762,7 +762,10 @@ describe("RepliesPage", () => {
 
     const shown = () =>
       [...document.querySelectorAll<HTMLElement>("[data-reply-card-id][aria-expanded]")].map(
-        (el) => [el.dataset.replyCardId, el.querySelector('[data-testid="reply-status-tag"]')?.textContent ?? null]
+        (el) => [
+          el.dataset.replyCardId,
+          el.querySelector(".reply-card__answered-at")?.textContent?.split(" ")[0] ?? null,
+        ]
       );
     const tab = (v: string) => getByTestId(`replies-tab-${v}`);
     expect(tab("waiting").getAttribute("aria-selected")).toBe("true");
