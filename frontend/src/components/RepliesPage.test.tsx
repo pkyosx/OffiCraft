@@ -757,6 +757,7 @@ describe("RepliesPage", () => {
     );
     __injectMockReplyCard(mkCard({ id: "rc-gone", status: "expired", expiredTs: now - 30 }));
     const listSpy = vi.spyOn(api, "listReplyCards");
+    vi.spyOn(api, "getReplyCardCount").mockResolvedValue({ waiting: 1, answered: 4, expired: 3 });
     const { findAllByTestId, getByTestId, queryByTestId } = renderPage();
     await findAllByTestId("waiting-card");
 
@@ -768,10 +769,13 @@ describe("RepliesPage", () => {
         ]
       );
     const tab = (v: string) => getByTestId(`replies-tab-${v}`);
+    const label = (v: string) => tab(v).querySelector<HTMLElement>(".replies__tab-label")!.title;
+    const count = (v: string) => getByTestId(`replies-tab-count-${v}`).textContent;
     expect(tab("waiting").getAttribute("aria-selected")).toBe("true");
-    expect(tab("waiting").textContent).toBe("等待回覆1");
-    expect(tab("snoozed").textContent).toBe("稍後再看1");
-    expect(tab("answered").textContent, "no count before the list is loaded").toBe("近期已回覆");
+    expect([label("waiting"), label("snoozed"), label("answered")]).toEqual(["等待回覆", "稍後再看", "近期已回覆"]);
+    expect(count("waiting")).toBe("1");
+    expect(count("snoozed")).toBe("1");
+    expect(count("answered"), "the count read's answered + expired, before the list is loaded").toBe("7");
     expect(shown()).toEqual([["rc-wait", null]]);
     expect(queryByTestId("replies-answered-window")).toBeNull();
     expect(listSpy.mock.calls.map(([status]) => status)).not.toContain("answered");
@@ -790,8 +794,46 @@ describe("RepliesPage", () => {
         ["rc-done", "已回覆"],
       ])
     );
-    expect(tab("answered").textContent).toBe("近期已回覆2");
+    expect(count("answered"), "the loaded list's length from then on").toBe("2");
     expect(getByTestId("replies-answered-window").textContent).toBe("近 24 小時");
+  });
+
+  it("a count not known yet holds a placeholder in its badge's place: every count while the first read is out, and 近期已回覆's under a filter until its list is loaded", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-wait", task: { id: "T-1", typeKey: "", title: "t", priority: "high" } }));
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-done",
+        status: "answered",
+        answeredTs: Date.now() / 1000 - 60,
+        answer: { optionIdxs: [0], text: "", attachments: [] },
+      })
+    );
+    let releaseCount!: () => void;
+    const realCount = api.getReplyCardCount.bind(api);
+    vi.spyOn(api, "getReplyCardCount").mockImplementationOnce(
+      () => new Promise((resolve) => (releaseCount = () => resolve(realCount())))
+    );
+    const { findAllByTestId, getByTestId, queryByTestId } = renderPage();
+    for (const v of ["waiting", "snoozed", "answered"]) {
+      await waitFor(() => expect(getByTestId(`replies-tab-pending-${v}`)).toBeTruthy());
+      expect(queryByTestId(`replies-tab-count-${v}`)).toBeNull();
+    }
+
+    await act(async () => releaseCount());
+    await findAllByTestId("waiting-card");
+    for (const [v, n] of [["waiting", "1"], ["snoozed", "0"], ["answered", "1"]]) {
+      expect(getByTestId(`replies-tab-count-${v}`).textContent).toBe(n);
+      expect(queryByTestId(`replies-tab-pending-${v}`)).toBeNull();
+    }
+
+    toggleFilter("filter-priority", "high");
+    expect(getByTestId("replies-tab-count-waiting").textContent).toBe("1");
+    expect(getByTestId("replies-tab-pending-answered")).toBeTruthy();
+    expect(queryByTestId("replies-tab-count-answered")).toBeNull();
+
+    await selectRepliesTab("answered");
+    await waitFor(() => expect(getByTestId("replies-tab-count-answered").textContent).toBe("0"));
+    expect(queryByTestId("replies-tab-pending-answered")).toBeNull();
   });
 
   it("the labels are one tab stop; arrow keys, Home and End move the selection and the focus", async () => {

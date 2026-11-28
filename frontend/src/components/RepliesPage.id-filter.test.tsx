@@ -872,7 +872,7 @@ describe("請示卡 任務優先序／任務到期 篩選", () => {
       ["waiting", "snoozed", "answered"].map(
         (v) => getByTestId(`replies-tab-${v}`).querySelector(".replies__tab-count")?.textContent ?? null
       );
-    expect(counts()).toEqual(["5", "2", null]);
+    expect(counts()).toEqual(["5", "2", "3"]);
 
     tick("filter-priority", "high");
     await waitFor(() => expect(shownIds()).toEqual(["rc-high-over"]));

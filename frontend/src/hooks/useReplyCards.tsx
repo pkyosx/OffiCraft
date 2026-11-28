@@ -138,6 +138,10 @@ interface UseReplyCards {
   handled: ReplyCardRow[];
   /** True once the handled lists have actually been fetched. */
   handledLoaded: boolean;
+  /** answered + expired within the same 24h window, from the count endpoint
+   * the waiting fetch already reads — known before `handled` is loaded. Null
+   * until the first count arrives. Unfiltered. */
+  handledCount: number | null;
   loading: boolean;
   /** True when the mount fetch REJECTED (500/network; 401 already bounced to
    * login) — so a failed load never masquerades as the ✓ empty state. */
@@ -190,6 +194,7 @@ function useReplyCardsState(): UseReplyCards {
   const [nextChangeTs, setNextChangeTs] = useState<number | null>(null);
   const [handled, setHandled] = useState<ReplyCardRow[]>([]);
   const [handledLoaded, setHandledLoaded] = useState(false);
+  const [handledCount, setHandledCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   // Live "is the handled pane loaded" flag for the SSE closure (which depends
@@ -281,6 +286,7 @@ function useReplyCardsState(): UseReplyCards {
       setWaiting(next);
       setClock(Date.now() / 1000);
       setNextChangeTs(counts.waitingNextChangeTs ?? null);
+      setHandledCount(counts.answered + counts.expired);
       waitingRef.current = next;
       setError(false);
     } catch (e) {
@@ -573,6 +579,7 @@ function useReplyCardsState(): UseReplyCards {
     handled,
     refresh,
     handledLoaded,
+    handledCount,
     loading,
     error,
     loadHandled,

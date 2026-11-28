@@ -53,7 +53,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useI18n } from "../i18n";
+import { useI18n, type Locale } from "../i18n";
 import { api } from "../api";
 import { secretCardMayStillChange } from "../lib/replyCardReceipt";
 import type {
@@ -218,7 +218,7 @@ export function RepliesPage({
   replyCardId?: string;
   openerId?: string;
 }) {
-  const { t, msg } = useI18n();
+  const { t, msg, locale } = useI18n();
   // Light roster (T-cf91): the page attributes each card to its asker by
   // name + role only, so it takes the identity-only projection AND does not
   // refetch it when anyone in the company sends a chat message.
@@ -237,6 +237,7 @@ export function RepliesPage({
     snooze,
     handled,
     handledLoaded,
+    handledCount,
     loading,
     error,
     loadHandled,
@@ -691,9 +692,14 @@ export function RepliesPage({
         ...(foundCard && foundView && passesAll(foundCard) ? { [foundView]: 1 } : {}),
       }
     : {
-        waiting: displayedWaiting.filter(passesAll).length,
-        snoozed: displayedSnoozed.filter(passesAll).length,
-        answered: handledLoaded ? visibleHandled.filter(passesAll).length : null,
+        waiting: loading ? null : displayedWaiting.filter(passesAll).length,
+        snoozed: loading ? null : displayedSnoozed.filter(passesAll).length,
+        // The count endpoint knows nothing of the filters.
+        answered: handledLoaded
+          ? visibleHandled.filter(passesAll).length
+          : narrowing
+            ? null
+            : handledCount,
       };
   // ── 開卡了哪一張 (owner 2026-09-07) ─────────────────────────────────────────
   // A row is a TITLE, not a card: since `?view=full` left the wire the panes
@@ -1041,6 +1047,11 @@ export function RepliesPage({
     waiting: t.replies.tabWaiting,
     snoozed: t.replies.tabSnoozed,
     answered: t.replies.tabAnswered,
+  };
+  const viewShortLabels: Record<ListView, string> = {
+    waiting: t.replies.tabWaitingShort,
+    snoozed: t.replies.tabSnoozedShort,
+    answered: t.replies.tabAnsweredShort,
   };
   // 開卡人 下拉的選項在 `whoOf` 之後才建得起來（它要用 `askerNames`），見下方。
 
@@ -1766,7 +1777,9 @@ export function RepliesPage({
             views={LIST_VIEWS}
             selected={view}
             labels={viewLabels}
-            counts={loading || error ? null : viewCounts}
+            shortLabels={viewShortLabels}
+            locale={locale}
+            counts={error ? null : viewCounts}
             ariaLabel={t.replies.tabsLabel}
             idPrefix={tabsId}
             onSelect={setView}
@@ -1965,6 +1978,8 @@ function ReplyListTabs({
   views,
   selected,
   labels,
+  shortLabels,
+  locale,
   counts,
   ariaLabel,
   idPrefix,
@@ -1973,7 +1988,9 @@ function ReplyListTabs({
   views: readonly ListView[];
   selected: ListView;
   labels: Record<ListView, string>;
-  /** Null while the lists load; a null entry is a list not fetched yet. */
+  shortLabels: Record<ListView, string>;
+  locale: Locale;
+  /** A null entry is a count not known yet. */
   counts: Record<ListView, number | null> | null;
   ariaLabel: string;
   idPrefix: string;
@@ -2003,6 +2020,7 @@ function ReplyListTabs({
       role="tablist"
       aria-label={ariaLabel}
       data-testid="replies-tabs"
+      data-locale={locale}
       onKeyDown={onKeyDown}
     >
       {views.map((v) => {
@@ -2026,12 +2044,28 @@ function ReplyListTabs({
             onClick={() => onSelect(v)}
           >
             <span className="replies__tab-label" title={labels[v]}>
-              {labels[v]}
+              {shortLabels[v] === labels[v] ? (
+                labels[v]
+              ) : (
+                <>
+                  <span className="replies__tab-label-full">{labels[v]}</span>
+                  <span className="replies__tab-label-short">{shortLabels[v]}</span>
+                </>
+              )}
             </span>
-            {count !== null && (
-              <span className="replies__tab-count" data-testid={`replies-tab-count-${v}`}>
-                {count}
+            {count !== null ? (
+              <span
+                className={`replies__tab-count${v === "waiting" && count > 0 ? " replies__tab-count--hot" : ""}${count === 0 ? " replies__tab-count--zero" : ""}`}
+                data-testid={`replies-tab-count-${v}`}
+              >
+                {count > 99 ? "99+" : count}
               </span>
+            ) : (
+              <span
+                className="replies__tab-pending"
+                data-testid={`replies-tab-pending-${v}`}
+                aria-hidden="true"
+              />
             )}
           </button>
         );

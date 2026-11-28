@@ -41,12 +41,72 @@ import "../../src/components/chrome.css"; // .app / .app__main — the real widt
 // end. If that component ever imports its own CSS, delete this line rather than
 // leaving two importers.
 import "../../src/components/tasks.css";
+import { api } from "../../src/api";
+import { __injectMockReplyCard } from "../../src/api/mock";
+import type { ReplyCard } from "../../src/api/adapter";
+
+let seeded = false;
+let held = false;
+function seedCards([waiting, snoozed, answered]: readonly [number, number, number]) {
+  if (seeded) return;
+  seeded = true;
+  const now = Date.now() / 1000;
+  const card = (i: number, over: Partial<ReplyCard>): ReplyCard => ({
+    id: `rc-tabs-${i}`,
+    from: "mira",
+    kind: "decision",
+    summary: `請示 ${i}`,
+    body: "",
+    options: [{ text: "好", aiPick: true }],
+    selectMode: "single",
+    status: "waiting",
+    attachments: [],
+    createdTs: now - 600 - i,
+    answeredTs: null,
+    chatMessageId: `msg-tabs-${i}`,
+    answer: null,
+    task: null,
+    ...over,
+  });
+  let i = 0;
+  for (let n = 0; n < waiting; n++) __injectMockReplyCard(card(i++, {}));
+  for (let n = 0; n < snoozed; n++) __injectMockReplyCard(card(i++, { snoozedUntilTs: now + 3600 }));
+  for (let n = 0; n < answered; n++) {
+    __injectMockReplyCard(
+      card(i++, {
+        status: "answered",
+        answeredTs: now - 300 - n,
+        answer: { optionIdxs: [0], text: "", attachments: [] },
+      })
+    );
+  }
+}
 
 /** The 請示 page itself, in the app's content column. The panel, its field and
- * every label the guard measures come from the shipped page. */
-export function RepliesPageStory({ theme }: { theme: BuiltinThemeId }) {
+ * every label the guard measures come from the shipped page. `cards` seeds
+ * that many waiting / snoozed / answered cards; `holdCounts` holds the
+ * count read until the page calls `window.__releaseReplyCounts()`, so no count
+ * is known before then. */
+export function RepliesPageStory({
+  theme,
+  cards,
+  holdCounts = false,
+}: {
+  theme: BuiltinThemeId;
+  cards?: readonly [number, number, number];
+  holdCounts?: boolean;
+}) {
   window.localStorage.setItem(LS_THEME, theme);
   document.documentElement.setAttribute("data-theme", theme);
+  if (cards) seedCards(cards);
+  if (holdCounts && !held) {
+    held = true;
+    const real = api.getReplyCardCount.bind(api);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    (window as unknown as { __releaseReplyCounts: () => void }).__releaseReplyCounts = release;
+    api.getReplyCardCount = () => gate.then(real);
+  }
   return (
     <I18nProvider>
       <div className="app" style={{ width: "100vw", maxWidth: "100vw" }}>

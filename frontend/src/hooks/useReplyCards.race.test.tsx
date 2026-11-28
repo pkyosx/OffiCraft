@@ -83,7 +83,7 @@ function deferred<T>() {
 let snoozeFromProbe: ((id: string, untilTs: number | null) => Promise<void>) | null = null;
 
 function Probe() {
-  const { waiting, snoozed, snooze } = useReplyCards();
+  const { waiting, snoozed, snooze, handledCount, handledLoaded } = useReplyCards();
   const badge = useReplyCardWaitingCount();
   snoozeFromProbe = snooze;
   return (
@@ -92,6 +92,8 @@ function Probe() {
       <span data-testid="snoozed-ids">{snoozed.map((c) => c.id).join(",")}</span>
       <span data-testid="list-len">{waiting.length}</span>
       <span data-testid="badge">{badge}</span>
+      <span data-testid="handled-count">{handledCount === null ? "?" : handledCount}</span>
+      <span data-testid="handled-loaded">{String(handledLoaded)}</span>
     </div>
   );
 }
@@ -191,6 +193,26 @@ describe("useReplyCards state race (T-e862)", () => {
       expect(screen.getByTestId("list-len").textContent).toBe("1")
     );
     expect(screen.getByTestId("badge").textContent).toBe("1");
+  });
+
+  it("handledCount is unknown until the count read lands, then its answered + expired — without fetching the handled lists — and follows a delta's re-read", async () => {
+    h.listReplyCards.mockResolvedValue([]);
+    const count = deferred<{ waiting: number; answered: number; expired: number }>();
+    h.getReplyCardCount.mockReturnValueOnce(count.promise);
+
+    renderProvider();
+    expect(screen.getByTestId("handled-count").textContent).toBe("?");
+
+    await act(async () => {
+      count.resolve({ waiting: 0, answered: 5, expired: 2 });
+    });
+    await waitFor(() => expect(screen.getByTestId("handled-count").textContent).toBe("7"));
+    expect(screen.getByTestId("handled-loaded").textContent).toBe("false");
+    expect(h.listReplyCards.mock.calls.map(([status]) => status)).toEqual(["waiting"]);
+
+    h.getReplyCardCount.mockResolvedValue({ waiting: 0, answered: 6, expired: 2 });
+    emit("reply_card");
+    await waitFor(() => expect(screen.getByTestId("handled-count").textContent).toBe("8"));
   });
 });
 

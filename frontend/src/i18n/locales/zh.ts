@@ -699,6 +699,9 @@ export const zh = {
     tabWaiting: "等待回覆",
     tabSnoozed: "稍後再看",
     tabAnswered: "近期已回覆",
+    tabWaitingShort: "待回覆",
+    tabSnoozedShort: "稍後",
+    tabAnsweredShort: "已回覆",
     tabAnsweredHint: "近 24 小時",
     // 全部處理完的空狀態
     empty: "✓ 目前沒有待處理的請示",
