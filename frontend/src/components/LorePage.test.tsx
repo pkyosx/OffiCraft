@@ -201,6 +201,10 @@ describe("LorePage — 變灰", () => {
       ),
     ).toEqual(["lore-state", "lore-entry-id", "lore-type", "lore-scope-name", "lore-dropped-tag"]);
     expect(mid.querySelector('[data-testid="lore-entry-id"]')!.textContent).toBe("#mid");
+    expect(
+      Array.from(mid.querySelector('[data-testid="lore-entry-id"] > svg')!.children).map((el) => el.getAttribute("d") ?? el.tagName),
+      "the copy icon leads the id",
+    ).toEqual(["rect", "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"]);
     expect(mid.querySelector(".lore-row__title")!.textContent).toBe("短");
     expect(mid.querySelector('[data-testid="lore-dropped-tag"]')!.textContent).toBe("讀不到");
     const foldedBody = mid.querySelector('[data-testid="lore-body"]')!;

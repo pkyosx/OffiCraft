@@ -234,19 +234,21 @@ describe("SharedDocsPage", () => {
     ]);
   });
 
-  it("the ID shows six characters after sd- and its one button copies the full id and shows a check", async () => {
+  it("the ID shows six characters after sd- behind the copy icon, and its one button copies the full id and shows a check and 已複製", async () => {
     const { container } = renderPage();
     const [, review] = await waitRows(container, 2);
     const badge = within(review!).getByTestId("shared-doc-id");
-    const iconPaths = () => Array.from(badge.querySelectorAll("svg path")).map((p) => p.getAttribute("d"));
-    expect(iconPaths()).toEqual(["m12 2 9 5-9 5-9-5 9-5Z", "m3 12 9 5 9-5", "m3 17 9 5 9-5"]);
-    fireEvent.click(badge);
-    await waitFor(() => expect(copyTextMock).toHaveBeenCalledWith("sd-3f9a2c71b0e4"));
-    await waitFor(() => expect(iconPaths()).toEqual(["M20 6 9 17l-5-5"]));
+    const icon = () =>
+      Array.from(badge.querySelector("svg")!.children).map((el) => el.getAttribute("d") ?? el.tagName);
+    expect(icon()).toEqual(["rect", "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"]);
     expect([badge.textContent, badge.getAttribute("aria-label")]).toEqual([
       "#sd-3f9a2c",
-      "複製檔案 ID sd-3f9a2c71b0e4",
+      "複製完整檔案 ID sd-3f9a2c71b0e4",
     ]);
+    fireEvent.click(badge);
+    await waitFor(() => expect(copyTextMock).toHaveBeenCalledWith("sd-3f9a2c71b0e4"));
+    await waitFor(() => expect(icon()).toEqual(["M20 6 9 17l-5-5"]));
+    expect(badge.textContent).toBe("#sd-3f9a2c已複製");
     expect(
       Array.from(review!.querySelectorAll<HTMLButtonElement>(".lore-row__badges button")).map((b) => b.dataset.testid),
     ).toEqual(["shared-doc-id"]);

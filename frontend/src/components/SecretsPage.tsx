@@ -2,20 +2,18 @@
 // to show; the value lives only in the create/edit input until the request is
 // sent, and the input is cleared whether the save succeeds or not.
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useI18n } from "../i18n";
 import { useSecrets } from "../hooks/useSecrets";
-import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
 import type { SecretView } from "../types";
 import { ClampedText } from "./ClampedText";
 import { ConfirmModal } from "./ConfirmModal";
 import {
-  CheckIcon,
-  KeyIcon,
   PencilIcon,
   TrashIcon,
 } from "./icons";
+import { CopyIdChip } from "./IdChips";
 import "./lore.css";
 import "./secrets.css";
 import { SecretValueInput } from "./SecretValueInput";
@@ -154,24 +152,6 @@ function SecretRow({
 }) {
   const { t, msg } = useI18n();
   const d = t.secrets;
-  // Same contract as the 傳承 entry id: 已複製 only when the clipboard write
-  // actually succeeded, and the timer dies with the row.
-  const [copied, setCopied] = useState(false);
-  const copiedTimer = useRef<number | null>(null);
-  useEffect(
-    () => () => {
-      if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current);
-    },
-    [],
-  );
-  async function copyId() {
-    const ok = await copyText(secret.id);
-    if (!ok) return;
-    setCopied(true);
-    if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current);
-    copiedTimer.current = window.setTimeout(() => setCopied(false), 1600);
-  }
-
   return (
     <article
       className="lore-row secrets__row"
@@ -180,26 +160,16 @@ function SecretRow({
     >
       <div className="lore-row__head">
         <div className="lore-row__badges">
-          <button
-            type="button"
+          <CopyIdChip
+            value={secret.id}
+            text={`#${secret.id}`}
+            label={msg.secretCopyId(secret.id)}
+            copiedLabel={d.idCopied}
             className="lore-row__id-badge"
-            data-testid="secret-id"
-            aria-label={msg.secretCopyId(secret.id)}
-            title={msg.secretCopyId(secret.id)}
-            onClick={copyId}
-          >
-            {copied ? <CheckIcon size={13} /> : <KeyIcon size={13} />}#
-            {secret.id}
-            {copied && (
-              <span
-                className="lore-row__id-badge-copied"
-                role="status"
-                data-testid="secret-id-copied"
-              >
-                {d.idCopied}
-              </span>
-            )}
-          </button>
+            copiedClassName="lore-row__id-badge-copied"
+            testId="secret-id"
+            copiedTestId="secret-id-copied"
+          />
         </div>
         <span className="lore-row__actions">
           <button

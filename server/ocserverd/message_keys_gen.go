@@ -1656,6 +1656,7 @@ var messageKeys = map[string]bool{
 	"sharedDocs.editUnavailable":                       true,
 	"sharedDocs.empty":                                 true,
 	"sharedDocs.fileLabel":                             true,
+	"sharedDocs.idCopied":                              true,
 	"sharedDocs.kindFile":                              true,
 	"sharedDocs.kindImage":                             true,
 	"sharedDocs.kindLink":                              true,

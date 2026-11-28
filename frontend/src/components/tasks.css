@@ -1404,6 +1404,9 @@ button.task-card__waiting--dep:focus-visible {
 
 .task-card__dep-no {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   white-space: nowrap;
 }
 .task-card__dep-title {

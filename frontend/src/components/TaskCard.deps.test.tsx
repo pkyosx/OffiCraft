@@ -232,6 +232,13 @@ describe("T-1d82 ① 非終態 dep: 編號 + 標題, 整列可點跳轉", () => 
     expect(dep.querySelector(".task-card__dep-no")?.textContent).toBe(
       "等 T-35e0"
     );
+    expect(
+      Array.from(dep.querySelector(".task-card__dep-no")!.childNodes).map((n) =>
+        n.nodeName === "svg" ? (n as Element).querySelector("polyline")?.getAttribute("points") : n.textContent,
+      ),
+      "the jump icon sits right before the number",
+    ).toEqual(["等", " ", "15 3 21 3 21 9", "T-35e0"]);
+    expect(dep.lastElementChild?.className).toBe("task-card__dep-title");
     expect(dep.querySelector(".task-card__dep-title")?.textContent).toBe(
       "先把 SSE 重連補起來"
     );

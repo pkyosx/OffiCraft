@@ -68,7 +68,6 @@ import {
 import { avatarKindForMember } from "../lib/avatarKind";
 import { isSyntheticSender } from "../lib/syntheticSender";
 import type { AvatarKind } from "../lib/themeBundle";
-import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
 import { autosizeTextarea } from "../lib/autosize";
 import { registerUnsavedWork } from "../lib/unsavedInput";
@@ -108,6 +107,7 @@ import {
   SendIcon,
   UsersIcon,
 } from "./icons";
+import { CopyIdChip } from "./IdChips";
 import "./lore.css";
 // The message box wears the 任務卡 box's classes: .chat__input / .chat__attach
 // and ComposerAttachmentPreview's .chat__preview-* from office.css, the row and
@@ -1970,28 +1970,6 @@ function LoreRow({
         : t.lore.actionPin;
   }
 
-  // 條目編號 chip — the 任務卡's 編號 chip, same behaviour (owner: 「傳承的 id
-  // 沒有顯示出來 像 task 那樣」, c-c933a2b41c54). Click copies the id, and the
-  // 已複製 flag is set ONLY when the clipboard write actually succeeded:
-  // copyText returns false on a denied clipboard and a chip that lied would be
-  // worse than one that did nothing. The timer is cleared on unmount so a row
-  // that scrolls away mid-feedback cannot setState on a dead component.
-  const [copied, setCopied] = useState(false);
-  const copiedTimer = useRef<number | null>(null);
-  useEffect(
-    () => () => {
-      if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current);
-    },
-    []
-  );
-  async function copyEntryId() {
-    const ok = await copyText(entry.id);
-    if (!ok) return;
-    setCopied(true);
-    if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current);
-    copiedTimer.current = window.setTimeout(() => setCopied(false), 1600);
-  }
-
   return (
     <article
       className={`lore-row lore-row--${entry.state}${
@@ -2081,35 +2059,16 @@ function LoreRow({
             )}
           </div>
 
-          <button
-            type="button"
+          <CopyIdChip
+            value={entry.id}
+            text={`#${entry.id}`}
+            label={msg.loreCopyEntryId(entry.id)}
+            copiedLabel={t.lore.entryIdCopied}
             className="lore-row__id-badge"
-            data-testid="lore-entry-id"
-            aria-label={msg.loreCopyEntryId(entry.id)}
-            title={msg.loreCopyEntryId(entry.id)}
-            onClick={copyEntryId}
-          >
-            {/* 🔴 THE SAME BADGE AS 任務卡's, DOWN TO THE `#` AND THE ICON. The two
-                are the same thing — 「這一筆的編號」, click to copy — and they were
-                drawn two different ways: the task carried a glyph and a `#`, the
-                entry carried neither. The owner spotted it by putting the two
-                screenshots side by side, which is how a difference like this gets
-                found: never by reading one page against its own spec.
-                The icon differs (a book, not a checklist) because it names WHICH
-                register the number belongs to — the same icon the 傳承 tab uses.
-                What is shared is the SHAPE; what identifies is the glyph. */}
-            {copied ? <CheckIcon size={13} /> : <BookIcon size={13} />}#
-            {entry.id}
-            {copied && (
-              <span
-                className="lore-row__id-badge-copied"
-                role="status"
-                data-testid="lore-entry-id-copied"
-              >
-                {t.lore.entryIdCopied}
-              </span>
-            )}
-          </button>
+            copiedClassName="lore-row__id-badge-copied"
+            testId="lore-entry-id"
+            copiedTestId="lore-entry-id-copied"
+          />
 
           <div className="lore-row__status" ref={typeRef}>
             <button

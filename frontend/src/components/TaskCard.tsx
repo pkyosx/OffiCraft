@@ -73,7 +73,6 @@ import { api } from "../api";
 import { isHttpStatus } from "../api/errors";
 import { formatDuration, formatDurationShort } from "../lib/duration";
 import { isCardToggleClick, isCardToggleKey } from "../lib/cardToggle";
-import { copyText } from "../lib/clipboard";
 import { resolveParallelStatus, resolveStepBadge } from "../lib/stepBadge";
 import { autosizeTextarea } from "../lib/autosize";
 import { navigateHash } from "../lib/hashRoute";
@@ -163,6 +162,7 @@ import {
   SwapIcon,
   TasksIcon,
 } from "./icons";
+import { CopyIdChip } from "./IdChips";
 import "./inline-edit.css";
 import "./replies.css";
 import "./card-composer.css";
@@ -543,29 +543,6 @@ export function TaskCard({
   useEffect(() => {
     if (located) setExpanded(true);
   }, [located]);
-
-  // 任務編號 chip 點擊複製(owner 2026-07-19 圈截圖):點 chip → 把顯示的任務
-  // 編號(task.taskNo)寫進剪貼簿,給一個短暫「已複製」回饋。T-5291 之後那個編號
-  // 「就是」內部 id ——「非內部 id」這句原本寫在這裡,已是相反的事實,刪掉;複製
-  // 出去的字串等於 task id 這件事由 TaskCard.copy-taskno.test.tsx 釘住。chip 本身
-  // 是個 <button>,所以 onCardToggleClick 的 closest("button,…") 濾網會自動放行
-  // (點它不會展開卡片),Enter/Space 由 button 原生觸發、也不會冒泡去 toggle 卡。
-  // 只有真的寫入成功才亮「已複製」—— copyText 失敗回 false,絕不假成功。
-  const [copied, setCopied] = useState(false);
-  const copiedTimer = useRef<number | null>(null);
-  useEffect(
-    () => () => {
-      if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current);
-    },
-    []
-  );
-  async function copyTaskNo() {
-    const ok = await copyText(task.taskNo);
-    if (!ok) return;
-    setCopied(true);
-    if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current);
-    copiedTimer.current = window.setTimeout(() => setCopied(false), 1600);
-  }
 
   // 等我回覆 status-badge jump (v3): clicking the badge expands the card and,
   // once the hydrated workflow has rendered the embedded reply card, scrolls
@@ -1758,26 +1735,17 @@ export function TaskCard({
               )}
             </div>
 
-            <button
-              type="button"
+            {/* 複製出去的字串等於 task id，由 TaskCard.copy-taskno.test.tsx 釘住。 */}
+            <CopyIdChip
+              value={task.taskNo}
+              text={`#${task.taskNo}`}
+              label={msg.taskCopyTaskNo(task.taskNo)}
+              copiedLabel={t.tasks.taskNoCopied}
               className="task-card__id-badge task-card__id-badge--copy"
-              data-testid="task-no"
-              aria-label={msg.taskCopyTaskNo(task.taskNo)}
-              title={msg.taskCopyTaskNo(task.taskNo)}
-              onClick={copyTaskNo}
-            >
-              {copied ? <CheckIcon size={13} /> : <TasksIcon size={13} />}#
-              {task.taskNo}
-              {copied && (
-                <span
-                  className="task-card__id-badge-copied"
-                  role="status"
-                  data-testid="task-no-copied"
-                >
-                  {t.tasks.taskNoCopied}
-                </span>
-              )}
-            </button>
+              copiedClassName="task-card__id-badge-copied"
+              testId="task-no"
+              copiedTestId="task-no-copied"
+            />
             {closed ? (
               <TaskPriorityBadge priority={task.priority} testId="task-priority" />
             ) : (
@@ -2531,7 +2499,8 @@ export function TaskCard({
                 </span>
                 {depClosed ? <CheckIcon size={13} /> : <ClockIcon size={13} />}
                 <span className="task-card__dep-no">
-                  {msg.taskBlockedBy(dep.taskNo)}
+                  {t.tasks.blockedByLabel} <ExternalLinkIcon size={11} />
+                  {dep.taskNo}
                 </span>
                 {/* Full text on hover: the row truncates at one line, and the
                     title attribute is the only affordance that survives both
@@ -2539,7 +2508,6 @@ export function TaskCard({
                 <span className="task-card__dep-title" title={dep.title}>
                   {dep.title}
                 </span>
-                <ExternalLinkIcon size={11} />
               </button>
             );
           })}
@@ -2595,10 +2563,10 @@ export function TaskCard({
               navigateHash({ page: "tasks", taskId: task.duplicateOf })
             }
           >
+            <ExternalLinkIcon size={11} />
             <span>
               {msg.taskDuplicateOf(deriveTaskNo(task.duplicateOf))}
             </span>
-            <ExternalLinkIcon size={11} />
           </button>
         </div>
       )}

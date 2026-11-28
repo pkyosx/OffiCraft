@@ -1,14 +1,13 @@
 // SharedDocsPage — 檔案庫: documents not tied to any task that every member
 // reads by `sd-` id. The list is one card per document, like 傳承; #shared-docs/<id> opens one document.
 
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 import { api, viewerIsOwner } from "../api";
 import { authedAttachmentUrl } from "../api/http";
 import { useActors } from "../hooks/useActorName";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { useSharedDoc, useSharedDocAction, useSharedDocs } from "../hooks/useSharedDocs";
-import { copyText } from "../lib/clipboard";
 import { useHashRoute } from "../lib/hashRoute";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import type { Member, SharedDocView } from "../types";
@@ -26,42 +25,24 @@ import { MarkdownPreviewOverlay, PreviewShell } from "./MarkdownPreviewOverlay";
 import { RuntimeActionMenu } from "./RuntimeActionMenu";
 import { SharedDocVersionsModal } from "./SharedDocVersionsModal";
 import {
-  CheckIcon,
   ClockIcon,
   DownloadIcon,
   ExternalLinkIcon,
   FileIcon,
   FileTextIcon,
   ImageIcon,
-  LayersIcon,
   LinkIcon,
   PencilIcon,
   TrashIcon,
   UploadIcon,
 } from "./icons";
+import { CopyIdChip } from "./IdChips";
 import "./confirm-modal.css";
 import "./inline-edit.css";
 import "./lore.css";
 import "./md-preview.css";
 import "./secrets.css";
 import "./shared-docs.css";
-
-function useFlash(): [string | null, (key: string) => void] {
-  const [flashed, setFlashed] = useState<string | null>(null);
-  const timer = useRef<number | null>(null);
-  useEffect(
-    () => () => {
-      if (timer.current != null) window.clearTimeout(timer.current);
-    },
-    [],
-  );
-  const flash = useCallback((key: string) => {
-    setFlashed(key);
-    if (timer.current != null) window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setFlashed(null), 1600);
-  }, []);
-  return [flashed, flash];
-}
 
 /** The name a new upload starts with: the filename without its extension. */
 export function defaultDocName(filename: string): string {
@@ -622,7 +603,6 @@ function SharedDocList({
   const [historyId, setHistoryId] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
-  const [flashed, flash] = useFlash();
   const fileInput = useRef<HTMLInputElement>(null);
   const pickTarget = useRef<PickTarget>({ mode: "create" });
   const isOwner = viewerIsOwner();
@@ -758,19 +738,16 @@ function SharedDocList({
             >
               <div className="lore-row__head">
                 <div className="lore-row__badges">
-                  <button
-                    type="button"
+                  <CopyIdChip
+                    value={doc.id}
+                    text={`#${shortDocId(doc.id)}`}
+                    label={msg.sharedDocCopyId(doc.id)}
+                    copiedLabel={d.idCopied}
                     className="lore-row__id-badge"
-                    data-testid="shared-doc-id"
-                    aria-label={msg.sharedDocCopyId(doc.id)}
-                    title={msg.sharedDocCopyId(doc.id)}
-                    onClick={async () => {
-                      if (await copyText(doc.id)) flash(`id:${doc.id}`);
-                    }}
-                  >
-                    {flashed === `id:${doc.id}` ? <CheckIcon size={13} /> : <LayersIcon size={13} />}#
-                    {shortDocId(doc.id)}
-                  </button>
+                    copiedClassName="lore-row__id-badge-copied"
+                    testId="shared-doc-id"
+                    copiedTestId="shared-doc-id-copied"
+                  />
                   <KindChip doc={doc} />
                 </div>
                 <RowActions

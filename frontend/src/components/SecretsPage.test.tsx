@@ -142,6 +142,10 @@ describe("SecretsPage", () => {
   it("clicking the id copies it and confirms only after the copy succeeded", async () => {
     const { container } = renderPage();
     const row = await firstRow(container);
+    expect(
+      Array.from(row.querySelector('[data-testid="secret-id"] > svg')!.children).map((el) => el.getAttribute("d") ?? el.tagName),
+      "the copy icon leads the id",
+    ).toEqual(["rect", "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"]);
     fireEvent.click(row.querySelector('[data-testid="secret-id"]')!);
     await waitFor(() => expect(copyTextMock).toHaveBeenCalledWith("sec-00000000000a"));
     expect(await screen.findByTestId("secret-id-copied")).toBeTruthy();

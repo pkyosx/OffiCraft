@@ -3009,6 +3009,9 @@ button.chat__msg-file {
   cursor: pointer;
   transition: background 0.15s;
 }
+.outsource-row__chip--task svg {
+  flex: none;
+}
 .outsource-row__chip--task:hover,
 .outsource-row__chip--task:focus-visible {
   background: color-mix(in srgb, var(--color-dot-waking) 12%, transparent);

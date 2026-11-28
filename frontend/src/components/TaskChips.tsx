@@ -5,12 +5,14 @@
 import { useI18n } from "../i18n";
 import { useDueState } from "../hooks/useDueState";
 import { dueRemaining, hasDueTime } from "../lib/dueDate";
+import { JumpToMessageIcon } from "./replyCardActionIcons";
 import "./tasks.css";
 import "./office.css";
 
-/** The task-number chip that jumps to the task: the outsource rail row's, the
- * worker chat header's and the reply card's task row. stopPropagation so the
- * jump never also toggles the row or card it sits in. */
+/** The task-number chip that jumps to the task, led by the jump icon every
+ * id that takes you somewhere wears: the outsource rail row's, the worker chat
+ * header's and the reply card's. stopPropagation so the jump never also
+ * toggles the row or card it sits in. */
 export function TaskIdChip({
   taskNo,
   label,
@@ -35,6 +37,7 @@ export function TaskIdChip({
       }}
       onKeyDown={(e) => e.stopPropagation()}
     >
+      <JumpToMessageIcon size={11} />
       {taskNo}
     </button>
   );

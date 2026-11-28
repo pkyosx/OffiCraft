@@ -1655,6 +1655,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "sharedDocs.editUnavailable",
   "sharedDocs.empty",
   "sharedDocs.fileLabel",
+  "sharedDocs.idCopied",
   "sharedDocs.kindFile",
   "sharedDocs.kindImage",
   "sharedDocs.kindLink",
