@@ -289,9 +289,8 @@ describe("RepliesPage", () => {
         card.querySelector('[data-testid="waited"]')?.className
       ).toBe("reply-card__waited");
     }
-    // Initiator identity resolves through the roster (mock Mira) + role label.
-    expect(cards[2].textContent).toContain("Mira");
-    expect(cards[2].textContent).toContain("特助");
+    // Initiator identity resolves through the roster (mock Mira), name only.
+    expect(cards[2].querySelector(".reply-card__opener")?.textContent).toBe("Mira");
     // 已等你 {t} computed from createdTs.
     expect(cards[2].querySelector('[data-testid="waited-pill"]')?.getAttribute("title")).toBe(
       "已等你 3 小時"
@@ -314,7 +313,7 @@ describe("RepliesPage", () => {
     }
   });
 
-  it("resolves an outsource asker to its 外包 代號, not the raw ow- id", async () => {
+  it("resolves an outsource asker to its bare 代號, not the raw ow- id", async () => {
     // Default GET /api/members now contains outsource rows; that must not turn
     // the card into a salaried-member identity.
     __injectMockMember({ id: "ow-rel", kind: "outsource", name: "R-2" });
@@ -330,7 +329,7 @@ describe("RepliesPage", () => {
     const names = cards.map(
       (c) => c.querySelector(".reply-card__name")?.textContent
     );
-    expect(names).toContain("外包 · R-2");
+    expect(names).toContain("R-2");
     expect(names).toContain("ow-9");
     expect(names).not.toContain("ow-rel");
   });
@@ -413,7 +412,7 @@ describe("RepliesPage", () => {
       const twoDaysAgo = Date.now() / 1000 - 2 * 24 * 3600;
       for (const [id, from, expected] of [
         ["rc-left-old", "m-left", "阿哲"],
-        ["rc-rel-old", "ow-rel", "外包 · R-2"],
+        ["rc-rel-old", "ow-rel", "R-2"],
       ] as const) {
         __resetMock();
         vi.mocked(Element.prototype.scrollIntoView).mockClear();
@@ -1071,7 +1070,7 @@ describe("RepliesPage", () => {
     expect(opener.tagName).toBe("BUTTON");
     expect([opener.getAttribute("aria-label"), opener.textContent]).toEqual([
       `${zh.office.viewProfile} Mira`,
-      "Mira特助",
+      "Mira",
     ]);
   });
 
@@ -1340,10 +1339,9 @@ describe("RepliesPage", () => {
 
     // What the collapsed card DOES show is the same card without its question
     // (owner:「折疊起來那一列的內容不要另外設計」): the first line with its
-    // actions and the ticking counter, the task box, who asked and their role.
+    // actions and the ticking counter, the task box, and who asked.
     const head = cards[0].querySelector(".reply-card__head")!;
-    expect(cards[0].querySelector(".reply-card__opener .reply-card__name")?.textContent).toBe("Mira");
-    expect(cards[0].querySelector(".reply-card__opener .reply-card__role")?.textContent).toBe("特助");
+    expect(cards[0].querySelector(".reply-card__opener")?.textContent).toBe("Mira");
     expect(within(head as HTMLElement).getByRole("button", { name: "跳到原訊息" })).toBeTruthy();
     expect(within(head as HTMLElement).getByRole("button", { name: "標為過期" })).toBeTruthy();
     expect(head.querySelector('[data-testid="waited"]')).toBeTruthy();

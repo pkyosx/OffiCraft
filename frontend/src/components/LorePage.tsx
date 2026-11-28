@@ -181,7 +181,10 @@ function writeDirCollapsed(collapsed: ReadonlySet<DirGroupKind>): void {
 /** How one author id resolves against the LIVE roster. `peerId === ""` means
  * "not reachable": the entry then has no message box. */
 interface AuthorIdentity {
+  /** The label lists and badges use (外包 · 代號). */
   text: string;
+  /** The 撰寫人 chip's bare name (owner): no 外包 prefix. */
+  name: string;
   peerId: string;
 }
 
@@ -752,9 +755,9 @@ function LoreView({
 
   const resolveAuthor = useCallback(
     (id: string): AuthorIdentity => {
-      if (id === "") return { text: t.lore.authorUnknown, peerId: "" };
+      if (id === "") return { text: t.lore.authorUnknown, name: t.lore.authorUnknown, peerId: "" };
       const m = members.find((x) => x.id === id);
-      if (m) return { text: m.name, peerId: id };
+      if (m) return { text: m.name, name: m.name, peerId: id };
       if (id.startsWith("ow-")) {
         // 🔴 The codename and the reachability come from different lists: a
         // released worker still wrote this entry and keeps his name, but only
@@ -764,11 +767,13 @@ function LoreView({
         const cn = live?.codename ?? unlistedNames.get(id);
         return {
           text: cn ? msg.outsourceLabel(cn) : id,
+          name: cn || id,
           peerId: live ? id : "",
         };
       }
       // Not on the roster: the entry stays, only the live affordance goes.
-      return { text: unlistedNames.get(id) ?? id, peerId: "" };
+      const name = unlistedNames.get(id) ?? id;
+      return { text: name, name, peerId: "" };
     },
     [members, workers, unlistedNames, msg, t.lore.authorUnknown]
   );
@@ -2519,7 +2524,7 @@ function LoreAuthorChip({
         <Avatar size={18} kind={avatar.kind} src={avatar.src} />
       ) : null}
       <span className="lore-row__author" data-testid="lore-author">
-        {author.text}
+        {author.name}
       </span>
     </span>
   );

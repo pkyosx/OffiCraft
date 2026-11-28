@@ -5,7 +5,7 @@
 // the shortest (5m) to the longest (12d 23h) shape, and a snoozed card whose
 // stamp is a full return date. `questions` adds the newest waiting card, whose
 // question has a body with a mention and a link and runs taller than a phone's
-// room above the selection bar, a waiting secret card, and an answered card. `longAskers` adds waiting cards from askers whose name, role or
+// room above the selection bar, a waiting secret card, and an answered card. `longAskers` adds waiting cards from askers whose name or
 // (an outsource worker's) current task — number, type and title — is longer
 // than a phone's head line, and one whose task row (number, priority, no due
 // date) has a title longer than the row.
@@ -55,13 +55,6 @@ function seed(questions: boolean, longAskers: boolean, waits: readonly number[])
   }
   if (longAskers) {
     __injectMockMember({ id: "gf-eva", kind: "staff", name: "GF Eva Rhapsody Inbox" });
-    __injectMockMember({
-      id: "long-role",
-      kind: "staff",
-      name: "Iris",
-      role_key: "custom",
-      role_name: "OffiCraft 入門介紹影片（繁中，4 章＋完整版）",
-    });
     __injectMockReplyCard(
       card({ id: "rc-desk-long-name", from: "gf-eva", createdTs: NOW - 40 * 60, task: null })
     );
@@ -100,9 +93,6 @@ function seed(questions: boolean, longAskers: boolean, waits: readonly number[])
       taskId: "t-long",
       taskTitle: "OffiCraft 入門介紹影片（繁中，4 章＋完整版）的旁白、字幕與封面，另含英文與日文版本的字幕翻譯、章節縮圖、配樂授權確認、各平台上架描述撰寫，以及上線後第一週的觀看數據整理與回報，並把觀眾留言中的常見問題整理成下一版的修改清單、附上每一章的平均觀看秒數與跳出點分析",
     });
-    __injectMockReplyCard(
-      card({ id: "rc-desk-long-role", from: "long-role", createdTs: NOW - 50 * 60, task: null })
-    );
     __injectMockReplyCard(
       card({ id: "rc-desk-long-task", from: "ow-long-task", createdTs: NOW - 55 * 60, task: null })
     );

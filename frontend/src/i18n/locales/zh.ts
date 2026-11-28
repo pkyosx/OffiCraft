@@ -363,14 +363,6 @@ export const zh = {
     // 前任列(T-ba04 轉派交接)：轉派後任務卡顯示「前任」給接手人交接對話
     previousAssigneeLabel: "前任",
     messagePreviousAssignee: "傳訊息給前任",
-    // 外包執行者顯示「代號 · 模型 · 投入度」的投入度字樣
-    effortOf: {
-      low: "低投入",
-      medium: "中投入",
-      high: "高投入",
-      xhigh: "極高投入",
-      max: "最高投入",
-    } as Record<string, string>,
     // 八態(SPEC 核心名詞;文案照 spec,不用 mockup 的「等我核可/等待外部事件」)
     status: {
       not_started: "尚未執行",
@@ -945,9 +937,8 @@ export const zh = {
       workerSub: (n: number) => `${n} 人`,
       capSuffix: (cap: string) => ` · 上限 ${cap}`,
       // 外包身分標籤「外包 · 代號」的單一來源是 compose.ts 的 outsourceLabel(直接組
-      // 上面的 title,不另存同字模板):聊天 header/寄件者標籤、任務卡 chip、
-      // 監控頁 session 全走它。唯一例外(owner 裁定):側欄外包分頁的列只顯示
-      // 代號——分頁本身已寫「外包」,英文的完整標籤在側欄會換行。
+      // 上面的 title,不另存同字模板):聊天 header/寄件者標籤、監控頁 session
+      // 全走它。例外(owner 裁定):側欄外包分頁的列與卡片上的人名 chip 只顯示代號。
       // 並行上限;0 ＝ 暫停指派（要註明）
       paused: "已暫停指派",
       // 上限 popover（照 seth-member-2 mockup，owner 2026-07-13）；

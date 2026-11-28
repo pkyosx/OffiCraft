@@ -48,7 +48,7 @@ export function ReplyCardWorkerTaskStory() {
             <span className="reply-card__meta-label">開卡人</span>
             <div className="reply-card__meta-value">
               <button type="button" className="reply-card__opener">
-                <span className="reply-card__name">外包 · O-30</span>
+                <span className="reply-card__name">O-30</span>
               </button>
               <span className="reply-card__worker-task">
                 <span className="reply-card__worker-task-head">

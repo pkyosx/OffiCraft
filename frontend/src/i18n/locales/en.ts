@@ -339,13 +339,6 @@ export const en: Dict = {
     messageCreator: "Message the creator",
     previousAssigneeLabel: "Handed over from",
     messagePreviousAssignee: "Message the predecessor",
-    effortOf: {
-      low: "low effort",
-      medium: "mid effort",
-      high: "high effort",
-      xhigh: "extra-high effort",
-      max: "max effort",
-    } as Record<string, string>,
     status: {
       not_started: "Not started",
       in_progress: "In progress",
@@ -890,9 +883,8 @@ export const en: Dict = {
       capSuffix: (cap: string) => ` · cap ${cap}`,
       // compose.ts's outsourceLabel composes THIS title into the one outsource
       // identity label 「Outsource · 代號」 (chat header / sender label,
-      // task-card chips, monitor session row). The one exception, an owner
-      // ruling: the sidebar 外包 tab's rows show the bare codename — the tab
-      // already says Outsource, and the full label wraps there in English.
+      // monitor session row). Owner rulings: the sidebar 外包 tab's rows and
+      // the person chips on cards show the bare codename.
       paused: "Assignment paused",
       capTitle: "Outsource cap",
       capMaxLabel: "Max hires",

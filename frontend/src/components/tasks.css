@@ -391,8 +391,8 @@ a.task-card__chip--link {
 
 /* 負責人 value cell (owner 2026-07-18): the assignee chip + the 轉派 icon
    button share ONE grid cell. inline-flex so the icon sits to the right of the
-   name; min-width:0 lets the chip shrink and ellipse (a long 外包
-   代號·模型·投入度 line) BEFORE the flex:none icon is ever squeezed. The chip
+   name; min-width:0 lets the chip shrink and ellipse a long name BEFORE the
+   flex:none icon is ever squeezed. The chip
    is left on its default flex (0 1 auto) — deliberately NO flex:1, which would
    force it to grow to fill the row and shove the icon off the edge at 390px. */
 .task-card__assignee-cell {

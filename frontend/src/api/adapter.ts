@@ -919,8 +919,8 @@ export interface TaskArtifactVersionView {
 }
 
 /** One LIVE outsource worker (anonymous, task-bound). The tasks page resolves
- * an outsource task's 「代號 · 模型 · 投入度」 through this list; a released
- * worker drops off (closed tasks honestly fall back to the bare 外包 label). */
+ * an outsource task's 代號 through this list; a released worker drops off
+ * (closed tasks fall back to the lazy per-id read, then the bare 外包 label). */
 export interface OutsourceWorkerView {
   id: string;
   /** Personal image URL bound to this stable worker id. */

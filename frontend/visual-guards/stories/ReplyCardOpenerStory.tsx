@@ -24,7 +24,7 @@ export function ReplyCardOpenerStory() {
       <div className="reply-card" style={{ width: 360 }}>
         <div className="reply-card__meta">
           <span className="reply-card__meta-label">開卡人</span>
-          <ReplyCardOpenerChip onClick={() => setOpenCount((n) => n + 1)} name="Mira" role="特助" />
+          <ReplyCardOpenerChip onClick={() => setOpenCount((n) => n + 1)} name="Mira" />
         </div>
       </div>
     </I18nProvider>

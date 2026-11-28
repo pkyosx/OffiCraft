@@ -218,12 +218,10 @@ describe("TaskCard 轉派 commit", () => {
     expect(within(card).getByTestId("task-lock").textContent).toContain(
       "轉派中"
     );
-    // 外包 代號 · 模型 · 投入度 — the minted worker, resolved through the live
-    // roster.
     await waitFor(() => {
       expect(
-        document.querySelector('[data-testid="task-card"]')?.textContent
-      ).toContain("外包 · O-1 · sonnet · 低投入");
+        document.querySelector('[data-testid="task-executor"]')?.textContent
+      ).toBe("O-1");
     });
   });
 

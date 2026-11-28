@@ -1104,25 +1104,23 @@ export function RepliesPage({
   // codename/avatar above, so the identity row speaks with one voice.
   const workerTasks = useWorkerCurrentTasks(workerIds);
 
-  // Resolve the initiating member for a card's identity row. A card can
-  // outlive its member (removed roster row) — fall back to the name the per-id
-  // read serves, then the raw id / no role, never fabricate.
-  function whoOfId(fromId: string): { name: string; role: string } {
+  // Resolve the initiating member for a card. A card can outlive its member
+  // (removed roster row) — fall back to the name the per-id read serves, then
+  // the raw id, never fabricate. `name` is the label lists use (外包 · 代號);
+  // the opener chip shows `chipName`, the bare name (owner).
+  function whoOfId(fromId: string): { name: string; chipName: string } {
     const m = members.find((x) => x.id === fromId);
     if (!m || m.kind === "outsource") {
       const name = askerNames.get(fromId);
-      if (name === undefined) return { name: fromId, role: "" };
+      if (name === undefined) return { name: fromId, chipName: fromId };
       return {
         name: fromId.startsWith("ow-") ? msg.outsourceLabel(name) : name,
-        role: "",
+        chipName: name,
       };
     }
-    const role =
-      (t.office.role as Record<string, string>)[m.role] ??
-      (m.roleName || m.role);
-    return { name: m.name, role };
+    return { name: m.name, chipName: m.name };
   }
-  function whoOf(card: ReplyCardRow): { name: string; role: string } {
+  function whoOf(card: ReplyCardRow): { name: string; chipName: string } {
     return whoOfId(card.from);
   }
   const docCommentRecipientFor = (id: string) =>
@@ -1144,7 +1142,7 @@ export function RepliesPage({
   // cut read `members.find(...)?.name ?? id` here, which is a DIFFERENT rule
   // from the one the card bodies follow: a RELEASED outsource asker is soft-
   // removed from `members`, so the dropdown fell through to the raw `ow-…` id
-  // while the card beside it said 「外包 · 代號」. The owner would have been asked
+  // while the card beside it named the worker by 代號. The owner would have been asked
   // to tick a name that appears nowhere else on the page. That is also why this
   // block sits below `askerNames` rather than beside `openerCounts` — it needs
   // the lazy codename read, and hoisting it back up is a TDZ error, not a
@@ -1517,8 +1515,7 @@ export function RepliesPage({
         <div className="reply-card__meta-value">
           <ReplyCardOpenerChip
             onClick={() => openProfile(row)}
-            name={who.name}
-            role={who.role}
+            name={who.chipName}
             src={
               (asker?.kind === "outsource" ? undefined : asker?.avatarUrl) ??
               workerAvatarUrls.get(row.from)

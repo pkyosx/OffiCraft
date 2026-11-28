@@ -81,12 +81,12 @@ async function drawsEllipsis(line: Locator): Promise<boolean> {
 
 const isCut = (l: Locator) => l.evaluate((el) => el.scrollWidth > el.clientWidth + 0.5 || el.scrollHeight > el.clientHeight + 1);
 
-/** Every line of the 開卡人 value — name, role, an outsource asker's task line
+/** Every line of the 開卡人 value — name, an outsource asker's task line
  * (chip and type) and task title — that is too long for it ends in 「…」, and
  * its whole text is on hover. Returns the texts that had to be cut. */
 async function expectOpenerCutWithEllipsis(meta: Locator, what: string, oneLine: boolean): Promise<string[]> {
   const cutTexts: string[] = [];
-  for (const line of await meta.locator(".reply-card__name, .reply-card__role, .outsource-row__task-line, .outsource-row__chip, .outsource-row__type, .current-task-title").all()) {
+  for (const line of await meta.locator(".reply-card__name, .outsource-row__task-line, .outsource-row__chip, .outsource-row__type, .current-task-title").all()) {
     const text = (await line.textContent()) ?? "";
     if (oneLine) expect(await textLines(line), `${what}: 「${text}」 on one line`).toBe(1);
     if (!(await isCut(line))) continue;
@@ -285,7 +285,7 @@ test("width 1440: 跳到原訊息, 稍後再看, 標為過期 and 複製整張�
   await page.setViewportSize({ width: 1440, height: 900 });
   const cmp = await mount(<ReplyDeskStory longAskers />);
   expect(await page.evaluate(() => matchMedia("(hover: none)").matches), "control: a mouse").toBe(false);
-  await expect(cmp.getByTestId("waiting-card")).toHaveCount(7);
+  await expect(cmp.getByTestId("waiting-card")).toHaveCount(6);
 
   for (const card of await cmp.getByTestId("waiting-card").all()) {
     await card.scrollIntoViewIfNeeded();
@@ -342,10 +342,10 @@ for (const { width, mode } of HEAD_SCENES) {
       const cmp = await mount(<ReplyDeskStory longAskers questions />);
       expect(await page.evaluate(() => matchMedia("(hover: none)").matches), `control: ${mode}`).toBe(mode === "touch");
       const waiting = cmp.getByTestId("waiting-card");
-      await expect(waiting).toHaveCount(9);
+      await expect(waiting).toHaveCount(8);
       const pills = cmp.getByTestId("waited-pill");
-      await expect(pills).toHaveText(["1m", "5m", "40m", "45m", "50m", "55m", "2h", "12d", "30d"]);
-      const full = ["已等你 1 分", "已等你 5 分", "已等你 40 分", "已等你 45 分", "已等你 50 分", "已等你 55 分", "已等你 2 小時 57 分", "已等你 12 天 23 小時 30 分", "已等你 30 天"];
+      await expect(pills).toHaveText(["1m", "5m", "40m", "45m", "55m", "2h", "12d", "30d"]);
+      const full = ["已等你 1 分", "已等你 5 分", "已等你 40 分", "已等你 45 分", "已等你 55 分", "已等你 2 小時 57 分", "已等你 12 天 23 小時 30 分", "已等你 30 天"];
       for (const [i, pill] of (await pills.all()).entries()) {
         await expect(pill).toHaveAttribute("title", full[i]);
         await expect(pill).toHaveAttribute("aria-label", full[i]);

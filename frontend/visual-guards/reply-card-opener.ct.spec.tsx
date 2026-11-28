@@ -1,4 +1,4 @@
-// GUARD (T-a706) — the 請示 card's 開卡人 chip (avatar, name, role) is a real
+// GUARD (T-a706) — the 請示 card's 開卡人 chip (avatar and name) is a real
 // click + keyboard target that opens the profile.
 //
 // Owner (2026-07-21 screenshot): the 請示 page card avatar was the one place

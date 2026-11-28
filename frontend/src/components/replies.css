@@ -292,15 +292,6 @@
   font-weight: 600;
   color: var(--color-text-strong);
 }
-.reply-card__role {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--color-text-muted);
-}
 /* The asking outsource worker's CURRENT TASK, a small block under the
  * 開卡人 chip: 目前任務 with the rail's task line, then the title. The two
  * lines inside are the office rail's own `.outsource-row__task-line` and

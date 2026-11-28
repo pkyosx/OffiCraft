@@ -285,7 +285,7 @@ export function TaskCard({
 }: {
   task: TaskView;
   members: Member[];
-  /** LIVE outsource workers — resolves the 外包 codename/model/effort. */
+  /** LIVE outsource workers — resolves the 外包 codename. */
   workers: OutsourceWorkerView[];
   /** True once `members` and `workers` have both loaded without error. Before
    * that, an executor missing from them may simply not have arrived yet, so the
@@ -379,13 +379,10 @@ export function TaskCard({
           (w) => w.id === task.executorId || w.taskId === task.id
         )
       : undefined;
-  // 外包 display: 「外包 代號 · 模型 · 投入度」 while the worker is LIVE; a
-  // released worker (closed task) keeps its REAL codename via the lazy per-id
-  // read (never fabricated — resolved from the server row), degrading to the
-  // bare 外包 label only while/if unresolvable. A member, listed or dismissed,
-  // is just the bare name (T-705e: the chip sits under the 負責人 label, so the
-  // old "· 成員" role tag is redundant and the spec chip shows the name alone —
-  // 外包 keeps its substantive 代號·模型·投入度 line).
+  // The chips show the bare name only (owner): a member's name, a worker's
+  // codename — no 外包 prefix, model or effort. A released worker keeps its
+  // REAL codename via the lazy per-id read (never fabricated), degrading to
+  // the bare 外包 label only while/if unresolvable.
   const releasedExecutorCodename = unlistedNames.get(task.executorId);
   // A departed staff member or a released worker: POST /api/tasks/{id}/message
   // refuses them, so the card offers no message box at all.
@@ -403,11 +400,9 @@ export function TaskCard({
           : t.tasks.outsource;
   const executorText = unassigned
     ? t.tasks.unassigned
-    : task.executorKind === "outsource" && worker
-      ? `${executorName} · ${worker.model || "—"} · ${
-          t.tasks.effortOf[worker.effort] ?? worker.effort
-        }`
-      : executorName;
+    : task.executorKind === "staff"
+      ? staffExecutorName
+      : worker?.codename || releasedExecutorCodename || t.tasks.outsource;
   const executorRecipient = unassigned
     ? null
     : docCommentRecipient(
@@ -451,7 +446,7 @@ export function TaskCard({
   const assigneePeerId = unassigned ? "" : task.executorId;
 
   // Creator row → the creator's chat. The creator is a verified token sub: a
-  // roster member (name, clickable), an outsource worker id ("ow-…" → 外包
+  // roster member (name, clickable), an outsource worker id ("ow-…" → its
   // 代號 when resolvable, else the raw id; chat reachable either way), a
   // dismissed member (name via the per-id read, clickable to the read-only
   // history), "" on a pre-column task ("—", not clickable), or any other value
@@ -466,10 +461,7 @@ export function TaskCard({
       const cn =
         workers.find((x) => x.id === task.creatorId)?.codename ??
         unlistedNames.get(task.creatorId);
-      return {
-        text: cn ? msg.outsourceLabel(cn) : task.creatorId,
-        peerId: task.creatorId,
-      };
+      return { text: cn || task.creatorId, peerId: task.creatorId };
     }
     const dismissedName = unlistedNames.get(task.creatorId);
     if (dismissedName) return { text: dismissedName, peerId: task.creatorId };
@@ -478,7 +470,7 @@ export function TaskCard({
 
   // 前任 row (T-ba04 轉派交接) → the predecessor's chat. Same resolution shape
   // as the creator row: a member (name, clickable), an outsource worker
-  // ("ow-…" → 外包 代號 when resolvable, else the raw id; chat reachable either
+  // ("ow-…" → its 代號 when resolvable, else the raw id; chat reachable either
   // way), and — since the id is chat-addressable regardless — always clickable.
   // reassignedFrom "" (never reassigned) → no row at all (null).
   const previousAssignee = ((): { text: string; peerId: string } | null => {
@@ -487,7 +479,7 @@ export function TaskCard({
     if (task.reassignedFromKind === "outsource" || id.startsWith("ow-")) {
       const cn =
         workers.find((x) => x.id === id)?.codename ?? unlistedNames.get(id);
-      return { text: cn ? msg.outsourceLabel(cn) : id, peerId: id };
+      return { text: cn || id, peerId: id };
     }
     const m = members.find((x) => x.id === id);
     return { text: m?.name ?? unlistedNames.get(id) ?? id, peerId: id };
@@ -1900,9 +1892,9 @@ export function TaskCard({
               (owner 2026-07-18): 轉派 is a hand-the-task-to-a-new-executor
               action, so it belongs beside WHO owns the task. The chip and the
               icon share the grid's value cell through .task-card__assignee-cell
-              (inline-flex): the chip stays shrinkable so a long 外包
-              代號·模型·投入度 line still ellipses, and the icon is flex:none, so
-              at 390px the name wraps/ellipses but the button never clips. The
+              (inline-flex): the chip stays shrinkable so a long name still
+              ellipses, and the icon is flex:none, so at 390px the name
+              wraps/ellipses but the button never clips. The
               button is a real interactive element (closest() in the card-toggle
               filter already excludes it), shown only while the task is
               non-terminal — the server 409s a reassign on a closed task. */}

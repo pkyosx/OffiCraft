@@ -156,7 +156,7 @@ describe("LorePage — 已離開的撰寫人只留名牌，沒有訊息框", () 
 
     const row = await waitFor(() => rowById(container, "L-9"));
     await waitFor(() =>
-      expect(row.querySelector('[data-testid="lore-author-row"]')?.textContent).toBe("外包 · O-9"),
+      expect(row.querySelector('[data-testid="lore-author-row"]')?.textContent).toBe("O-9"),
     );
     await waitFor(() => expect(row.querySelector('[data-testid="lore-message-box"]')).toBeNull());
   });
@@ -225,7 +225,7 @@ describe("LorePage — 已離開的撰寫人只留名牌，沒有訊息框", () 
         row.querySelector<HTMLTextAreaElement>('[data-testid="lore-msg-input"]')!.placeholder,
       ).toBe("傳訊息給 O-1…"),
     );
-    expect(row.querySelector('[data-testid="lore-author-row"]')?.textContent).toBe("外包 · O-1");
+    expect(row.querySelector('[data-testid="lore-author-row"]')?.textContent).toBe("O-1");
     expect(await messageRecipientOf(row)).toBe(LIVE);
   });
 });

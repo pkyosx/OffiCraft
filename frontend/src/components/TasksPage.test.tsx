@@ -671,7 +671,7 @@ describe("TasksPage", () => {
     });
   });
 
-  it("shows executor identity: member name, 外包 代號·模型·投入度, and 未指派", async () => {
+  it("shows executor identity: member name, 外包 bare 代號, and 未指派", async () => {
     __injectMockTask(mkTask({ title: "成員任務", executorId: "mira" }));
     const outsourced = mkTask({
       title: "外包任務",
@@ -703,7 +703,7 @@ describe("TasksPage", () => {
     expect(
       byTitle("外包任務").querySelector('[data-testid="task-executor"]')
         ?.textContent
-    ).toBe("外包 · O-7 · Opus 4.6 · 高投入");
+    ).toBe("O-7");
     expect(
       byTitle("未指派任務").querySelector('[data-testid="task-executor"]')
         ?.textContent

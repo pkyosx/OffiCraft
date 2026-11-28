@@ -312,7 +312,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     );
   });
 
-  it("外包 executor keeps its 外包 · 代號 · 模型 · 投入度 chip while the message box addresses the bare 代號", async () => {
+  it("外包 executor chip shows the bare 代號 — no 外包 prefix, model or effort — and so does the message box", async () => {
     const task = mkTask({
       title: "外包負責",
       executorKind: "outsource",
@@ -330,7 +330,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     const link = await findByTestId("task-assignee-link");
     expect(
       link.querySelector('[data-testid="task-executor"]')?.textContent
-    ).toBe("外包 · O-7 · Opus 4.6 · 高投入");
+    ).toBe("O-7");
     expect((await findByTestId("task-msg-input")).getAttribute("placeholder")).toBe(
       "傳訊息給 O-7…"
     );
@@ -359,7 +359,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
         '[data-testid="task-assignee-link"] [data-testid="task-executor"]'
       )?.textContent;
 
-    expect(executorOf("外包已釋出")).toBe("外包 · R-2");
+    expect(executorOf("外包已釋出")).toBe("R-2");
     expect(executorOf("正職已離開")).toBe("阿哲");
     expect(executorOf("查無負責人")).toBe("m-unknown");
     expect(
@@ -463,7 +463,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
           c.querySelector(".task-card__title")?.textContent?.includes(title)
         )!
         .querySelector('[data-testid="task-previous-assignee"]')?.textContent;
-    expect(previousOf("外包轉派後")).toBe("外包 · R-2");
+    expect(previousOf("外包轉派後")).toBe("R-2");
     expect(previousOf("正職轉派後")).toBe("阿哲");
   });
 
@@ -604,7 +604,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
       );
     });
 
-    it("a live outsource-worker creator shows 外包 代號 and is clickable", async () => {
+    it("a live outsource-worker creator shows its bare 代號 and is clickable", async () => {
       const task = mkTask({ title: "外包建立", creatorId: "ow-3" });
       __injectMockTask(task);
       __injectMockOutsourceWorker({
@@ -619,7 +619,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
       const link = await findByTestId("task-creator-link");
       expect(
         link.querySelector('[data-testid="task-creator"]')?.textContent
-      ).toBe("外包 · O-3");
+      ).toBe("O-3");
       fireEvent.click(link);
       expect(window.location.hash).toBe("#office/chat/ow-3/compose/" +
         encodeURIComponent(task.taskNo));
@@ -639,7 +639,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
           )!
           .querySelector('[data-testid="task-creator-link"]')!;
 
-      expect(creatorLinkOf("已釋出建立").textContent).toBe("外包 · R-2");
+      expect(creatorLinkOf("已釋出建立").textContent).toBe("R-2");
       expect(creatorLinkOf("已離開建立").textContent).toBe("阿哲");
       expect(
         creatorLinkOf("已離開建立").querySelector(".avatar__img")?.getAttribute("src")
