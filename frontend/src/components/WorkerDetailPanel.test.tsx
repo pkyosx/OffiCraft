@@ -2,7 +2,7 @@
 // panel: the SAME machine / Claude account / context% / est.$ / 最近操作 cards,
 // fed by the worker DTO's runtime fold, PLUS the worker-specific bits — the
 // anonymous codename, the ONE bound task on the identity card (the chat
-// header's task line and full title), the owner 改機器 operation, and the
+// header's task line and the two-line clamped title), the owner 改機器 operation, and the
 // worker-<id> tmux command.
 //
 // Rendered through OfficePage so the hash → resolve → panel chain is the REAL
@@ -822,7 +822,7 @@ describe("WorkerDetailPanel — worker-specific bits carry over", () => {
 // are asserted; pure styling (the refocus pulse tint) is NOT (jsdom does not
 // compute it) — an honest "測不到" gap, not a decorative assertion.
 describe("WorkerDetailPanel — identity card matches the worker chat header", () => {
-  it("the identity card shows codename, the clickable task chip with the SHORT task-type label, then the FULL task title on its own line (no title line at all when the title is empty), and a real (online) dot", async () => {
+  it("the identity card shows codename, the clickable task chip with the SHORT task-type label, then the task title clamped to two lines on its own line (no title line at all when the title is empty), and a real (online) dot", async () => {
     // The detail page's `worker` comes from the SAME useOutsourceWorkers() join
     // the roster reads (OfficePage.tsx) — taskTypeName/Key are derived there
     // from the task's typeKey + the registered manual, overwriting anything set
@@ -859,10 +859,11 @@ describe("WorkerDetailPanel — identity card matches the worker chat header", (
     expect((await findByTestId("worker-detail-task-ow-1")).textContent).toBe("T-e9f4");
     // The task line is the chat header's: chip then the short type label.
     expect(header.textContent).toBe("T-e9f4OffiCraft 開發");
-    // The third line is the chat header's full title, uncut.
+    // The third line is the title, clamped like the roster row, full text on hover.
     const title = await findByTestId("worker-detail-header-task-title");
-    expect(title.className).toBe("current-task-title");
+    expect(title.className).toBe("current-task-title current-task-title--clamp");
     expect(title.textContent).toBe("Planning for big change");
+    expect(title.getAttribute("title")).toBe("Planning for big change");
     expect(title.parentElement).toBe(header.parentElement);
     expect(title.previousElementSibling).toBe(header);
     // Real presence: online → the shared lifecycle dot's ONLINE class (the

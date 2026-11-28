@@ -1,7 +1,7 @@
 // CT story: mounts the REAL WorkerDetailPanel (not a hand-built AgentDetailPanel
 // slot stub) with a bound task whose title is long, so the paired guards
 // measure the ACTUAL identity card: codename, the task line (short task-type
-// label) and the full task title, as WorkerDetailPanel's own JSX renders them.
+// label) and the clamped task title, as WorkerDetailPanel's own JSX renders them.
 import { I18nProvider } from "../../src/i18n";
 import { WorkerDetailPanel } from "../../src/components/WorkerDetailPanel";
 import type { OutsourceWorkerView } from "../../src/api/adapter";
