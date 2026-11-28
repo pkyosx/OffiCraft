@@ -457,9 +457,9 @@ _USER_LANGUAGE_EN = (
 
 
 def _user_language_block(display_language: str) -> str:
-    # The shipped user_language default: "" (never set) and "zh" share the
-    # Traditional Chinese text. Every test that edits the document resets it.
-    return _USER_LANGUAGE_EN if display_language == "en" else _USER_LANGUAGE_ZH
+    # The shipped user_language default: "" (never set) and "en" share the
+    # English text. Every test that edits the document resets it.
+    return _USER_LANGUAGE_ZH if display_language == "zh" else _USER_LANGUAGE_EN
 
 
 def _expected_context(
@@ -668,8 +668,8 @@ def test_boot_fold_user_language_follows_display_language(
 ) -> None:
     """§2.2 block 2: the 使用者語言 block sits between 系統互動 and 使用者自訂.
     While user_language is unedited it switches with display_language at the
-    next assembly — "" (never set) and "zh" give the Chinese default, "en" the
-    English one; an edit is used under every language; the glossary is
+    next assembly — "" (never set) and "en" give the English default, "zh" the
+    Chinese one; an edit is used under every language; the glossary is
     read-only."""
     original = client.get("/api/settings", headers=_auth(owner_token)).json()[
         "display_language"
@@ -682,9 +682,9 @@ def test_boot_fold_user_language_follows_display_language(
     sys_block = _rendered(_seed("system_interaction.md")).strip()
     try:
         for lang, block in (
-            ("", _USER_LANGUAGE_ZH),
-            ("en", _USER_LANGUAGE_EN),
+            ("", _USER_LANGUAGE_EN),
             ("zh", _USER_LANGUAGE_ZH),
+            ("en", _USER_LANGUAGE_EN),
         ):
             r = client.patch(
                 "/api/settings",
@@ -703,6 +703,9 @@ def test_boot_fold_user_language_follows_display_language(
             )
             assert context.count("# User Language") == 1, context
             assert context == _expected_context(client, owner_token, role_key, marker)
+            assert (
+                client.get("/api/auth/status").json()["display_language"] == lang
+            ), f"display_language={lang!r}: the login wall's probe does not carry it"
         r = client.post(
             "/api/boot-docs/user_language/global",
             json={"body": "Reply in Klingon."},

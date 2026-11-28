@@ -24,7 +24,7 @@ paths:
 
 ## 首設與伺服器設定
 
-real mode 的 AuthGate：有 token 直接進 App；無 token 先打一次公開 auth/status，未設密碼進 FirstRunPage，已設密碼進 LoginPage。啟用碼可由 query 預填，set-password 成功後直接保存新 token，並以 history.replaceState 移除網址中的 code。網址帶 `?login=`（host 上 `ocserverd login-link` 印的一次性登入連結）時，掛載當下就移除它，並在 "checking" 兌換——已有 token 也照樣兌換（手機上殘留的舊 token 不可默默吞掉有效連結）：成功換上新 token 進 App；失敗時原本有 token 就保留它進 App、不顯示提示，沒有 token 才回登入牆並顯示失效提示（429 顯示節流訊息）。兌換一次頁面載入只送一次——碼是一次性的，StrictMode 重跑 effect 再送一次會把好連結變成拒絕。mock mode 不走這面牆。
+real mode 的 AuthGate：有 token 直接進 App；無 token 先打一次公開 auth/status，未設密碼進 FirstRunPage，已設密碼進 LoginPage。auth/status 帶站台的 `display_language`：zh／en 就採用並寫進語言快取（跟登入 reconcile 一樣，站台的值蓋過快取），""（沒選過）保留快取，沒有快取就是預設的英文。登出（`resetPreferences`）不動語言。啟用碼可由 query 預填，set-password 成功後直接保存新 token，並以 history.replaceState 移除網址中的 code。網址帶 `?login=`（host 上 `ocserverd login-link` 印的一次性登入連結）時，掛載當下就移除它，並在 "checking" 兌換——已有 token 也照樣兌換（手機上殘留的舊 token 不可默默吞掉有效連結）：成功換上新 token 進 App；失敗時原本有 token 就保留它進 App、不顯示提示，沒有 token 才回登入牆並顯示失效提示（429 顯示節流訊息）。兌換一次頁面載入只送一次——碼是一次性的，StrictMode 重跑 effect 再送一次會把好連結變成拒絕。mock mode 不走這面牆。
 
 設定 › 主題沒有分頁，是上下兩張帶標題列的卡（`.doc-card__head` 的外框）：「外觀」（標題列右邊是恢復預設，先確認）與「主題庫」（右邊是匯入、新增；列表不畫縮圖，免得為了縮圖下載主題包）。外觀這張卡就是 `ThemeAppearancePanel`（選主題、時間表、背景動畫、應景主題開關、恢復預設），兩個宿主：設定頁直接展開它（owner：「直接展開好了，不用再另外跳」），沒存的列由 ThemeSettings 持有、進出匯入／編輯畫面仍在，離開頁面才丟；ProfileDropdown 的 preferences（「主題」標籤下）放一整列可點的 `ThemeEntryRow`（畫面上那套的縮圖、名稱、名稱下一行的小標——時間表那一格「依時段」、應景主題蓋過時「應景」——與箭頭），點了開「主題設定」對話框（`ThemeAppearanceDialog`，裡面就是這張卡，標題列只留恢復預設，不重複「外觀」）。preferences 另有語言與版面。主題庫的列不能點選套用（owner 2026-11-05）。對話框 portal 到 body；從 preferences 開時選單同時收起（不然它疊在對話框上），對話框由 ProfileDropdown 在收起狀態下繼續 render，關閉時焦點回到頭像按鈕。settings 經 getServerSettings/patchServerSettings 即時生效，載入失敗就不渲染設定區，不捏預設。settings 只帶「現在選哪一套主題」（display_theme）、是否顯示應景主題（display_seasonal_theme）與依時間切換的時間表（display_theme_schedule），主題本身不在其中——見「主題編輯與清單」。密碼 set/change 不走會把 401 轉成登出的 typed client，而走 credentialPost；成功後換上 server 新 token。
 
@@ -32,7 +32,7 @@ real mode 的 AuthGate：有 token 直接進 App；無 token 先打一次公開 
 
 ## i18n
 
-Locale 是 zh/en 封閉聯集；xian 是主題，不是語系。mobile 的 720 斷點由 useIsMobile.ts 與 CSS media query 各自使用，改動時要兩側同改。
+Locale 是 zh/en 封閉聯集；xian 是主題，不是語系。出貨的預設語言是英文（`i18n/defaultLanguage.ts`）；vitest（`src/test/setup.ts` 的 vi.mock）與 Playwright CT（`default-language-test-alias.ts`）都把它換成中文，因為大多數測試比對中文字。測預設本身的測試要拿回真的模組（`i18n/index.test.tsx` 的 `importWithShippedDefaultLanguage`）。mobile 的 720 斷點由 useIsMobile.ts 與 CSS media query 各自使用，改動時要兩側同改。
 
 可帶參數的文案要拆成可覆寫的靜態葉子，由 i18n/compose.ts 組裝；不可在 dictionary 直接放 interpolation function。句中參數用 lead/tail，只有空格差異用 sp；狀態映射也用靜態可覆寫葉子。compose 測試要釘住 zh/en 的逐字輸出。
 

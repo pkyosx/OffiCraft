@@ -482,11 +482,11 @@ func releaseAnnouncementTags(picks []releaseAnnouncement) []string {
 // the preferred language, the title line, and the closing reminder are filled
 // in by the station.
 func releaseAnnouncementBody(token string, picks []releaseAnnouncement, omitted int, listURL string, displayLanguage string) string {
-	language, title := "Traditional Chinese (Taiwan)", "OffiCraft 更新公告"
-	reminder := "若不想收到這類通知，可以到「設定 › 更新設定」關閉。"
-	if displayLanguage == "en" {
-		language, title = "English", "OffiCraft release announcement"
-		reminder = "If you don't want these notices, you can turn them off in Settings › Update settings."
+	language, title := "English", "OffiCraft release announcement"
+	reminder := "If you don't want these notices, you can turn them off in Settings › Update settings."
+	if displayLanguage == "zh" {
+		language, title = "Traditional Chinese (Taiwan)", "OffiCraft 更新公告"
+		reminder = "若不想收到這類通知，可以到「設定 › 更新設定」關閉。"
 	}
 	var b strings.Builder
 	b.WriteString("[OffiCraft system announcement]\n\n" +

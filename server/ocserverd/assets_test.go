@@ -433,18 +433,18 @@ func TestUserLanguageBlock(t *testing.T) {
 		}
 	}
 
-	t.Run("an unedited document assembles the Chinese default when the language is unset or zh, and the English default for en", func(t *testing.T) {
+	t.Run("an unedited document assembles the English default when the language is unset or en, and the Chinese default for zh", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
-		if got := block(t, api); got != apiTestUserLanguageBlockZh {
-			t.Fatalf("unset:\n%s\nwant:\n%s", got, apiTestUserLanguageBlockZh)
-		}
-		setLanguage(t, h, owner, "zh")
-		if got := block(t, api); got != apiTestUserLanguageBlockZh {
-			t.Fatalf("zh:\n%s\nwant:\n%s", got, apiTestUserLanguageBlockZh)
+		if got := block(t, api); got != apiTestUserLanguageBlockEn {
+			t.Fatalf("unset:\n%s\nwant:\n%s", got, apiTestUserLanguageBlockEn)
 		}
 		setLanguage(t, h, owner, "en")
 		if got := block(t, api); got != apiTestUserLanguageBlockEn {
 			t.Fatalf("en:\n%s\nwant:\n%s", got, apiTestUserLanguageBlockEn)
+		}
+		setLanguage(t, h, owner, "zh")
+		if got := block(t, api); got != apiTestUserLanguageBlockZh {
+			t.Fatalf("zh:\n%s\nwant:\n%s", got, apiTestUserLanguageBlockZh)
 		}
 	})
 
@@ -480,12 +480,12 @@ func TestUserLanguageBlock(t *testing.T) {
 		if status, data := apiJSON(t, h, "POST", "/api/boot-docs/user_language/global/reset", owner, ""); status != 200 {
 			t.Fatalf("reset: %d %v", status, data)
 		}
+		if got := block(t, api); got != apiTestUserLanguageBlockEn {
+			t.Fatalf("unset after reset:\n%s\nwant:\n%s", got, apiTestUserLanguageBlockEn)
+		}
+		setLanguage(t, h, owner, "zh")
 		if got := block(t, api); got != apiTestUserLanguageBlockZh {
 			t.Fatalf("zh after reset:\n%s\nwant:\n%s", got, apiTestUserLanguageBlockZh)
-		}
-		setLanguage(t, h, owner, "en")
-		if got := block(t, api); got != apiTestUserLanguageBlockEn {
-			t.Fatalf("en after reset:\n%s\nwant:\n%s", got, apiTestUserLanguageBlockEn)
 		}
 	})
 
@@ -511,7 +511,7 @@ func TestBuildBootContext(t *testing.T) {
 	wantContext := func(userText string) string {
 		parts := []string{
 			strings.TrimSpace(readSeed(systemInteractionSeedMD)),
-			apiTestUserLanguageBlockZh,
+			apiTestUserLanguageBlockEn,
 		}
 		if strings.TrimSpace(userText) != "" {
 			parts = append(parts, userAdditionsTitle+"\n\n"+strings.TrimSpace(userText))

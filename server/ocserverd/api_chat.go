@@ -470,9 +470,9 @@ func (s *apiServer) HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Req
 		map[string]any{"id": msg.ID, "from": msg.Sender, "to": msg.Recipient},
 		audienceMembers(msg.Sender, msg.Recipient), msg.Sender)
 	if msg.Recipient == wireOwnerID && msg.Sender != wireOwnerID {
-		title, pushBody := "OffiCraft 有新訊息", "你有一則新訊息。"
-		if s.displayLanguageSnapshot() == "en" {
-			title, pushBody = "OffiCraft: new message", "You have a new message."
+		title, pushBody := "OffiCraft: new message", "You have a new message."
+		if s.displayLanguageSnapshot() == "zh" {
+			title, pushBody = "OffiCraft 有新訊息", "你有一則新訊息。"
 		}
 		s.enqueueWebPush(webPushPayload{
 			Kind: "chat", ChatMessageID: msg.ID, ChatPeerID: msg.Sender, Title: title, Body: pushBody,

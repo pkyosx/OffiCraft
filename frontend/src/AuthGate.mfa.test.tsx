@@ -30,6 +30,7 @@ import { AuthGate } from "./AuthGate";
 import { api } from "./api";
 import { I18nProvider } from "./i18n";
 import { zh } from "./i18n/locales/zh";
+import { en } from "./i18n/locales/en";
 import { TOKEN_KEY } from "./api/auth";
 
 const L = zh.login;
@@ -51,10 +52,10 @@ function renderGate() {
 }
 
 /** Stub the public probe. */
-function stubProbe(passwordSet: boolean, mfaRequired: boolean) {
+function stubProbe(passwordSet: boolean, mfaRequired: boolean, displayLanguage = "") {
   return vi
     .spyOn(api, "getAuthStatus")
-    .mockResolvedValue({ passwordSet, mfaRequired, passkeyLoginAvailable: false });
+    .mockResolvedValue({ passwordSet, mfaRequired, passkeyLoginAvailable: false, displayLanguage });
 }
 
 beforeEach(() => {
@@ -113,7 +114,7 @@ describe("AuthGate — a wall that is out of date recovers itself", () => {
     expect(utils.queryByLabelText(L.codePlaceholder)).toBeNull();
 
     // Meanwhile, elsewhere, the factor is armed — and the login is refused.
-    probe.mockResolvedValue({ passwordSet: true, mfaRequired: true, passkeyLoginAvailable: false });
+    probe.mockResolvedValue({ passwordSet: true, mfaRequired: true, passkeyLoginAvailable: false, displayLanguage: "" });
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -146,7 +147,7 @@ describe("AuthGate — a wall that is out of date recovers itself", () => {
     const probe = vi
       .spyOn(api, "getAuthStatus")
       .mockRejectedValueOnce(new Error("network down"))
-      .mockResolvedValue({ passwordSet: true, mfaRequired: true, passkeyLoginAvailable: false });
+      .mockResolvedValue({ passwordSet: true, mfaRequired: true, passkeyLoginAvailable: false, displayLanguage: "" });
 
     const utils = renderGate();
     await utils.findByPlaceholderText(L.passwordPlaceholder);
@@ -203,5 +204,31 @@ describe("AuthGate — a wall that is out of date recovers itself", () => {
     await utils.findByText(throttledText(30));
     expect(utils.queryByText(L.codeNowRequired)).toBeNull();
     vi.unstubAllGlobals();
+  });
+});
+
+describe("AuthGate — the wall speaks the station's language", () => {
+  it("renders the login wall in the station's language over this browser's cache, and caches it", async () => {
+    localStorage.setItem("oc.language", "zh");
+    stubProbe(true, false, "en");
+    const utils = renderGate();
+    expect(await utils.findByPlaceholderText(en.login.passwordPlaceholder)).toBeTruthy();
+    expect(localStorage.getItem("oc.language")).toBe("en");
+  });
+
+  it("renders the first-run wall in the station's language", async () => {
+    localStorage.setItem("oc.language", "en");
+    stubProbe(false, false, "zh");
+    const utils = renderGate();
+    expect(await utils.findByText(zh.firstRun.title)).toBeTruthy();
+    expect(localStorage.getItem("oc.language")).toBe("zh");
+  });
+
+  it("keeps this browser's language when the station never chose one", async () => {
+    localStorage.setItem("oc.language", "en");
+    stubProbe(true, false, "");
+    const utils = renderGate();
+    expect(await utils.findByPlaceholderText(en.login.passwordPlaceholder)).toBeTruthy();
+    expect(localStorage.getItem("oc.language")).toBe("en");
   });
 });

@@ -786,8 +786,8 @@ let globalContextOverlay: WireGlobalContext | null = null;
 // key's OWN seed, never to the other's text.
 const BOOT_DOC_SEEDS: Record<string, string> = {
   "system_interaction/global": SEED_SYSTEM_INTERACTION_MD.trim(),
-  // The Chinese default; bootDocSeed swaps in the English one for "en".
-  "user_language/global": SEED_USER_LANGUAGE_ZH_MD.trim(),
+  // The English default; bootDocSeed swaps in the Chinese one for "zh".
+  "user_language/global": SEED_USER_LANGUAGE_EN_MD.trim(),
   "term_glossary/global": SEED_TERM_GLOSSARY_MD.trim(),
   "boot_sequence/claude": SEED_BOOT_SEQUENCE_MD.trim(),
   "boot_sequence/codex": SEED_BOOT_SEQUENCE_CODEX_MD.trim(),
@@ -864,9 +864,9 @@ const BOOT_DOC_TOPIC = "global_context";
 function bootDocSeed(kind: BootDocKind, key: string): string | null {
   if (
     `${kind}/${key}` === "user_language/global" &&
-    mockServerSettings.display_language === "en"
+    mockServerSettings.display_language === "zh"
   ) {
-    return SEED_USER_LANGUAGE_EN_MD.trim();
+    return SEED_USER_LANGUAGE_ZH_MD.trim();
   }
   return BOOT_DOC_SEEDS[`${kind}/${key}`] ?? null;
 }
@@ -2842,7 +2842,7 @@ const DEFAULT_MOCK_SETTINGS = {
   push_contact_email: "",
   // Cockpit display prefs — mirroring a fresh server: migration 00120 writes
   // the desk default (display theme, schedule, seasonal on); the language is
-  // "" (the frontend keeps its localStorage cache / default).
+  // "" (the frontend keeps its localStorage cache / default English).
   display_theme: DEFAULT_DISPLAY_THEME as string,
   display_language: "",
   // Layout width (T-756f) — OFF out of the box, mirroring the server (the
@@ -7338,6 +7338,7 @@ const mockApiImpl = {
       passwordSet: mockPasswordSet,
       mfaRequired: mockMfaActive,
       passkeyLoginAvailable: !isIpHost(window.location.hostname),
+      displayLanguage: mockServerSettings.display_language,
     };
   },
 

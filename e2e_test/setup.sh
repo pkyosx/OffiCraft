@@ -277,6 +277,17 @@ if [ "$SEASONAL" != "False" ]; then
 fi
 echo "[setup] display_seasonal_theme=false"
 
+# 5b. the station language to Chinese: the specs select on the Chinese wording,
+#     and a fresh station that never chose a language shows English.
+LANGUAGE=$(curl -sf -X PATCH "$OC_E2E_BASE/api/settings" -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' -d '{"display_language":"zh"}' \
+  | py -c 'import sys,json;print(json.load(sys.stdin).get("display_language"))' || true)
+if [ "$LANGUAGE" != "zh" ]; then
+  echo "[setup] FATAL: could not set display_language to zh (server reported '${LANGUAGE:-<no response>}')." >&2
+  exit 1
+fi
+echo "[setup] display_language=zh"
+
 # 6. persist state for the spec runner.
 cat > "$STATE_DIR/env" <<EOF
 OC_E2E_BASE=$OC_E2E_BASE

@@ -319,7 +319,7 @@ func TestReleaseAnnounceRound(t *testing.T) {
 			wantReminder    string
 			wantFrameSeq    int
 		}{
-			{"with the cockpit language never set, the announcement is titled and closed in Chinese and she is told the owner prefers 中文", nil, releaseAnnounceTestPreambleChinese, "OffiCraft 更新公告", "若不想收到這類通知，可以到「設定 › 更新設定」關閉。", 1},
+			{"with the cockpit language never set, the announcement is titled and closed in English and she is told the owner prefers English", nil, releaseAnnounceTestPreambleEnglish, "OffiCraft release announcement", "If you don't want these notices, you can turn them off in Settings › Update settings.", 1},
 			{"with the cockpit language set to zh, the announcement is titled and closed in Chinese and she is told the owner prefers 中文", releaseAnnounceStr("zh"), releaseAnnounceTestPreambleChinese, "OffiCraft 更新公告", "若不想收到這類通知，可以到「設定 › 更新設定」關閉。", 2},
 			{"with the cockpit language set to en, the announcement is titled and closed in English and she is told the owner prefers English", releaseAnnounceStr("en"), releaseAnnounceTestPreambleEnglish, "OffiCraft release announcement", "If you don't want these notices, you can turn them off in Settings › Update settings.", 2},
 		} {
@@ -469,16 +469,16 @@ func TestReleaseAnnounceRound(t *testing.T) {
 			t.Fatalf("want exactly one system message, got %d", len(msgs))
 		}
 		block := func(tag string) string { return "## " + tag + "\n\n" + releaseAnnounceSectionOf(tag) }
-		want := releaseAnnounceTestPreambleChinese +
+		want := releaseAnnounceTestPreambleEnglish +
 			"===== ANNOUNCEMENT START #TOKEN =====\n\n" +
-			"OffiCraft 更新公告\n\n" +
+			"OffiCraft release announcement\n\n" +
 			block("v0.5.595") + "\n\n---\n\n" +
 			block("v0.5.592") + "\n\n---\n\n" +
 			block("v0.5.589") + "\n\n---\n\n" +
 			block("v0.5.588") + "\n\n---\n\n" +
 			block("v0.5.587") + "\n\n---\n\n" +
 			"Announcements for 1 earlier version(s) are not listed here: https://github.com/pkyosx/OffiCraft/releases\n\n---\n\n" +
-			"若不想收到這類通知，可以到「設定 › 更新設定」關閉。\n\n" +
+			"If you don't want these notices, you can turn them off in Settings › Update settings.\n\n" +
 			"===== ANNOUNCEMENT END #TOKEN ====="
 		if got := releaseAnnounceNormalize(t, msgs[0].Body); got != want {
 			t.Fatalf("body:\n got %q\nwant %q", got, want)
@@ -521,15 +521,15 @@ func TestReleaseAnnounceRound(t *testing.T) {
 			t.Fatalf("want exactly one system message, got %d", len(msgs))
 		}
 		block := func(tag string) string { return "## " + tag + "\n\n" + releaseAnnounceSectionOf(tag) }
-		want := releaseAnnounceTestPreambleChinese +
+		want := releaseAnnounceTestPreambleEnglish +
 			"===== ANNOUNCEMENT START #TOKEN =====\n\n" +
-			"OffiCraft 更新公告\n\n" +
+			"OffiCraft release announcement\n\n" +
 			block("v0.5.595") + "\n\n---\n\n" +
 			block("v0.5.592") + "\n\n---\n\n" +
 			block("v0.5.589") + "\n\n---\n\n" +
 			block("v0.5.588") + "\n\n---\n\n" +
 			block("v0.5.587") + "\n\n---\n\n" +
-			"若不想收到這類通知，可以到「設定 › 更新設定」關閉。\n\n" +
+			"If you don't want these notices, you can turn them off in Settings › Update settings.\n\n" +
 			"===== ANNOUNCEMENT END #TOKEN ====="
 		if got := releaseAnnounceNormalize(t, msgs[0].Body); got != want {
 			t.Fatalf("body:\n got %q\nwant %q", got, want)

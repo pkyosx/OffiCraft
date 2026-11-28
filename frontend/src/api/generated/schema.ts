@@ -5424,6 +5424,12 @@ export interface components {
          */
         AuthStatusDTO: {
             /**
+             * Display Language
+             * @description The station's display language (the `display.language` setting the signed-in cockpit uses), so the login and first-run screens can render in it before anyone has a token: `zh` or `en`. "" means it has never been chosen, and the client keeps its cached choice or, without one, its default English. Optional for compatibility, like `mfa_required`.
+             * @default
+             */
+            display_language: string;
+            /**
              * Mfa Required
              * @description Whether an active TOTP secret is enrolled, i.e. whether `/api/login` demands a `code`. Optional for compatibility: a client that does not read it, or an older server that does not send it, behaves exactly as before.
              * @default false
@@ -5578,7 +5584,7 @@ export interface components {
             has_seed: boolean;
             /**
              * Is Default
-             * @description True while nobody has edited this block (or it has been reset), i.e. the text you are reading is the shipped seed. False means you are reading somebody's edit. ``user_language`` has two shipped seeds, Traditional Chinese and English: while it is default it reads the one ``display.language`` picks (``en`` → English, anything else → Chinese), and saving or restoring a text equal to either seed (ignoring leading and trailing whitespace) returns it to the default.
+             * @description True while nobody has edited this block (or it has been reset), i.e. the text you are reading is the shipped seed. False means you are reading somebody's edit. ``user_language`` has two shipped seeds, Traditional Chinese and English: while it is default it reads the one ``display.language`` picks (``zh`` → Chinese, anything else → English), and saving or restoring a text equal to either seed (ignoring leading and trailing whitespace) returns it to the default.
              * @default true
              */
             is_default: boolean;
@@ -7458,7 +7464,7 @@ export interface components {
         };
         /**
          * MemberBootContextDTO
-         * @description A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's lore block (``everyone`` entries and the member's own merged into one list — pinned first, then newest ``effective_ts`` first — under one ``lore_cap_chars_role`` budget), the User Language block (the ``user_language`` boot document — the owner's edit, or while unedited the shipped default for ``display.language``: English when it is ``en``, Traditional Chinese otherwise — followed by the read-only ``term_glossary`` document, the Chinese↔English feature-name table), and the Boot steps for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.
+         * @description A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's lore block (``everyone`` entries and the member's own merged into one list — pinned first, then newest ``effective_ts`` first — under one ``lore_cap_chars_role`` budget), the User Language block (the ``user_language`` boot document — the owner's edit, or while unedited the shipped default for ``display.language``: Traditional Chinese when it is ``zh``, English otherwise — followed by the read-only ``term_glossary`` document, the Chinese↔English feature-name table), and the Boot steps for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.
          */
         MemberBootContextDTO: {
             /** Context */
@@ -10321,7 +10327,7 @@ export interface components {
             developer_mode: boolean;
             /**
              * Display Language
-             * @description The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in: while the `user_language` boot document is unedited, the boot context's User Language block carries its English default when this is `en` and its Traditional Chinese default otherwise ("" included); an edited `user_language` is used whatever this is. It is followed by the read-only `term_glossary` document (the Chinese↔English feature-name table), and a change reaches each member at its next boot. "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
+             * @description The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in: while the `user_language` boot document is unedited, the boot context's User Language block carries its Traditional Chinese default when this is `zh` and its English default otherwise ("" included); an edited `user_language` is used whatever this is. It is followed by the read-only `term_glossary` document (the Chinese↔English feature-name table), and a change reaches each member at its next boot. "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
              * @default
              */
             display_language: string;

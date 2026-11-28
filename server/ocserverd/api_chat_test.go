@@ -1002,8 +1002,8 @@ func TestHandlePostChatApiChatPost(t *testing.T) {
 			"kind":         "chat",
 			"chat_id":      id,
 			"chat_peer_id": "mira",
-			"title":        "OffiCraft 有新訊息",
-			"body":         "你有一則新訊息。",
+			"title":        "OffiCraft: new message",
+			"body":         "You have a new message.",
 		})
 	})
 

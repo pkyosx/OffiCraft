@@ -1099,6 +1099,8 @@ export interface AuthStatusView {
   /** Whether this HOST can offer passkey sign-in (false on an IP address).
    * Says nothing about whether a passkey is registered. */
   passkeyLoginAvailable: boolean;
+  /** The station's display language: "zh", "en", or "" when never chosen. */
+  displayLanguage: string;
 }
 
 /** The one-time output of `POST /api/auth/mfa/enroll`.

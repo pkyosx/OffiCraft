@@ -75,7 +75,7 @@ var apiTestBootDocRows = []apiTestBootDocRow{
 		developerModeRequiredWhileOff: true,
 	}, {
 		kind: "user_language", keys: []string{"global"},
-		seeds: []string{"user_language_zh.md"}, docNames: []string{"User Language document"},
+		seeds: []string{"user_language_en.md"}, docNames: []string{"User Language document"},
 		capChars: 37500, vars: nil, split: false, join: "", readOnly: false,
 	}, {
 		kind: "term_glossary", keys: []string{"global"},
@@ -2215,7 +2215,7 @@ func TestHandleGetBootDocApiBootDocsKindKeyGet(t *testing.T) {
 				"developer_mode_required": false,
 			})
 		}
-		get("", apiTestUserLanguageZh+"\n")
+		get("", apiTestUserLanguageEn+"\n")
 		for _, lang := range []string{"zh", "en"} {
 			if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_language":"`+lang+`"}`); status != 200 {
 				t.Fatalf("PATCH %q: %d %v", lang, status, data)

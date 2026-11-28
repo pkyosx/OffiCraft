@@ -2320,7 +2320,11 @@ HAPPY: dict[str, Happy] = {
     # ── owner credential + settings (B3) ─────────────────────────────────────
     "GET /api/auth/status": Happy(
         identity="none",
-        check=lambda _c, r: _expect(r, lambda d: d["password_set"] is True),
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: d["password_set"] is True
+            and d["display_language"] in ("", "zh", "en"),
+        ),
     ),
     "GET /api/settings": Happy(
         check=lambda _c, r: _expect(
