@@ -12,7 +12,7 @@
 // inside the card with room to type, the section head's title, bar and legend stay
 // inside it, the 適用範圍 menu opens inside the viewport, the inline editor fits,
 // the unsaved-changes bar holds one line on the screen's bottom edge without
-// covering the last card, a staged card changes height only by its tags rewrapping, with its ↺ marks inside
+// covering the last card, a staged card never grows (only getting shorter when its tags fit on fewer lines), with its ↺ marks inside
 // it, and a staged state change leaves the scroll position and the card where
 // they were.
 //
@@ -1008,9 +1008,8 @@ async function stageOtherState(row: any) {
     .click();
 }
 
-/** Every card's box, keyed by id. */
-/** Each card's box, plus its head's height: a staged tag whose label is
- * shorter or longer may rewrap the tags, and that is the only height change a
+/** Each card's box, plus its head's height: a staged tag with a shorter label
+ * may let the tags fit on fewer lines, and that is the only height change a
  * staged card is allowed. */
 async function cardBoxes(page: any): Promise<Record<string, Box & { head: number }>> {
   return page.evaluate(() =>
@@ -1024,8 +1023,17 @@ async function cardBoxes(page: any): Promise<Record<string, Box & { head: number
   );
 }
 
+/** How much a card's head changed when staged, after asserting the change is
+ * allowed: none at 1440, elsewhere only shorter. */
+function shorterHead(width: number, id: string, before: number, after: number): number {
+  const change = after - before;
+  expect.soft(change, `[${width}px] ${id}'s head grew when staged`).toBeLessThanOrEqual(0.5);
+  if (width >= 1440) expect.soft(Math.abs(change), `[${width}px] ${id}'s head changed height when staged`).toBeLessThanOrEqual(0.5);
+  return Math.min(change, 0);
+}
+
 for (const width of [360, 390, 1440]) {
-  test(`a staged card is as tall as before but for its tags rewrapping, the cards below move only by that, and every ↺ sits inside its card @${width}px`, async ({ mount, page }) => {
+  test(`a staged card never grows — it may only get shorter when its tags fit on fewer lines (never at 1440px, where they share one line) — the cards below move only by that, and every ↺ sits inside its card @${width}px`, async ({ mount, page }) => {
     const cmp = await mountAt(mount, page, width, false, MIRA, 900);
     const row = cmp.locator('[data-testid="lore-row"]:has(button[data-testid="lore-scope-name"])').first();
     const id = await row.getAttribute("data-entry-id");
@@ -1042,7 +1050,7 @@ for (const width of [360, 390, 1440]) {
     let shift = 0;
     for (const [k, b] of Object.entries(before)) {
       if (!after[k]) continue;
-      const rewrap = after[k].head - b.head;
+      const rewrap = shorterHead(width, k, b.head, after[k].head);
       expect.soft(Math.abs(after[k].top - b.top - shift), `[${width}px] ${k} moved (staged: ${id})`).toBeLessThanOrEqual(0.5);
       expect.soft(Math.abs(after[k].bottom - after[k].top - (b.bottom - b.top) - rewrap), `[${width}px] ${k} height changed beyond its tags rewrapping (staged: ${id})`).toBeLessThanOrEqual(0.5);
       shift += rewrap;
@@ -1051,7 +1059,7 @@ for (const width of [360, 390, 1440]) {
     assertNoHScroll(width, await pageAndLoreOver(page));
   });
 
-  test(`a card under a long manual name keeps its height but for its tags rewrapping when its type and state are staged @${width}px`, async ({ mount, page }) => {
+  test(`a card under a long manual name never grows when its type and state are staged, only getting shorter if its tags fit on fewer lines @${width}px`, async ({ mount, page }) => {
     const cmp = await mountAt(mount, page, width, true, MANUAL, 900);
     const row = cmp.locator('[data-entry-id="L-4"]');
     const before = await cardBoxes(page);
@@ -1061,7 +1069,8 @@ for (const width of [360, 390, 1440]) {
     const after = await cardBoxes(page);
     for (const [k, b] of Object.entries(before)) {
       if (!after[k]) continue;
-      expect.soft(Math.abs(after[k].bottom - after[k].top - (b.bottom - b.top) - (after[k].head - b.head)), `[${width}px] ${k} height changed beyond its tags rewrapping`).toBeLessThanOrEqual(0.5);
+      const rewrap = shorterHead(width, k, b.head, after[k].head);
+      expect.soft(Math.abs(after[k].bottom - after[k].top - (b.bottom - b.top) - rewrap), `[${width}px] ${k} height changed beyond its tags rewrapping`).toBeLessThanOrEqual(0.5);
     }
     await assertMarksInside(page, width);
     assertNoHScroll(width, await pageAndLoreOver(page));
