@@ -29,7 +29,8 @@ import {
   DIFF_PARAM_BEFORE,
   DIFF_PARAM_LABEL_AFTER,
   DIFF_PARAM_LABEL_BEFORE,
-  DIFF_PARAM_SIG,
+  DIFF_PARAM_LEGACY_SIG,
+  DIFF_PARAM_LINK,
   parseDiffSideAddress,
 } from "./diffLink";
 import { diffQuery } from "../api/diff";
@@ -105,7 +106,8 @@ describe("the compare url's spelling", () => {
     ["diffParamAfter", DIFF_PARAM_AFTER],
     ["diffParamLabelBefor", DIFF_PARAM_LABEL_BEFORE],
     ["diffParamLabelAfter", DIFF_PARAM_LABEL_AFTER],
-    ["diffParamSig", DIFF_PARAM_SIG],
+    ["diffParamLink", DIFF_PARAM_LINK],
+    ["diffParamLegacySig", DIFF_PARAM_LEGACY_SIG],
   ])("is the server's own %s", (name, value) => {
     expect(source(), `${SERVER_SOURCE} must declare ${name} = "${value}"`).toContain(
       `${name} = "${value}"`,
@@ -121,7 +123,7 @@ describe("the compare url's spelling", () => {
         after: "att-ba9876543210",
         labelBefore: "a",
         labelAfter: "b",
-        sig: "s",
+        link: "l",
       }),
     );
     expect([...query.keys()].sort()).toEqual(
@@ -130,7 +132,7 @@ describe("the compare url's spelling", () => {
         DIFF_PARAM_AFTER,
         DIFF_PARAM_LABEL_BEFORE,
         DIFF_PARAM_LABEL_AFTER,
-        DIFF_PARAM_SIG,
+        DIFF_PARAM_LINK,
       ].sort(),
     );
   });

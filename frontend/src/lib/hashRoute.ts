@@ -37,6 +37,7 @@
  *   #shared-docs                                  → 檔案庫 list
  *   #shared-docs/<docId>                          → that shared document
  *   #secrets                                      → Secrets page
+ *   #share-links                                  → 分享 page (live share links)
  *   #monitor                                      → monitor page
  *   #monitor/member/<detailId>                    → monitor's member detail
  *   #settings                                     → settings overlay
@@ -72,6 +73,7 @@ export interface HashRoute {
     | "lore"
     | "shared_docs"
     | "secrets"
+    | "share_links"
     | "monitor"
     | "settings";
   /** replies only — the card to show (e.g. a Web Push tap, or a link an agent
@@ -277,6 +279,10 @@ export function parseHash(raw: string): HashRoute {
     return { page: "secrets" };
   }
 
+  if (head === "share-links") {
+    return { page: "share_links" };
+  }
+
   if (head === "monitor") {
     if (rest[0] === "member" && rest[1]) {
       return { page: "monitor", detailId: rest[1] };
@@ -361,6 +367,7 @@ export function formatHash(route: HashRoute): string {
       ? `#shared-docs/${encodeURIComponent(route.sharedDocId)}`
       : "#shared-docs";
   if (route.page === "secrets") return "#secrets";
+  if (route.page === "share_links") return "#share-links";
   if (route.page === "monitor") {
     return route.detailId
       ? `#monitor/member/${encodeURIComponent(route.detailId)}`

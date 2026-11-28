@@ -447,7 +447,7 @@ describe("validateNavIcons", () => {
   it("rejects a non-object, an unknown key, and an image that fails the gate", () => {
     expect(validateNavIcons([])).toMatch(/must be an object/);
     expect(validateNavIcons({ settings: okPng })).toMatch(
-      /nav icon key "settings" is not allowed \(only office, replies, tasks, secrets, shared_docs, lore, monitor, guide\)/
+      /nav icon key "settings" is not allowed \(only office, replies, tasks, secrets, share_links, shared_docs, lore, monitor, guide\)/
     );
     expect(
       validateNavIcons({ office: avatarURI("image/svg+xml", [0x3c]) })

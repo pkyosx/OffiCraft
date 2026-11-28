@@ -57,6 +57,9 @@ import type {
   MachineView,
   MemberActivateResult,
   MemberRelocateResult,
+  ShareLinkView,
+  ShareLinkCreated,
+  ShareLinkFilter,
 } from "../types";
 import type {
   Api,
@@ -143,6 +146,7 @@ import type {
   WireBackupHealth,
   WireSigningKeys,
   WireSecret,
+  WireShareLink,
   WirePasskey,
   WireSharedDoc,
   WireSharedDocVersion,
@@ -170,6 +174,9 @@ import {
   toSigningKeys,
   toSecret,
   toSecrets,
+  toShareLink,
+  toShareLinks,
+  toShareLinkCreated,
   toSharedDoc,
   toSharedDocDetail,
   toSharedDocVersion,
@@ -3376,6 +3383,33 @@ const MOCK_WIRE_SECRETS: WireSecret[] = [
 ];
 let mockSecrets: WireSecret[] = structuredClone(MOCK_WIRE_SECRETS);
 
+const SHARE_LINK_MAX_AHEAD_SECS = 365 * 86_400;
+let mockShareLinks: WireShareLink[] = [];
+
+function mintMockShareLink(
+  route: string,
+  expiresTs: number | null,
+  target: Omit<WireShareLink, "id" | "created_by" | "created_ts" | "expires_ts">,
+): WireShareLink {
+  const now = Date.now() / 1000;
+  if (expiresTs !== null && (expiresTs <= now || expiresTs > now + SHARE_LINK_MAX_AHEAD_SECS)) {
+    throw mockApiError(
+      `http 422 for ${route}`,
+      422,
+      "expires_ts must be later than now and at most 365 days (31536000 seconds) ahead, in epoch seconds; send null for a link that never expires",
+    );
+  }
+  const row: WireShareLink = {
+    ...target,
+    id: `sl-${mockHex12()}`,
+    created_by: "owner",
+    created_ts: now,
+    expires_ts: expiresTs,
+  };
+  mockShareLinks = [...mockShareLinks, row];
+  return row;
+}
+
 interface MockBlob {
   filename: string;
   mime: string;
@@ -4587,11 +4621,27 @@ const mockApiImpl = {
     );
   },
 
-  async getChatAttachmentShareLink(attachmentId: string): Promise<string> {
-    // Mock face: the same URL SHAPE as the BE (serve path + ?sig=) with a
-    // deterministic fake sig — never a verifiable credential (no secret in
-    // mock mode; the copy-share-link UI just needs a resolvable string).
-    return `/api/chat/attachment/${attachmentId}?sig=mock-share-sig`;
+  async getChatAttachmentPreviewLink(attachmentId: string): Promise<string> {
+    return `/api/chat/attachment/${attachmentId}?sig=mock-preview-sig&exp=${Math.floor(Date.now() / 1000) + 3600}`;
+  },
+
+  async createAttachmentShareLink(
+    attachmentId: string,
+    expiresTs: number | null,
+  ): Promise<ShareLinkCreated> {
+    const row = mintMockShareLink("POST /api/chat/attachments/{attachment_id}/share-link", expiresTs, {
+      kind: "attachment",
+      attachment_id: attachmentId,
+      attachment_filename: mockBlobs[attachmentId]?.filename ?? attachmentId,
+      before: null,
+      after: null,
+      label_before: null,
+      label_after: null,
+    });
+    return toShareLinkCreated({
+      url: `/api/chat/attachment/${attachmentId}?link=mock-${row.id}`,
+      share_link: row,
+    });
   },
 
   async postChat(msg: {
@@ -8843,19 +8893,55 @@ const mockApiImpl = {
     };
   },
 
-  async getDiffShareLink(params: DiffParams): Promise<string> {
-    // Mock face: the same URL SHAPE as the BE (the /diff page path + ?sig=)
-    // with a deterministic fake sig — never a verifiable credential (no secret
-    // in mock mode; the copy-link UI just needs a resolvable string). Any sig
-    // the caller happened to be holding is dropped, exactly as the real route
-    // drops it: the signature is what this call MINTS.
-    return formatDiffUrl({
+  async createDiffShareLink(
+    params: DiffParams,
+    expiresTs: number | null,
+  ): Promise<ShareLinkCreated> {
+    const row = mintMockShareLink("POST /api/diff/share-link", expiresTs, {
+      kind: "diff",
+      attachment_id: null,
+      attachment_filename: null,
       before: params.before,
       after: params.after,
-      labelBefore: params.labelBefore,
-      labelAfter: params.labelAfter,
-      sig: "mock-diff-share-sig",
+      label_before: params.labelBefore ?? "",
+      label_after: params.labelAfter ?? "",
     });
+    return toShareLinkCreated({
+      url: formatDiffUrl({
+        before: params.before,
+        after: params.after,
+        labelBefore: params.labelBefore,
+        labelAfter: params.labelAfter,
+        link: `mock-${row.id}`,
+      }),
+      share_link: row,
+    });
+  },
+
+  async listShareLinks(filter?: ShareLinkFilter): Promise<ShareLinkView[]> {
+    const now = Date.now() / 1000;
+    const live = mockShareLinks.filter(
+      (l) =>
+        (l.expires_ts === null || l.expires_ts > now) &&
+        (filter === undefined ||
+          ("attachmentId" in filter
+            ? l.attachment_id === filter.attachmentId
+            : l.before === filter.before && l.after === filter.after)),
+    );
+    return toShareLinks({ share_links: live });
+  },
+
+  async revokeShareLink(id: string): Promise<ShareLinkView> {
+    const row = mockShareLinks.find((l) => l.id === id);
+    if (!row) {
+      throw mockApiError(
+        "http 404 for DELETE /api/share-links/{share_link_id}",
+        404,
+        `share link '${id}' not found`,
+      );
+    }
+    mockShareLinks = mockShareLinks.filter((l) => l.id !== id);
+    return toShareLink(row);
   },
 
   async getDocumentSeed(
@@ -9004,6 +9090,7 @@ export function __resetMock(): void {
   // failure lands on the innocent test.
   mockSigningKeys = structuredClone(MOCK_WIRE_SIGNING_KEYS);
   mockSecrets = structuredClone(MOCK_WIRE_SECRETS);
+  mockShareLinks = [];
   mockSharedDocs = structuredClone(MOCK_WIRE_SHARED_DOCS);
   mockSharedDocVersions = structuredClone(MOCK_WIRE_SHARED_DOC_VERSIONS);
   mockBlobs = structuredClone(MOCK_SHARED_DOC_BLOBS);

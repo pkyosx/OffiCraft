@@ -69,14 +69,14 @@ describe("getDiff", () => {
   const sentHeaders = (fetchMock: { mock: { calls: unknown[][] } }) =>
     ((fetchMock.mock.calls[0][1] as RequestInit).headers ?? {}) as Record<string, string>;
 
-  it("asks for both sides in one request, with the labels and signature the url carried", async () => {
+  it("asks for both sides in one request, with the labels and share link the url carried", async () => {
     const fetchMock = stubFetch(ok(BODY));
 
     await httpApi.getDiff({
       ...PARAMS,
       labelBefore: "改動前",
       labelAfter: "改動後",
-      sig: "s+g/1",
+      link: "s+g/1",
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -86,7 +86,7 @@ describe("getDiff", () => {
     expect(query.get("after")).toBe(PARAMS.after);
     expect(query.get("label_before")).toBe("改動前");
     expect(query.get("label_after")).toBe("改動後");
-    expect(query.get("sig")).toBe("s+g/1");
+    expect(query.get("link")).toBe("s+g/1");
   });
 
   it("sends the session token on the unsigned flavour, where it IS the credential", async () => {
@@ -113,7 +113,7 @@ describe("getDiff", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const pair = await httpApi.getDiff({ ...PARAMS, sig: "server-minted" });
+    const pair = await httpApi.getDiff({ ...PARAMS, link: "server-minted" });
 
     expect(pair.before.text).toBe("alpha");
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -155,15 +155,18 @@ describe("getDiff", () => {
     });
   });
 
-  it("does NOT end the session when a SIGNED link is refused", async () => {
-    const fetchMock = stubFetch(refused(401));
+  it.each([
+    [401, { sig: "bad" }],
+    [410, { link: "revoked" }],
+  ])("does NOT end the session when an external link is refused (%i)", async (status, credential) => {
+    const fetchMock = stubFetch(refused(status));
     localStorage.setItem(TOKEN_KEY, "owner-token");
     const expired = vi.fn();
     window.addEventListener(AUTH_EXPIRED_EVENT, expired);
 
-    await expect(httpApi.getDiff({ ...PARAMS, sig: "bad" })).rejects.toBeInstanceOf(
-      ApiError,
-    );
+    await expect(httpApi.getDiff({ ...PARAMS, ...credential })).rejects.toMatchObject({
+      status,
+    });
 
     window.removeEventListener(AUTH_EXPIRED_EVENT, expired);
     // The signature really is the only credential this call carried, so the
@@ -189,74 +192,143 @@ describe("getDiff", () => {
   });
 });
 
-// The MINT (`GET /api/diff/share-link`, T-59) — the external, signed flavour of
-// the same url. Unlike the read above it DOES ride the typed client, so what is
-// pinned here is the query it asks for and the one value it must never forward.
-describe("getDiffShareLink", () => {
-  const MINTED = "/diff?before=att-0123456789ab&after=doc%3Ax&sig=server-made";
+const WIRE_LINK = {
+  id: "sl-0123456789ab",
+  kind: "diff",
+  attachment_id: null,
+  attachment_filename: null,
+  before: PARAMS.before,
+  after: PARAMS.after,
+  label_before: "改動前",
+  label_after: "",
+  created_by: "owner",
+  created_ts: 1792650600,
+  expires_ts: null,
+};
 
-  // The typed openapi-fetch client hands `fetch` a Request, not a url string —
-  // reading `calls[0][0]` as a string stringifies the object instead.
-  const asked = (fetchMock: { mock: { calls: unknown[][] } }) =>
-    new URL((fetchMock.mock.calls[0][0] as Request).url, "http://x");
+// The typed openapi-fetch client hands `fetch` a Request, not a url string.
+const askedRequest = (fetchMock: { mock: { calls: unknown[][] } }) =>
+  fetchMock.mock.calls[0][0] as Request;
 
-  it("asks for both sides and the labels, and returns the server-relative url", async () => {
-    const fetchMock = stubFetch(ok({ url: MINTED }));
+describe("createDiffShareLink", () => {
+  const MINTED = "/diff?after=doc%3Ax&before=att-0123456789ab&link=server-made";
 
-    const url = await httpApi.getDiffShareLink({
-      ...PARAMS,
-      labelBefore: "改動前",
-      labelAfter: "改動後",
+  it("posts both sides, the labels and the expiry, and returns the url once", async () => {
+    const fetchMock = stubFetch(ok({ url: MINTED, share_link: WIRE_LINK }));
+
+    const created = await httpApi.createDiffShareLink(
+      { ...PARAMS, labelBefore: "改動前", link: "one-the-caller-was-holding" },
+      1792737000,
+    );
+
+    expect(created.url).toBe(MINTED);
+    expect(created.link).toMatchObject({ id: "sl-0123456789ab", kind: "diff", expiresTs: null });
+    const req = askedRequest(fetchMock);
+    expect(req.method).toBe("POST");
+    expect(new URL(req.url).pathname).toBe("/api/diff/share-link");
+    expect(await req.json()).toEqual({
+      before: PARAMS.before,
+      after: PARAMS.after,
+      label_before: "改動前",
+      label_after: "",
+      expires_ts: 1792737000,
     });
-
-    expect(url).toBe(MINTED);
-    const sent = asked(fetchMock);
-    expect(sent.pathname).toBe("/api/diff/share-link");
-    expect(sent.searchParams.get("before")).toBe(PARAMS.before);
-    expect(sent.searchParams.get("after")).toBe(PARAMS.after);
-    expect(sent.searchParams.get("label_before")).toBe("改動前");
-    expect(sent.searchParams.get("label_after")).toBe("改動後");
   });
 
-  it("never forwards a signature — the signature is what this call PRODUCES", async () => {
-    const fetchMock = stubFetch(ok({ url: MINTED }));
-
-    await httpApi.getDiffShareLink({ ...PARAMS, sig: "one-the-caller-was-holding" });
-
-    const sent = asked(fetchMock);
-    // The route declares four query parameters and `sig` is not one of them:
-    // asking the server to sign a query that already carries a signature is a
-    // question it was never given.
-    expect(sent.searchParams.get("sig")).toBeNull();
-    expect(sent.searchParams.get("label_before")).toBeNull();
+  it("sends null for a link that never expires", async () => {
+    const fetchMock = stubFetch(ok({ url: MINTED, share_link: WIRE_LINK }));
+    await httpApi.createDiffShareLink(PARAMS, null);
+    expect((await askedRequest(fetchMock).json()).expires_ts).toBeNull();
   });
 
-  it("rejects with an ApiError rather than a url the caller would paste", async () => {
+  it("rejects with the server's message for an expiry it refuses", async () => {
     stubFetch(refused(422));
-    await expect(httpApi.getDiffShareLink(PARAMS)).rejects.toBeInstanceOf(ApiError);
+    await expect(httpApi.createDiffShareLink(PARAMS, 1)).rejects.toMatchObject({
+      status: 422,
+      serverMessage: "nope",
+    });
   });
 });
 
-// The OFFLINE cockpit's face of the same mint. It has no secret and therefore
-// no verifiable credential, so what it owes is the SHAPE: a /diff url the
-// compare screen's own parser reads back, carrying a sig — otherwise the copy
-// control cannot be exercised offline at all.
-describe("mockApi.getDiffShareLink", () => {
-  it("mints a /diff url that parses back, with a sig and without the caller's", async () => {
-    const url = await mockApi.getDiffShareLink({
-      ...PARAMS,
-      labelBefore: "改動前",
-      sig: "one-the-caller-was-holding",
-    });
+describe("createAttachmentShareLink", () => {
+  it("posts the expiry to the attachment's share-link route", async () => {
+    const fetchMock = stubFetch(
+      ok({
+        url: "/api/chat/attachment/att-0123456789ab?link=t",
+        share_link: { ...WIRE_LINK, kind: "attachment", attachment_id: "att-0123456789ab", attachment_filename: "a.md", before: null, after: null, label_before: null, label_after: null },
+      }),
+    );
 
-    const parsed = parseDiffParams(url.slice(url.indexOf("?")));
-    expect(url.startsWith(DIFF_PATH)).toBe(true);
-    expect(parsed).toMatchObject({
-      before: PARAMS.before,
-      after: PARAMS.after,
-      labelBefore: "改動前",
-    });
-    expect(parsed?.sig).toBeTruthy();
-    expect(parsed?.sig).not.toBe("one-the-caller-was-holding");
+    const created = await httpApi.createAttachmentShareLink("att-0123456789ab", null);
+
+    const req = askedRequest(fetchMock);
+    expect(new URL(req.url).pathname).toBe("/api/chat/attachments/att-0123456789ab/share-link");
+    expect(await req.json()).toEqual({ expires_ts: null });
+    expect(created.link.attachmentFilename).toBe("a.md");
+  });
+});
+
+describe("listShareLinks", () => {
+  it.each([
+    [undefined, {}],
+    [{ attachmentId: "att-0123456789ab" }, { attachment_id: "att-0123456789ab" }],
+    [{ before: PARAMS.before, after: PARAMS.after }, { before: PARAMS.before, after: PARAMS.after }],
+  ])("filters by %j", async (filter, query) => {
+    const fetchMock = stubFetch(ok({ share_links: [WIRE_LINK] }));
+
+    const links = await httpApi.listShareLinks(filter);
+
+    const url = new URL(askedRequest(fetchMock).url);
+    expect(url.pathname).toBe("/api/share-links");
+    expect(Object.fromEntries(url.searchParams)).toEqual(query);
+    expect(links.map((l) => l.id)).toEqual(["sl-0123456789ab"]);
+  });
+});
+
+describe("revokeShareLink", () => {
+  it("deletes exactly that link", async () => {
+    const fetchMock = stubFetch(ok(WIRE_LINK));
+    await httpApi.revokeShareLink("sl-0123456789ab");
+    const req = askedRequest(fetchMock);
+    expect(req.method).toBe("DELETE");
+    expect(new URL(req.url).pathname).toBe("/api/share-links/sl-0123456789ab");
+  });
+});
+
+describe("getChatAttachmentPreviewLink", () => {
+  it("asks the preview-link route and returns its url unchanged", async () => {
+    const PREVIEW = "/api/chat/attachment/att-0123456789ab?sig=s&exp=1792650600";
+    const fetchMock = stubFetch(ok({ url: PREVIEW }));
+    expect(await httpApi.getChatAttachmentPreviewLink("att-0123456789ab")).toBe(PREVIEW);
+    expect(new URL(askedRequest(fetchMock).url).pathname).toBe(
+      "/api/chat/attachments/att-0123456789ab/preview-link",
+    );
+  });
+});
+
+describe("mockApi share links", () => {
+  it("mints a /diff url that parses back with a link, lists it for its target, and revokes only it", async () => {
+    const created = await mockApi.createDiffShareLink(
+      { ...PARAMS, labelBefore: "改動前" },
+      Date.now() / 1000 + 3600,
+    );
+    const other = await mockApi.createAttachmentShareLink("att-0123456789ab", null);
+
+    const parsed = parseDiffParams(created.url.slice(created.url.indexOf("?")));
+    expect(created.url.startsWith(DIFF_PATH)).toBe(true);
+    expect(parsed).toMatchObject({ before: PARAMS.before, after: PARAMS.after, labelBefore: "改動前" });
+    expect(parsed?.link).toBeTruthy();
+
+    expect(
+      (await mockApi.listShareLinks({ before: PARAMS.before, after: PARAMS.after })).map((l) => l.id),
+    ).toEqual([created.link.id]);
+    await mockApi.revokeShareLink(created.link.id);
+    expect((await mockApi.listShareLinks()).map((l) => l.id)).toEqual([other.link.id]);
+  });
+
+  it("refuses an expiry more than 365 days ahead", async () => {
+    await expect(
+      mockApi.createDiffShareLink(PARAMS, Date.now() / 1000 + 366 * 86_400),
+    ).rejects.toMatchObject({ status: 422 });
   });
 });

@@ -27,6 +27,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
+import { ApiError } from "../api/errors";
 import {
   DIFF_SIDE_AT_CURRENT,
   DIFF_SIDE_AT_SEED,
@@ -45,7 +46,7 @@ export function DiffScreen({ params }: { params: DiffParams }) {
    * read at a moment that has since passed, and a stamp taken at render time
    * would keep quietly moving while the reader looks at it. */
   const [pair, setPair] = useState<{ sides: DiffPairView; readAt: string } | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<"error" | "gone" | null>(null);
   /** Which single side is being read on its own, or null while the comparison
    * itself is on screen. */
   const [side, setSide] = useState<"before" | "after" | null>(null);
@@ -67,14 +68,14 @@ export function DiffScreen({ params }: { params: DiffParams }) {
   const sideRef = useRef<HTMLDivElement>(null);
   useEscapeLayer(() => setSide(null), sideRef, side !== null);
 
-  const { before, after, labelBefore, labelAfter, sig } = params;
+  const { before, after, labelBefore, labelAfter, link, sig } = params;
   useEffect(() => {
     let alive = true;
     setPair(null);
-    setFailed(false);
+    setFailed(null);
     setSide(null);
     api
-      .getDiff({ before, after, labelBefore, labelAfter, sig })
+      .getDiff({ before, after, labelBefore, labelAfter, link, sig })
       .then((got) => {
         if (!alive) return;
         // The reader is told ONE sentence for a side that resolved to nothing —
@@ -97,14 +98,21 @@ export function DiffScreen({ params }: { params: DiffParams }) {
         });
       })
       .catch((e: unknown) => {
-        if (alive) setFailed(true);
+        if (alive) setFailed(e instanceof ApiError && e.status === 410 ? "gone" : "error");
         console.warn("DiffScreen: compare load failed", e);
       });
     return () => {
       alive = false;
     };
-  }, [before, after, labelBefore, labelAfter, sig]);
+  }, [before, after, labelBefore, labelAfter, link, sig]);
 
+  if (failed === "gone") {
+    return (
+      <div className="diff-screen__status" data-testid="diff-screen-link-gone">
+        {t.shareLinks.linkGone}
+      </div>
+    );
+  }
   if (failed) {
     return <div className="diff-screen__status">{t.chat.mdPreview.error}</div>;
   }

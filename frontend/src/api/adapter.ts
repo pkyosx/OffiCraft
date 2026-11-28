@@ -58,6 +58,9 @@ import type {
   TeardownHereResultView,
   BootstrapResultView,
   MachineView,
+  ShareLinkView,
+  ShareLinkCreated,
+  ShareLinkFilter,
 } from "../types";
 
 /**
@@ -2422,15 +2425,16 @@ export interface Api {
    * READ-ONLY, like every read door on this API since T-48 — the only thing
    * that advances a read watermark is `markChatRead`. */
   listChatAttachments(withId: string): Promise<GalleryAttachment[]>;
-  /** Mint the share link for one attachment
-   * (`GET /api/chat/attachments/{id}/share-link`): resolves to the blob's
-   * server-relative serve path carrying its `?sig=` file-level HMAC credential
-   * — anyone holding the URL may read exactly this one blob, nothing else, no
-   * expiry. It is NOT permanent: the sig is derived from the key that signs at
-   * mint time, so removing that key from the signing-key ring voids it, along
-   * with every other link that key signed (T-62). Callers prefix the page
-   * origin to form the absolute, sendable URL. Unknown id → 404 (throws). */
-  getChatAttachmentShareLink(attachmentId: string): Promise<string>;
+  /** GET /api/chat/attachments/{id}/preview-link — a server-relative serve
+   * URL carrying a one-hour `?sig=&exp=`, for the cockpit's own preview frames
+   * and new-tab anchors. Not recorded and not revocable. Unknown id → 404. */
+  getChatAttachmentPreviewLink(attachmentId: string): Promise<string>;
+  /** POST /api/chat/attachments/{id}/share-link — a NEW link each call.
+   * `expiresTs` is absolute epoch seconds; null = never expires. */
+  createAttachmentShareLink(
+    attachmentId: string,
+    expiresTs: number | null,
+  ): Promise<ShareLinkCreated>;
   /** Post a chat message. May carry text and/or MULTIPLE generic `attachments`
    * (pasted images AND/OR uploaded files, mixed), sent to the server as the
    * `attachments` list of `{data_b64, filename?, mime?}` objects — all riding
@@ -3320,26 +3324,22 @@ export interface Api {
    * a reader that resolved "current" itself would be a second authority on
    * what a side IS, and the two would drift.
    *
-   * `params.sig` is the server-minted signature the EXTERNAL flavour of the URL
-   * carries; with it the call is answered with no session at all, which is why
-   * its 401 must not be read as an expired login (see api/diff.ts).
+   * `params.link` (or a legacy `params.sig`) is the credential the EXTERNAL
+   * flavour of the URL carries; with it the call is answered with no session at
+   * all, which is why its 401/410 must not be read as an expired login (see
+   * api/diff.ts).
    */
   getDiff(params: DiffParams): Promise<DiffPairView>;
-  /**
-   * Mint the EXTERNAL link to one comparison (`GET /api/diff/share-link`,
-   * T-59) — the same `/diff` page url plus the server's `?sig=`, which opens it
-   * for a reader who has no account at all.
-   *
-   * Server-RELATIVE, exactly like `getChatAttachmentShareLink`: only the
-   * browser knows the public origin, so the caller absolutizes
-   * (`lib/shareLink.ts`).
-   *
-   * `params.sig` is IGNORED — a signature is what this call produces, never an
-   * input to it. Requires a session: it is gated like every other route here,
-   * which is why the control that calls it is only ever drawn where one is
-   * certain (see components/DiffShareLinkButton.tsx).
-   */
-  getDiffShareLink(params: DiffParams): Promise<string>;
+  /** POST /api/diff/share-link — a NEW external link to this comparison
+   * (`params.link`/`params.sig` are not sent: the credential is the output). */
+  createDiffShareLink(
+    params: DiffParams,
+    expiresTs: number | null,
+  ): Promise<ShareLinkCreated>;
+  /** GET /api/share-links — links still in force, all or one target's. */
+  listShareLinks(filter?: ShareLinkFilter): Promise<ShareLinkView[]>;
+  /** DELETE /api/share-links/{id} — irreversible. */
+  revokeShareLink(id: string): Promise<ShareLinkView>;
   /**
    * Restore ONE retained revision over the LIVE document (destructive — the
    * current text becomes just another retained revision). Returns the restored

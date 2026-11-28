@@ -1,0 +1,180 @@
+/* Share links: the copy-link menu (inside the 稍後再看 shell from replies.css)
+ * and the 分享 page. Theme tokens only. */
+
+/* Above the preview overlay (md-preview.css) that hosts the trigger. */
+.share-menu.reply-snooze--pop,
+.share-menu__backdrop {
+  z-index: 1150;
+}
+.share-menu.reply-snooze--pop {
+  width: 280px;
+}
+.share-confirm-layer {
+  position: relative;
+  z-index: 1160;
+}
+.share-trigger--open {
+  color: var(--color-accent);
+}
+
+.share-expiry {
+  border-top: none;
+  padding-top: 0;
+}
+.share-expiry__when {
+  margin-left: auto;
+  display: inline-flex;
+  font-variant-numeric: tabular-nums;
+}
+.share-menu .reply-snooze__amount:disabled {
+  opacity: 0.4;
+}
+
+.share-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+}
+.share-act:hover:not(:disabled) {
+  color: var(--color-text);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.share-act:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.share-act--primary,
+.share-act--primary:hover:not(:disabled),
+.share-act--done {
+  color: var(--color-accent);
+}
+.share-act--danger:hover:not(:disabled) {
+  color: var(--color-danger);
+}
+.reply-snooze--sheet .share-act {
+  width: 32px;
+  height: 32px;
+}
+
+.share-links__inf {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-muted);
+}
+
+.share-links {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+}
+.share-links .reply-snooze__title {
+  margin-bottom: 4px;
+}
+.share-links__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0 2px 10px;
+  min-height: 28px;
+}
+.reply-snooze--sheet .share-links__row {
+  min-height: 44px;
+}
+.share-links__exp {
+  flex: 1;
+  display: flex;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+.share-links__by {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 8em;
+}
+
+/* ---- 分享 page ---- */
+.share-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+.share-page__table {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 16px;
+  border-radius: var(--radius-card);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
+  background: var(--color-card);
+}
+.share-page__row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 7em 8em 22px;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  border-top: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  font-size: 13px;
+}
+.share-page__row--head {
+  min-height: 36px;
+  border-top: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.share-page__kind {
+  display: inline-flex;
+  color: var(--color-text-muted);
+}
+.share-page__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-strong);
+}
+.share-page__by {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+.share-page__exp {
+  display: inline-flex;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+@media (max-width: 600px) {
+  .share-page__table {
+    padding: 4px 12px;
+  }
+  .share-page__row {
+    grid-template-columns: 18px minmax(0, 1fr) auto 22px;
+  }
+  .share-page__row--head {
+    display: none;
+  }
+  .share-page__by {
+    display: none;
+  }
+}

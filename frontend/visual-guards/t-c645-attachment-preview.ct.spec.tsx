@@ -193,7 +193,7 @@ test("390px: popup header keeps filename space while the actions are icons with 
   // exactly the assertion that survives the label going away — an icon button
   // that lost its `aria-label` would stop matching and redden here.
   await expect(
-    page.getByRole("button", { name: "複製分享連結" }),
+    page.getByRole("button", { name: "分享連結" }),
   ).toBeVisible();
   await expect(page.getByRole("link", { name: "下載" })).toBeVisible();
   // ⚠️ THIS REPLACES an assertion that the label span was HIDDEN at this width.
@@ -292,7 +292,7 @@ for (const [shotName, label, className, itemClassName] of ENTRY_FIXTURES) {
     const popup = page.getByRole("dialog", { name: "stored-document.pdf" });
     await expect(popup).toBeVisible();
     await expect(
-      popup.getByRole("button", { name: "複製分享連結" }),
+      popup.getByRole("button", { name: "分享連結" }),
     ).toBeVisible();
     await expect(popup.getByRole("link", { name: "下載" })).toBeVisible();
     await expect(

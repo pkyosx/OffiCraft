@@ -1,14 +1,14 @@
-// The attachment's share link (`?sig=`), minted when `enabled` — the address
-// an HTML page's frame loads and a 「在新頁面顯示」 anchor opens. Minted ahead
-// of any click: a tab opened after an await is eaten by popup blockers.
+// The attachment's one-hour preview URL, minted when `enabled` — the address
+// an HTML or PDF page's frame loads and a 「在新頁面顯示」 anchor opens. Minted
+// ahead of any click: a tab opened after an await is eaten by popup blockers.
 // `href` is undefined when no link will be minted (no attachment id, or not
 // enabled), null until the mint lands and when it fails, so no caller can
 // render a link that would 404 or wait for one that is never coming.
 
 import { useEffect, useState } from "react";
-import { attachmentShareLinkUrl } from "../lib/shareLink";
+import { attachmentPreviewUrl } from "../lib/shareLink";
 
-export function useShareHref(
+export function usePreviewHref(
   attachmentId: string | undefined,
   enabled: boolean,
   warnAs: string,
@@ -20,12 +20,12 @@ export function useShareHref(
     setFailed(false);
     if (attachmentId === undefined || attachmentId === "" || !enabled) return;
     let alive = true;
-    attachmentShareLinkUrl(attachmentId)
+    attachmentPreviewUrl(attachmentId)
       .then((next) => {
         if (alive) setHref(next);
       })
       .catch((e) => {
-        console.warn(`${warnAs}: share link failed`, e);
+        console.warn(`${warnAs}: preview link failed`, e);
         if (alive) setFailed(true);
       });
     return () => {

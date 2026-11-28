@@ -3,12 +3,12 @@
 // T-59 (owner 2026-09-03): a comparison is no longer an attachment somebody
 // clicks, it is a URL. Two flavours of the SAME url:
 //
-//   internal  /diff?before=…&after=…            — no signature, needs a session
-//   external  /diff?before=…&after=…&sig=…      — the server-minted signature
+//   internal  /diff?before=…&after=…            — no credential, needs a session
+//   external  /diff?before=…&after=…&link=…     — a server-minted share link
 //                                                 opens it with no login at all
+//                                                 (a legacy `sig=` still does)
 //
-// No expiry, same as the file-level share link (lib/shareLink.ts) it is modelled
-// on. This module is the single parse/format seam for that url — the twin of
+// This module is the single parse/format seam for that url — the twin of
 // lib/hashRoute.ts, which owns the STUDIO's own navigational state. They are two
 // different address spaces on purpose: everything in the hash is a view of the
 // office the reader is logged into, while this one has to survive being pasted
@@ -28,12 +28,12 @@
 // malformed link fails on the reader's own screen instead of being forwarded to
 // the server as a question about nothing.
 
-/** The page's path, and the five parameter names the url spells. A real path,
+/** The page's path, and the parameter names the url spells. A real path,
  * not a hash: the hash never reaches the server, and this url has to be one the
  * SPA shell is served for (server/ocserverd/spa.go's catch-all does that
  * already — no extension, not under /api/).
  *
- * 🔴 THESE SIX SPELLINGS ARE THE SERVER'S, NOT OURS. `server/ocserverd/
+ * 🔴 THESE SPELLINGS ARE THE SERVER'S, NOT OURS. `server/ocserverd/
  * api_diff.go` declares them; the mint answers a url built from them and the
  * data route reads a query built from them. This module is the cockpit's ONE
  * copy — the compare page's parser, its formatter and `api/diff.ts`'s query all
@@ -47,7 +47,8 @@ export const DIFF_PARAM_BEFORE = "before";
 export const DIFF_PARAM_AFTER = "after";
 export const DIFF_PARAM_LABEL_BEFORE = "label_before";
 export const DIFF_PARAM_LABEL_AFTER = "label_after";
-export const DIFF_PARAM_SIG = "sig";
+export const DIFF_PARAM_LINK = "link";
+export const DIFF_PARAM_LEGACY_SIG = "sig";
 
 /** The reserved spellings of a document side's `at`. Same two words the server
  * matches; a typo in either place is a side that silently falls through to
@@ -77,8 +78,15 @@ export interface DiffParams {
   after: string;
   labelBefore?: string;
   labelAfter?: string;
-  /** The server-minted signature. Present ⇒ the page opens with no session. */
+  /** A share link's credential. Present ⇒ the page opens with no session. */
+  link?: string;
+  /** A pre-expiry `?sig=` link; the server still decides whether it opens. */
   sig?: string;
+}
+
+/** Does this url carry its own credential (and so open without a session)? */
+export function carriesShareCredential(params: DiffParams): boolean {
+  return params.link !== undefined || params.sig !== undefined;
 }
 
 // 🔴 THE RULES BELOW ARE A TRANSCRIPTION, NOT A DESIGN. The authority is
@@ -146,17 +154,19 @@ export function parseDiffParams(search: string): DiffParams | null {
   const params: DiffParams = { before, after };
   const labelBefore = q.get(DIFF_PARAM_LABEL_BEFORE);
   const labelAfter = q.get(DIFF_PARAM_LABEL_AFTER);
-  const sig = q.get(DIFF_PARAM_SIG);
+  const link = q.get(DIFF_PARAM_LINK);
+  const sig = q.get(DIFF_PARAM_LEGACY_SIG);
   // An EMPTY label is not a label — heading a column with "" is the blank
   // heading the reader could not read in the first place.
   if (labelBefore) params.labelBefore = labelBefore;
   if (labelAfter) params.labelAfter = labelAfter;
-  if (sig) params.sig = sig;
+  if (link) params.link = link;
+  else if (sig) params.sig = sig;
   return params;
 }
 
-/** The five parameters, spelled once. Shared by the page url built here and by
- * the compare read's query (api/diff.ts) — the two used to spell the same five
+/** The parameters, spelled once. Shared by the page url built here and by
+ * the compare read's query (api/diff.ts) — the two used to spell the same
  * words twice, which is one rename away from a link the reader can open and a
  * request the server cannot answer. An EMPTY optional is LEFT OUT rather than
  * sent blank, matching the server's own diffPageQuery. */
@@ -166,7 +176,8 @@ export function diffSearchParams(params: DiffParams): URLSearchParams {
   q.set(DIFF_PARAM_AFTER, params.after);
   if (params.labelBefore) q.set(DIFF_PARAM_LABEL_BEFORE, params.labelBefore);
   if (params.labelAfter) q.set(DIFF_PARAM_LABEL_AFTER, params.labelAfter);
-  if (params.sig) q.set(DIFF_PARAM_SIG, params.sig);
+  if (params.link) q.set(DIFF_PARAM_LINK, params.link);
+  else if (params.sig) q.set(DIFF_PARAM_LEGACY_SIG, params.sig);
   return q;
 }
 

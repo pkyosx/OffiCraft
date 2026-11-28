@@ -18,9 +18,8 @@ import { useI18n } from "../i18n";
 import type { ChatAttachmentView } from "../api/adapter";
 import type { DocCommentTarget } from "../lib/docComments";
 import { authedAttachmentUrl } from "../api/http";
-import { copyAttachmentShareLink } from "../lib/shareLink";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
-import { CheckIcon, CopyIcon, PaperclipIcon } from "./icons";
+import { PaperclipIcon } from "./icons";
 
 export function AttachmentStrip({
   attachments,
@@ -30,7 +29,6 @@ export function AttachmentStrip({
   fileChipClassName = "chat__msg-file",
   fileNameClassName = "chat__msg-file-name",
   fileNameColClassName,
-  showShareLink = false,
   renderExtra,
   renderMeta,
   docCommentsFor,
@@ -59,11 +57,7 @@ export function AttachmentStrip({
    * filename `<span>` renders bare exactly as before, so every OTHER caller
    * (chat bubble, reply-card strip) stays byte-identical. */
   fileNameColClassName?: string;
-  /** Stored blobs expose one canonical share control even when their body is
-   * download-only (PDF/binary). ChatArea supplies its own hover control. */
-  showShareLink?: boolean;
-  /** Per-item extra node rendered after the image/chip (ChatArea's hover
-   * 複製分享連結 button). */
+  /** Per-item extra node rendered after the image/chip. */
   renderExtra?: (att: ChatAttachmentView) => ReactNode;
   /** Per-item node rendered BELOW the filename, inside the chip (T-6338 —
    * lets a non-image download chip carry a second line without every other
@@ -96,30 +90,10 @@ export function AttachmentStrip({
   // stops having an open preview rather than paging through a stale one.
   const previewIndex = attachments.findIndex((a) => a.id === previewId);
   const preview = previewIndex >= 0 ? attachments[previewIndex] : null;
-  const [shareCopiedId, setShareCopiedId] = useState<string | null>(null);
 
   if (attachments.length === 0) return null;
 
   function renderOne(att: ChatAttachmentView) {
-    const share = showShareLink ? (
-      <button
-        type="button"
-        className="chat__share-btn"
-        aria-label={shareCopiedId === att.id ? t.chat.shareLinkCopied : t.chat.copyShareLink}
-        title={shareCopiedId === att.id ? t.chat.shareLinkCopied : t.chat.copyShareLink}
-        onClick={() => {
-          const id = att.backingAttachmentId ?? att.id;
-          void copyAttachmentShareLink(id)
-            .then(() => {
-              setShareCopiedId(att.id);
-              window.setTimeout(() => setShareCopiedId((current) => current === att.id ? null : current), 2000);
-            })
-            .catch((error) => console.warn("AttachmentStrip: copy share link failed", error));
-        }}
-      >
-        {shareCopiedId === att.id ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
-      </button>
-    ) : null;
     if (att.isImage) {
       const src = authedAttachmentUrl(att.url);
       const clickable = {
@@ -142,7 +116,6 @@ export function AttachmentStrip({
           alt={t.chat.imageAlt}
           {...clickable}
         />
-        {share}
       </Fragment>;
     }
     // Non-image → a download chip/link (Content-Disposition: attachment on
@@ -167,7 +140,7 @@ export function AttachmentStrip({
       </>
     );
     // Files with no specialized caller (PDF and opaque binary attachments in
-    // particular) still enter the common shell; it supplies download/share
+    // particular) still enter the common shell; it supplies download and the share menu
     // and an honest non-previewable body instead of navigating away.
     return <Fragment key={itemClassName ? undefined : att.id}>
       <button
@@ -179,7 +152,6 @@ export function AttachmentStrip({
       >
         {content}
       </button>
-      {share}
     </Fragment>;
   }
 

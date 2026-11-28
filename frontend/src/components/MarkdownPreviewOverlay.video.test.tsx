@@ -15,8 +15,8 @@ describe("MarkdownPreviewOverlay — a video attachment", () => {
     vi.restoreAllMocks();
   });
 
-  it("plays the attachment at its share link with five speeds, keeps download and 在新頁面顯示 in the header, and never reads the bytes as text", async () => {
-    vi.spyOn(api, "getChatAttachmentShareLink").mockResolvedValue("/api/chat/attachment/att-735?sig=test-sig");
+  it("plays the attachment at its preview link with five speeds, keeps download and 在新頁面顯示 in the header, and never reads the bytes as text", async () => {
+    vi.spyOn(api, "getChatAttachmentPreviewLink").mockResolvedValue("/api/chat/attachment/att-735?sig=test-sig");
     const fetchSpy = vi.fn(async () => ({ ok: true, text: async () => "" }));
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
 

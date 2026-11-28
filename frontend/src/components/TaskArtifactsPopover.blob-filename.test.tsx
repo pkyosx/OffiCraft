@@ -31,7 +31,7 @@ const { listTaskArtifacts } = vi.hoisted(() => ({ listTaskArtifacts: vi.fn() }))
 vi.mock("../api", () => ({
   api: {
     subscribeEvents: () => () => {},
-    getChatAttachmentShareLink: vi.fn(async () => "/api/chat/attachment/att?sig=t"),
+    getChatAttachmentPreviewLink: vi.fn(async () => "/api/chat/attachment/att?sig=t"),
     listTaskArtifacts,
     listTaskArtifactVersions: vi.fn(async () => []),
   },

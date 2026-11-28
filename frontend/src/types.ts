@@ -1181,6 +1181,33 @@ export interface PasskeyCeremonyView {
   options: Record<string, unknown>;
 }
 
+/** One share link still in force. Its URL is never part of it: the server
+ * returns that once, when the link is minted. */
+export interface ShareLinkView {
+  id: string;
+  kind: "attachment" | "diff";
+  attachmentId: string | null;
+  attachmentFilename: string | null;
+  before: string | null;
+  after: string | null;
+  labelBefore: string | null;
+  labelAfter: string | null;
+  createdBy: string;
+  createdTs: number;
+  /** null = never expires. */
+  expiresTs: number | null;
+}
+
+export type ShareLinkFilter =
+  | { attachmentId: string }
+  | { before: string; after: string };
+
+export interface ShareLinkCreated {
+  /** Server-relative. */
+  url: string;
+  link: ShareLinkView;
+}
+
 /** One secret as the owner's Secrets page sees it. There is no value field:
  * no owner route returns a value, masked or otherwise. */
 export interface SecretView {

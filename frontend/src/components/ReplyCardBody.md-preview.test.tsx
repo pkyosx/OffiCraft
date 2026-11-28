@@ -109,9 +109,22 @@ describe("reply-card question attachments: .md preview (T-7bc2)", () => {
       ok: true,
       text: async () => "# design-proposal\n\nthe **plan**",
     })) as unknown as typeof fetch;
-    const mint = vi
-      .spyOn(api, "getChatAttachmentShareLink")
-      .mockResolvedValue("/api/chat/attachment/att-md?sig=test-sig");
+    const mint = vi.spyOn(api, "createAttachmentShareLink").mockResolvedValue({
+      url: "/api/chat/attachment/att-md?link=tok",
+      link: {
+        id: "sl-0123456789ab",
+        kind: "attachment",
+        attachmentId: "att-md",
+        attachmentFilename: "design-proposal.md",
+        before: null,
+        after: null,
+        labelBefore: null,
+        labelAfter: null,
+        createdBy: "owner",
+        createdTs: 1792650600,
+        expiresTs: null,
+      },
+    });
     const writeText = vi.fn(async () => {});
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText },
@@ -133,12 +146,13 @@ describe("reply-card question attachments: .md preview (T-7bc2)", () => {
     const dl = document.body.querySelector("a.md-preview__download") as HTMLAnchorElement;
     expect(dl.getAttribute("download")).toBe("design-proposal.md");
     const actions = document.body.querySelector(".md-preview__actions") as HTMLElement;
-    const share = within(actions).getByRole("button", { name: "複製分享連結" });
+    const share = within(actions).getByRole("button", { name: "分享連結" });
     fireEvent.click(share);
-    await waitFor(() => expect(mint).toHaveBeenCalledWith("att-md"));
+    fireEvent.click(await within(document.body).findByTestId("share-generate"));
+    await waitFor(() => expect(mint).toHaveBeenCalledWith("att-md", expect.any(Number)));
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith(
-        `${window.location.origin}/api/chat/attachment/att-md?sig=test-sig`,
+        `${window.location.origin}/api/chat/attachment/att-md?link=tok`,
       ),
     );
   });

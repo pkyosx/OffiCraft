@@ -124,6 +124,7 @@ type NavIconLabelKey =
   | "themeNavLore"
   | "themeNavSharedDocs"
   | "themeNavSecrets"
+  | "themeNavShareLinks"
   | "themeNavMonitor";
 const NAV_ICON_LABEL_KEYS: Record<NavTabKey, NavIconLabelKey> = {
   office: "themeNavOffice",
@@ -132,6 +133,7 @@ const NAV_ICON_LABEL_KEYS: Record<NavTabKey, NavIconLabelKey> = {
   lore: "themeNavLore",
   shared_docs: "themeNavSharedDocs",
   secrets: "themeNavSecrets",
+  share_links: "themeNavShareLinks",
   monitor: "themeNavMonitor",
 };
 const NAV_ICON_SLOTS = NAV_TAB_KEYS.map((key) => ({
@@ -230,6 +232,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     lore: useRef<HTMLInputElement>(null),
     shared_docs: useRef<HTMLInputElement>(null),
     secrets: useRef<HTMLInputElement>(null),
+    share_links: useRef<HTMLInputElement>(null),
     monitor: useRef<HTMLInputElement>(null),
   } satisfies Record<NavTabKey, RefObject<HTMLInputElement>>;
   const [wordingLang, setWordingLang] = useState<"zh" | "en">("zh");

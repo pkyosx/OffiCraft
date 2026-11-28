@@ -71,6 +71,8 @@ import type {
   WardenShape,
   CutoverEffect,
   MachineDiskUsageView,
+  ShareLinkView,
+  ShareLinkCreated,
 } from "../types";
 import type {
   WireMember,
@@ -88,6 +90,9 @@ import type {
   WireSecret,
   WirePasskey,
   WireSecrets,
+  WireShareLink,
+  WireShareLinks,
+  WireShareLinkCreated,
   WireSharedDoc,
   WireSharedDocDetail,
   WireSharedDocVersion,
@@ -1765,6 +1770,30 @@ export function toSecret(w: WireSecret): SecretView {
 
 export function toSecrets(w: WireSecrets): SecretView[] {
   return w.secrets.map(toSecret);
+}
+
+export function toShareLink(w: WireShareLink): ShareLinkView {
+  return {
+    id: w.id,
+    kind: w.kind,
+    attachmentId: w.attachment_id,
+    attachmentFilename: w.attachment_filename,
+    before: w.before,
+    after: w.after,
+    labelBefore: w.label_before,
+    labelAfter: w.label_after,
+    createdBy: w.created_by,
+    createdTs: w.created_ts,
+    expiresTs: w.expires_ts,
+  };
+}
+
+export function toShareLinks(w: WireShareLinks): ShareLinkView[] {
+  return w.share_links.map(toShareLink);
+}
+
+export function toShareLinkCreated(w: WireShareLinkCreated): ShareLinkCreated {
+  return { url: w.url, link: toShareLink(w.share_link) };
 }
 
 function toSharedDocKind(kind: string): SharedDocKind {

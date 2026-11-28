@@ -158,14 +158,28 @@ describe("chat .md preview action (T-a1c4 / T-7bc2)", () => {
     expect(document.body.textContent).not.toContain("A的機密.md");
   });
 
-  it("carries a 複製分享連結 button that mints THIS attachment's share link", async () => {
+  it("carries a share menu that mints THIS attachment's share link", async () => {
     globalThis.fetch = vi.fn(async () => ({
       ok: true,
       text: async () => "# Design",
     })) as unknown as typeof fetch;
-    const mint = vi
-      .spyOn(api, "getChatAttachmentShareLink")
-      .mockResolvedValue("/api/chat/attachment/a-md?sig=test-sig");
+    vi.spyOn(api, "listShareLinks").mockResolvedValue([]);
+    const mint = vi.spyOn(api, "createAttachmentShareLink").mockResolvedValue({
+      url: "/api/chat/attachment/a-md?link=tok",
+      link: {
+        id: "sl-0123456789ab",
+        kind: "attachment",
+        attachmentId: "a-md",
+        attachmentFilename: "design.md",
+        before: null,
+        after: null,
+        labelBefore: null,
+        labelAfter: null,
+        createdBy: "owner",
+        createdTs: 1792650600,
+        expiresTs: null,
+      },
+    });
     const writeText = vi.fn(async () => {});
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText },
@@ -185,12 +199,13 @@ describe("chat .md preview action (T-a1c4 / T-7bc2)", () => {
     await waitFor(() => expect(getByRole("heading", { name: "Design" })).toBeTruthy());
 
     const actions = document.body.querySelector(".md-preview__actions") as HTMLElement;
-    const share = within(actions).getByRole("button", { name: "複製分享連結" });
+    const share = within(actions).getByRole("button", { name: "分享連結" });
     fireEvent.click(share);
-    await waitFor(() => expect(mint).toHaveBeenCalledWith("a-md"));
+    fireEvent.click(await within(document.body).findByTestId("share-generate"));
+    await waitFor(() => expect(mint).toHaveBeenCalledWith("a-md", expect.any(Number)));
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith(
-        `${window.location.origin}/api/chat/attachment/a-md?sig=test-sig`,
+        `${window.location.origin}/api/chat/attachment/a-md?link=tok`,
       ),
     );
   });
@@ -285,7 +300,7 @@ describe("chat message links to a stored attachment", () => {
 
   function readingTheCommentMessage(text = body) {
     globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 設計稿" })) as unknown as typeof fetch;
-    vi.spyOn(api, "getChatAttachmentShareLink").mockResolvedValue("/api/chat/attachment/x?sig=s");
+    vi.spyOn(api, "getChatAttachmentPreviewLink").mockResolvedValue("/api/chat/attachment/x?sig=s");
     const windowOpen = vi.spyOn(window, "open").mockReturnValue(null);
     messages = [{ ...msgWith([]), body: text }];
     const room = (members: Member[] = [], rosterSettled = false) => (
@@ -535,7 +550,7 @@ describe("chat message links to a stored attachment", () => {
       `${window.location.origin}/api/chat/attachment/x?sig=s`,
       "allow-scripts allow-popups allow-popups-to-escape-sandbox",
     ]);
-    expect(api.getChatAttachmentShareLink).toHaveBeenCalledWith("att-eeeeeeeeeeee");
+    expect(api.getChatAttachmentPreviewLink).toHaveBeenCalledWith("att-eeeeeeeeeeee");
     expect(globalThis.fetch).not.toHaveBeenCalled();
     fireEvent.click(within(overlay()!).getByRole("button", { name: "註解" }));
     expect(document.body.querySelector(".doc-comments__recipient strong")?.textContent).toBe("Mira");

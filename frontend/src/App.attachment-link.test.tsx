@@ -31,7 +31,7 @@ describe("App", () => {
 
   it("previews an attachment linked from a page's markdown in place, read-only where no surface names a recipient", async () => {
     globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 設計稿" })) as unknown as typeof fetch;
-    vi.spyOn(api, "getChatAttachmentShareLink").mockResolvedValue("/api/chat/attachment/x?sig=s");
+    vi.spyOn(api, "getChatAttachmentPreviewLink").mockResolvedValue("/api/chat/attachment/x?sig=s");
     render(
       <I18nProvider>
         <App />

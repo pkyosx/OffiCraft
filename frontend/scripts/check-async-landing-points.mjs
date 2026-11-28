@@ -196,18 +196,6 @@ const REGISTRY = [
   // ⚠️ The key is the ONLY thing saving these: none of them carries a guard of
   // its own. Hoisting any of them above the keyed element reopens R9-1's shape.
   {
-    file: "components/AttachmentStrip.tsx",
-    kind: ".then/.catch/.finally",
-    count: 2,
-    verdict: "share-link copy; keyed row, and the id is globally unique",
-  },
-  {
-    file: "components/AttachmentStrip.tsx",
-    kind: "setTimeout/setInterval",
-    count: 1,
-    verdict: "the 已複製 flash; keyed row, cleared on unmount",
-  },
-  {
     file: "components/ChatMessageCopyButton.tsx",
     kind: "await",
     count: 1,
@@ -497,13 +485,6 @@ const REGISTRY = [
   // the list it was opened from (R11-1).
   {
     file: "components/MarkdownPreviewOverlay.tsx",
-    kind: "await",
-    count: 1,
-    verdict:
-      "share-link copy; writes only this overlay's own state, and the overlay dies with whatever opened it",
-  },
-  {
-    file: "components/MarkdownPreviewOverlay.tsx",
     kind: ".then/.catch/.finally",
     count: 3,
     verdict:
@@ -530,17 +511,39 @@ const REGISTRY = [
     verdict: "loads the YAML parser chunk; commits nothing, it only returns the verdict to its caller",
   },
   {
-    file: "hooks/useShareHref.ts",
+    file: "hooks/usePreviewHref.ts",
     kind: ".then/.catch/.finally",
     count: 2,
     verdict:
-      "share-link mint; writes only the calling surface's own link state, guarded by an `alive` flag reset whenever the attachment id changes",
+      "preview-link mint; writes only the calling surface's own link state, guarded by an `alive` flag reset whenever the attachment id changes",
   },
   {
-    file: "components/MarkdownPreviewOverlay.tsx",
+    file: "components/ShareLinkMenu.tsx",
+    kind: ".then/.catch/.finally",
+    count: 4,
+    verdict:
+      "the open menu's two reads (this target's links, the roster for creator names); both write only this menu's own state, guarded by an `alive` flag the cleanup clears when the menu closes or the target changes",
+  },
+  {
+    file: "components/ShareLinkMenu.tsx",
+    kind: "await",
+    count: 3,
+    verdict:
+      "mint, clipboard write and revoke under a click. The mint asks `targetKeyRef` after its awaits and drops the commit when the overlay has paged to another file (the clipboard still gets the link the reader asked for — the gesture's own subject); revoke removes a row by its own id, which no other target's list holds. Writes only this menu's state; a commit after the host closed lands in a discarded component",
+  },
+  {
+    file: "components/ShareLinkMenu.tsx",
     kind: "setTimeout/setInterval",
-    count: 2,
-    verdict: "the 已複製 flash timers; write only this overlay's own state",
+    count: 1,
+    verdict:
+      "the 2s ✓ flash clearing this menu's own `result`. Armed after the mint's await, so an unmount inside that await leaves it running; it then sets one value on a discarded mount and carries no room's state",
+  },
+  {
+    file: "components/ShareLinkMenu.tsx",
+    kind: "addEventListener",
+    count: 1,
+    verdict:
+      "outside pointerdown closing the desktop popover; removed when the menu closes or unmounts, and it writes only this menu's own open state",
   },
   {
     file: "components/MarkdownPreviewOverlay.tsx",
@@ -614,20 +617,6 @@ const REGISTRY = [
     count: 2,
     verdict:
       "the one `GET /api/diff` read's two arms. The screen CAN move on inside it — the hash route can change the peer under the open overlay — and what stops the write landing wrong is the effect's own `alive` flag, set false by the cleanup and re-asked at the top of BOTH arms (the `.catch` also logs unconditionally, which writes nothing). The deps are the five address fields, so a re-addressed comparison tears the old read down rather than racing it, and the only state either arm writes is this mount's own `pair`/`failed`, derived from those deps and from nothing about the conversation",
-  },
-  {
-    file: "components/DiffShareLinkButton.tsx",
-    kind: "await",
-    count: 1,
-    verdict:
-      "`copyDiffShareLink(params)` under the click. The link is minted by the server, so the screen can move on inside this await; the button writes only its OWN two booleans (`copied`/`copyFailed`), and `params` was captured by the click — the clipboard therefore gets the link for the comparison the reader clicked on, which is the gesture's own subject and not a room's state. A commit after the host closed lands in a component React has discarded",
-  },
-  {
-    file: "components/DiffShareLinkButton.tsx",
-    kind: "setTimeout/setInterval",
-    count: 1,
-    verdict:
-      "the 2s feedback flash clearing those same two booleans. ⚠️ Said exactly rather than flatteringly: the unmount effect clears `timer.current`, and each `onCopy` clears the previous one, but this timer is ARMED AFTER the await — so an unmount that happens inside the await leaves it running and it fires unguarded. That is harmless for the reason above and only for that reason (it sets two booleans on a discarded mount, carrying no room's value), NOT because it is cleared — it is not",
   },
 
   // ─── Global / conversation-independent ───
@@ -795,9 +784,9 @@ const REGISTRY = [
   {
     file: "lib/shareLink.ts",
     kind: "await",
-    count: 6,
+    count: 3,
     verdict:
-      "returns a value to its caller; commits nothing itself. The count was 2 while this census counted LINES — one line here holds two awaits (R10-5 B5). 🔴 3 → 6 (T-59): the comparison pair `copyDiffShareLink`/`diffShareLinkUrl` was added beside the attachment pair, and it is the SAME shape twice over — `…ShareLinkUrl` awaits the server's mint and absolutizes it (1 each), `copy…` awaits `clipboard.writeText(await …ShareLinkUrl(…))` (2 each). Same verdict for the same reason: every one of the six is in a function that RETURNS or throws, none holds React state or a module table, so a resolve after the screen moved on can only hand a value back to a caller that is itself registered here (MarkdownPreviewOverlay, DiffShareLinkButton)",
+      "returns a value to its caller; commits nothing itself. Each of the three is in a function that RETURNS or throws (`mintShareLink`'s two arms, `attachmentPreviewUrl`), none holds React state or a module table, so a resolve after the screen moved on can only hand a value back to a caller that is itself registered here (ShareLinkMenu, usePreviewHref)"
   },
   {
     file: "lib/sharedSnapshot.ts",

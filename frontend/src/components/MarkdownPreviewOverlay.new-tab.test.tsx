@@ -1,7 +1,7 @@
 // 「在新頁面顯示」 on the attachment preview overlay.
 //
 // TWO THINGS ARE PINNED HERE, and each is a separate mutant:
-//   1. the button exists at all, opens the SHARE link, target=_blank + noopener
+//   1. the button exists at all, opens the PREVIEW link, target=_blank + noopener
 //      — an HTML page opened there may script, so a ?token= in its address
 //      would hand it the owner's login;
 //   2. it appears ONLY where the browser would DISPLAY the file — never on one
@@ -77,9 +77,9 @@ describe("MarkdownPreviewOverlay — 在新頁面顯示 (T-36)", () => {
   it.each([
     ["text/html", "mock.html"],
     ["application/pdf", "AI-Data-Security.pdf"],
-  ])("renders the new-tab button on a %s attachment, pointing at the SHARE link, target=_blank rel=noopener", async (mime, title) => {
+  ])("renders the new-tab button on a %s attachment, pointing at the PREVIEW link, target=_blank rel=noopener", async (mime, title) => {
     const mint = vi
-      .spyOn(api, "getChatAttachmentShareLink")
+      .spyOn(api, "getChatAttachmentPreviewLink")
       .mockResolvedValue("/api/chat/attachment/att-36?sig=test-sig");
     globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "" })) as unknown as typeof fetch;
 
@@ -95,7 +95,7 @@ describe("MarkdownPreviewOverlay — 在新頁面顯示 (T-36)", () => {
       ).toBe("present"),
     );
     const a = document.body.querySelector(NEW_TAB) as HTMLAnchorElement;
-    // The SHARE link (?sig=), never the ?token= authed URL the download uses:
+    // The one-hour PREVIEW link, never the ?token= authed URL the download uses:
     // an owner session token must not ride into another tab's address bar.
     expect(mint).toHaveBeenCalledWith("att-36");
     expect(a.getAttribute("href")).toBe(
@@ -121,7 +121,7 @@ describe("MarkdownPreviewOverlay — 在新頁面顯示 (T-36)", () => {
     ["application/octet-stream", "report.pdf"],
   ])("offers no button on a %s attachment the browser downloads", async (mime, title) => {
     const mint = vi
-      .spyOn(api, "getChatAttachmentShareLink")
+      .spyOn(api, "getChatAttachmentPreviewLink")
       .mockResolvedValue("/api/chat/attachment/att-36?sig=test-sig");
     globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "" })) as unknown as typeof fetch;
 
@@ -144,8 +144,8 @@ describe("MarkdownPreviewOverlay — 在新頁面顯示 (T-36)", () => {
     expect(mint).not.toHaveBeenCalled();
   });
 
-  it("renders no anchor when the share link cannot be minted (never a 404 href)", async () => {
-    vi.spyOn(api, "getChatAttachmentShareLink").mockRejectedValue(new Error("boom"));
+  it("renders no anchor when the preview link cannot be minted (never a 404 href)", async () => {
+    vi.spyOn(api, "getChatAttachmentPreviewLink").mockRejectedValue(new Error("boom"));
     vi.spyOn(console, "warn").mockImplementation(() => {});
     globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "" })) as unknown as typeof fetch;
 

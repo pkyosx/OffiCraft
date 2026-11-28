@@ -34,7 +34,7 @@ const AURORA: ThemeBundle = {
   id: "aurora",
   name: "Aurora",
   colors: { "--color-accent": "#123456" },
-  wording: { zh: { "chat.copyShareLink": "複製連結" } },
+  wording: { zh: { "shareLinks.trigger": "連結" } },
 };
 
 export function ThemeSettingsListStory({ builtin = "office" }: { builtin?: string }) {

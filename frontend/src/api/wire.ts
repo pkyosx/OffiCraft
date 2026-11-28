@@ -62,12 +62,8 @@ export type WireScheduledMessage = components["schemas"]["ScheduledMessageDTO"];
  * `from_name`) and send time (`GET /api/chat/attachments?with=<member_id>`). */
 export type WireChatGalleryEntry = components["schemas"]["ChatGalleryEntryDTO"];
 
-/** Mirrors `ChatAttachmentShareLinkDTO`: the single-file share link
- * (`GET /api/chat/attachments/{attachment_id}/share-link`) — the blob's serve
- * path carrying its `?sig=` file-level HMAC credential. No expiry; not
- * permanent — it dies with the signing key it was made under (T-62). */
-export type WireChatAttachmentShareLink =
-  components["schemas"]["ChatAttachmentShareLinkDTO"];
+export type WireChatAttachmentPreviewLink =
+  components["schemas"]["ChatAttachmentPreviewLinkDTO"];
 
 // ── Owner credential + settings (B3) ─────────────────────────────────────────
 
@@ -401,6 +397,9 @@ export type WireSigningKeys = components["schemas"]["SigningKeysDTO"];
 export type WireSecret = components["schemas"]["SecretDTO"];
 export type WirePasskey = components["schemas"]["PasskeyDTO"];
 export type WireSecrets = components["schemas"]["SecretsDTO"];
+export type WireShareLink = components["schemas"]["ShareLinkDTO"];
+export type WireShareLinks = components["schemas"]["ShareLinksDTO"];
+export type WireShareLinkCreated = components["schemas"]["ShareLinkCreatedDTO"];
 export type WireSharedDoc = components["schemas"]["SharedDocDTO"];
 export type WireSharedDocDetail = components["schemas"]["SharedDocDetailDTO"];
 export type WireSharedDocVersion = components["schemas"]["SharedDocVersionDTO"];

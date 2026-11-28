@@ -32,13 +32,6 @@ export const en: Dict = {
     openSide: (label: string) => `Open "${label}" on its own`,
     tooLargeLead: "Too long to compare line by line (",
     tooLargeTail: " lines).",
-    // The external, server-signed link to THIS comparison. Icon-only control
-    // (owner 2026-09-03: 「1. 用圖示」), so these three strings are the whole
-    // accessible name — and the failure one has to exist, because a copy that
-    // did not happen must never look like one that did.
-    copyShareLink: "Copy external link",
-    shareLinkCopied: "External link copied",
-    shareLinkCopyFailed: "Could not copy the link",
   },
   connection: {
     lostTitle: "Live updates disconnected",
@@ -63,6 +56,7 @@ export const en: Dict = {
     lore: "Lore",
     sharedDocs: "Files",
     secrets: "Secrets",
+    shareLinks: "Sharing",
     monitor: "Monitor",
     // Top-left logo = home entry (aria-label/title).
     home: "Home",
@@ -227,6 +221,39 @@ export const en: Dict = {
     rename: "Rename",
     editDescription: "Edit description",
     descriptionPlaceholder: "Add a description",
+  },
+  shareLinks: {
+    trigger: "Share link",
+    menuTitle: "Link expiry",
+    amountLabel: "Valid for",
+    unitLabel: "Unit",
+    unitHour: "hours",
+    unitDay: "days",
+    unitForever: "Forever",
+    forever: "Never expires",
+    generate: "Create link",
+    copied: "Link copied",
+    copyFailed: "Link created, but copying failed",
+    mintFailed: "Could not create the link. Try again.",
+    invalid: "Enter a whole number, 1 or more",
+    tooFar: "At most 365 days",
+    issued: "Issued",
+    revoke: "Revoke",
+    revokeConfirm: "Revoke",
+    revokeConfirmLead: "Revoke this share link to \u201c",
+    revokeConfirmTail: "\u201d? It stops working at once and cannot be undone.",
+    revokeFailed: "Could not revoke the link. Try again.",
+    createdLead: "Created ",
+    createdTail: "",
+    cancel: "Cancel",
+    loadFailed: "Could not load share links. Try again later.",
+    empty: "No share links in force",
+    colName: "Name",
+    colCreatedBy: "Created by",
+    colExpires: "Expires",
+    kindAttachment: "File",
+    kindDiff: "Comparison",
+    linkGone: "This share link is no longer valid",
   },
   secrets: {
     loadFailed: "Could not load secrets. Please try again later.",
@@ -1450,13 +1477,6 @@ export const en: Dict = {
     searchEmptyTail: "”",
     galleryPreviewHint: "Preview in a new tab",
     galleryDownloadHint: "Download",
-    // Single-file share link (?sig= HMAC) — copied to the clipboard. No expiry,
-    // but not permanent: it follows the signing-key ring, so removing the key
-    // that signed it voids it (T-62). Kept in step with its Chinese twin in
-    // zh.ts — the first pass fixed one and not the other.
-    copyShareLink: "Copy share link",
-    shareLinkCopied: "Link copied",
-    shareLinkCopyFailed: "Failed to copy link",
     // In-cockpit preview of a .md attachment (T-a1c4): a separate action from
     // download; the overlay renders via Markdown.tsx (not the raw-source new tab).
     // T-7bc2: the chip itself is the trigger now — no separate "action" label.
@@ -2457,6 +2477,7 @@ export const en: Dict = {
     themeNavLore: "Lore icon",
     themeNavSharedDocs: "Files icon",
     themeNavSecrets: "Secrets icon",
+    themeNavShareLinks: "Sharing icon",
     themeNavMonitor: "Monitor icon",
     // ── outer-canvas background image (T-081b) ──
     themeCanvasBgSection: "Outer canvas",

@@ -30,12 +30,6 @@ export const zh = {
     openSide: (label: string) => `單獨打開「${label}」`,
     tooLargeLead: "內容太長，無法逐行比對（",
     tooLargeTail: " 行）。",
-    // 這份比較的對外連結（server 簽章，沒有帳號的人也打得開）。owner 2026-09-03
-    // 定調「1. 用圖示」，所以這三句就是這個控制項的全部名字；失敗那句一定要
-    // 有——沒複製成功的畫面不可以長得跟複製成功一樣。
-    copyShareLink: "複製對外連結",
-    shareLinkCopied: "已複製對外連結",
-    shareLinkCopyFailed: "複製連結失敗",
   },
   // ── 即時連線中斷提示（components/ConnectionBanner）──
   // 這條橫幅存在的理由只有一個:連線死掉的畫面跟「沒有新消息」的畫面長得一模
@@ -64,6 +58,7 @@ export const zh = {
     lore: "傳承",
     sharedDocs: "檔案庫",
     secrets: "密鑰",
+    shareLinks: "分享",
     monitor: "監控",
     // 左上 logo = 回首頁的入口(aria-label/title)
     home: "回首頁",
@@ -237,6 +232,39 @@ export const zh = {
     rename: "改名",
     editDescription: "修改說明",
     descriptionPlaceholder: "加上說明",
+  },
+  shareLinks: {
+    trigger: "分享連結",
+    menuTitle: "連結有效期",
+    amountLabel: "有效多久",
+    unitLabel: "單位",
+    unitHour: "小時",
+    unitDay: "天",
+    unitForever: "永久",
+    forever: "永久",
+    generate: "產生連結",
+    copied: "已複製連結",
+    copyFailed: "已產生連結，但複製失敗",
+    mintFailed: "產生連結失敗，請再試一次",
+    invalid: "請輸入 1 以上的整數",
+    tooFar: "最長 365 天",
+    issued: "已發出",
+    revoke: "收回",
+    revokeConfirm: "收回",
+    revokeConfirmLead: "要收回「",
+    revokeConfirmTail: "」的這條分享連結嗎？收回後立刻失效，無法復原。",
+    revokeFailed: "收回失敗，請再試一次",
+    createdLead: "",
+    createdTail: " 建立",
+    cancel: "取消",
+    loadFailed: "讀不到分享連結，請稍後再試",
+    empty: "目前沒有有效的分享連結",
+    colName: "名稱",
+    colCreatedBy: "建立者",
+    colExpires: "到期",
+    kindAttachment: "檔案",
+    kindDiff: "比較頁",
+    linkGone: "這個分享連結已失效",
   },
   secrets: {
     loadFailed: "讀不到密鑰，請稍後再試",
@@ -1520,11 +1548,6 @@ export const zh = {
     searchEmptyTail: "」的訊息",
     galleryPreviewHint: "開新分頁預覽",
     galleryDownloadHint: "下載",
-    // 檔案級分享連結(?sig= HMAC)— 複製到剪貼簿。不會過期,但不是永久:
-    // 它跟著簽章金鑰環走,移除當初簽它的那把金鑰就會讓它失效(T-62)。
-    copyShareLink: "複製分享連結",
-    shareLinkCopied: "已複製連結",
-    shareLinkCopyFailed: "複製連結失敗",
     // .md 附件的座艙內預覽(T-a1c4):與下載分開的動作;overlay 內用
     // Markdown.tsx render(不是開新分頁看原始碼)。
     // T-7bc2: the chip itself is the trigger now — no separate "action" label.
@@ -2494,6 +2517,7 @@ export const zh = {
     themeNavLore: "傳承圖示",
     themeNavSharedDocs: "檔案庫圖示",
     themeNavSecrets: "密鑰圖示",
+    themeNavShareLinks: "分享圖示",
     themeNavMonitor: "監控圖示",
     // ── 外框背景圖 (T-081b) ──
     themeCanvasBgSection: "外框背景",

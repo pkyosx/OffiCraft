@@ -53,19 +53,25 @@ describe("formatDiffSideAddress", () => {
 });
 
 describe("parseDiffParams", () => {
-  it("reads both sides, the optional labels and the signature", () => {
+  it("reads both sides, the optional labels and the share link", () => {
     expect(
       parseDiffParams(
         "?before=att-0123456789ab&after=doc:global_context/global/current/text" +
-          "&label_before=%E6%94%B9%E5%8B%95%E5%89%8D&label_after=now&sig=abc123",
+          "&label_before=%E6%94%B9%E5%8B%95%E5%89%8D&label_after=now&link=abc123",
       ),
     ).toEqual({
       before: "att-0123456789ab",
       after: "doc:global_context/global/current/text",
       labelBefore: "改動前",
       labelAfter: "now",
-      sig: "abc123",
+      link: "abc123",
     });
+  });
+
+  it("keeps a legacy signature as its own credential", () => {
+    expect(
+      parseDiffParams("?before=att-0123456789ab&after=att-fedcba987654&sig=old1"),
+    ).toEqual({ before: "att-0123456789ab", after: "att-fedcba987654", sig: "old1" });
   });
 
   it("refuses a comparison that is missing a side or names a bad one", () => {
@@ -88,7 +94,7 @@ describe("formatDiffUrl", () => {
       before: "att-0123456789ab",
       after: "doc:insight/pm::ops/current/text",
       labelBefore: "改動前 & 之後",
-      sig: "s+g/1",
+      link: "s+g/1",
     };
     const url = formatDiffUrl(params);
     expect(url.startsWith("/diff?")).toBe(true);

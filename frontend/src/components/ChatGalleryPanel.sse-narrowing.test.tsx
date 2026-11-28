@@ -33,7 +33,7 @@ let handlers: ((topic: string, delta?: SseDelta) => void)[] = [];
 vi.mock("../api", () => ({
   api: {
     listChatAttachments: (withId: string) => listChatAttachments(withId),
-    getChatAttachmentShareLink: async (id: string) => `/x/${id}`,
+    getChatAttachmentPreviewLink: async (id: string) => `/x/${id}`,
     subscribeEvents: (cb: (topic: string, delta?: SseDelta) => void) => {
       handlers.push(cb);
       return () => {
