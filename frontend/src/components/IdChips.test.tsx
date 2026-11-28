@@ -15,8 +15,7 @@ function renderChip() {
       text="rc-83935a"
       label="複製請示卡完整 ID rc-83935a1b2c3d"
       copiedLabel="已複製"
-      className="chip"
-      copiedClassName="chip-copied"
+      className="reply-card__id"
       testId="chip"
       copiedTestId="chip-copied"
     />,
@@ -49,6 +48,7 @@ describe("CopyIdChip", () => {
     expect(copyTextMock).toHaveBeenCalledWith("rc-83935a1b2c3d");
     expect(chip.textContent).toBe("#rc-83935a已複製");
     expect(copied()?.getAttribute("role")).toBe("status");
+    expect([chip.className, copied()?.className]).toEqual(["id-chip reply-card__id", "id-chip__copied"]);
 
     await act(async () => {
       vi.advanceTimersByTime(1700);

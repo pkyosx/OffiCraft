@@ -1720,8 +1720,6 @@ export function TaskCard({
               text={task.taskNo}
               label={msg.taskCopyTaskNo(task.taskNo)}
               copiedLabel={t.tasks.taskNoCopied}
-              className="task-card__id-badge task-card__id-badge--copy"
-              copiedClassName="task-card__id-badge-copied"
               testId="task-no"
               copiedTestId="task-no-copied"
             />

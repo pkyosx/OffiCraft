@@ -2,8 +2,9 @@
 // and inside a task's step —, secret, file, lore) are one style: on every card
 // each label starts at the rows' left edge in the task card's colour, opacity
 // and size, the values start one task-card gap after the card's widest label,
-// and a one-line value is centred on its label. Measured against the task
-// card's own rows in the same test, at phone and desktop width in zh and en.
+// and a one-line value is centred on its label. The copy id chip on each
+// card's first line is drawn the same way too. Measured against the task card's
+// own rows and id chip in the same test, at phone and desktop width in zh and en.
 // jsdom lays nothing out.
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
@@ -60,6 +61,15 @@ async function measure(page: Page, cardSelector: string): Promise<Meta[]> {
   }, cardSelector);
 }
 
+async function idChipLook(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const chip = document.querySelector(".id-chip");
+    if (!chip) return "no id chip";
+    const cs = getComputedStyle(chip);
+    return [cs.fontFamily, cs.fontSize, cs.fontWeight, cs.color, cs.borderTopColor, cs.padding, cs.borderRadius].join(" | ");
+  });
+}
+
 function expectSameRows(metas: Meta[], ref: Row, gap: number, tag: string) {
   expect(metas.length, `${tag}: some rows measured`).toBeGreaterThan(0);
   for (const meta of metas) {
@@ -80,7 +90,7 @@ function expectSameRows(metas: Meta[], ref: Row, gap: number, tag: string) {
 
 for (const width of [320, 390, 1440]) {
   for (const language of ["zh", "en"] as const) {
-    test(`width ${width} ${language}: every card's label/value rows are the task card's rows`, async ({ mount, page }) => {
+    test(`width ${width} ${language}: every card's label/value rows and id chip are the task card's`, async ({ mount, page }) => {
       await page.setViewportSize({ width, height: 1400 });
       await page.evaluate((l) => localStorage.setItem("oc.language", l), language);
       const tag = `[${width}px ${language}]`;
@@ -97,6 +107,8 @@ for (const width of [320, 390, 1440]) {
       const gap = ref.valueX - taskColumn;
       expect(gap, `${tag} the task card's gap`).toBeCloseTo(12, 0);
       expectSameRows(task, ref, gap, `${tag} task card`);
+      const idChip = await idChipLook(page);
+      expect(idChip, `${tag} the task card's id chip`).not.toBe("no id chip");
       expectSameRows(embedded, ref, gap, `${tag} reply card in a step`);
       expect(embedded[0].rows.map((r) => r.label), `${tag} the embedded card's rows`).toEqual([
         language === "zh" ? "開卡人" : "Asked by",
@@ -106,6 +118,7 @@ for (const width of [320, 390, 1440]) {
       cmp = await mount(<ReplyDeskStory longAskers />);
       await expect(cmp.locator(".reply-card .card-meta").first()).toBeVisible();
       expectSameRows(await measure(page, ".reply-card"), ref, gap, `${tag} 請示 page`);
+      expect.soft(await idChipLook(page), `${tag} 請示 page id chip`).toBe(idChip);
       await cmp.unmount();
 
       for (const [name, story, card] of [
@@ -116,6 +129,7 @@ for (const width of [320, 390, 1440]) {
         cmp = await mount(story);
         await expect(cmp.locator(".card-meta").first()).toBeVisible();
         expectSameRows(await measure(page, card), ref, gap, `${tag} ${name}`);
+        expect.soft(await idChipLook(page), `${tag} ${name} id chip`).toBe(idChip);
         await cmp.unmount();
       }
     });

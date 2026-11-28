@@ -22,8 +22,13 @@
  *   .lore-dir-card__usage / __bar / __bar-fill / __usage-text
  *                            ← .task-card__progress / -bar / -fill / -text
  *
- * The 金鑰 and 檔案庫 cards wear these same .lore-row* classes. The label/value
- * rows and their chips are not copied: every card shares card-meta.css.
+ * The 金鑰 and 檔案庫 cards wear these same .lore-row* classes.
+ *
+ * ⚠️ The owner has since ruled the other way for patterns every card repeats
+ * (c-c6bd1f555f89: one shared piece, so no change lands in one place only).
+ * Those are no longer copied: the label/value rows and their chips
+ * (card-meta.css), the copy id chip (id-chip.css). The copies listed above
+ * are what is left to fold in.
  *
  * The one exception is the message box: owner wants it to BE the 任務卡's box,
  * so both cards share card-composer.css rather than a copy. The directory's
@@ -478,42 +483,6 @@ button.lore-section__name--link:hover {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-.lore-row__id-badge {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin: 0;
-  padding: 2px 9px;
-  border-radius: var(--radius-pill);
-  border: 1px solid color-mix(in srgb, var(--color-task-id) 45%, transparent);
-  background: color-mix(in srgb, var(--color-task-id) 12%, transparent);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
-  font-size: 12px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-  color: var(--color-task-id);
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-/* The glyph inside the badge — same rule as 任務卡's (.task-card__id-badge svg),
- * so the two badges line up their icon the same way rather than one of them
- * shrinking under a long id. */
-.lore-row__id-badge svg {
-  flex: none;
-}
-.lore-row__id-badge:hover {
-  background: color-mix(in srgb, var(--color-task-id) 20%, transparent);
-}
-/* the transient 「已複製」 pill — sits inline after the id, same as 任務卡. */
-.lore-row__id-badge-copied {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: normal;
-  opacity: 0.85;
 }
 
 /* ── 適用範圍: the fourth tag ──

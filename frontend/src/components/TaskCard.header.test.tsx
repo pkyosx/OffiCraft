@@ -126,7 +126,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     const { findByTestId } = renderPage();
     const badge = await findByTestId("task-no");
     expect(badge.textContent).toContain(`#${task.taskNo}`);
-    expect(badge.classList.contains("task-card__id-badge")).toBe(true);
+    expect(badge.className).toBe("id-chip");
     // the ☑ glyph is an inline svg inside the badge.
     expect(badge.querySelector("svg")).toBeTruthy();
     // v2 (owner 2026-07-17): the badge lives on the fixed badge row between

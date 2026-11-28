@@ -42,6 +42,10 @@ iOS Safari 在字小於 16px 的 input／textarea／select 聚焦時會放大整
 
 任務卡、請示卡（請示頁、聊天室、任務步驟裡）、金鑰卡、檔案庫卡、傳承卡的 label/value 列都是 `card-meta.css` 的 `.card-meta`／`.card-meta__label`／`.card-meta__row`，各元件自己 import（styleOwnership 有登記）。owner 看過請示卡的「開卡人」比任務卡的列低、顏色不同、欄距不同：那是 `replies.css` 自己抄了一份（baseline、10px 欄距、沒有 opacity）。不要在各頁的 stylesheet 再寫一份格線或 label 樣式；值的樣式（chip、時間）才放在各頁。label 欄寬是那張卡最寬的 label（max-content），所以 label 字數不同的卡（例如有「處理時間」的請示卡）欄寬本來就不同。請示卡外包開卡人的目前任務沒有 label，只占值那一欄（`grid-column: 2`）。CT `card-meta-rows` 在 320／390／1440 中英拿任務卡的列當基準量另外四種卡：label 顏色、透明度、字級相同，label 在列的左緣，值在最寬 label 加同一個欄距之後，一行的值跟 label 垂直置中。沒有值的列寫 `t.common.emptyValue`（「-」，跟時間同一個樣式，不斜體、不灰）：金鑰卡沒讀過的最後存取、舊任務沒有建立者、沒有撰寫人的傳承（owner：沒有值就顯示「-」）。任務卡的到期日另有規則：可編輯時寫「未設定」可點、不可編輯時整列不畫；負責人寫「未指派」；傳承的失效理由沒有就不畫那一列——這三處不是「-」。
 
+## 卡片上重複的樣子只有一份
+
+owner `c-c6bd1f555f89`：五種卡片（任務、請示、金鑰、檔案庫、傳承）重複出現的樣子要抽成共用的一份，免得改一處漏一處。現在共用的：label/value 列與值 chip（`card-meta.css`）、人名 chip（`MemberChip.tsx`）、複製編號 chip（`IdChips.tsx` 的 `CopyIdChip`＋`id-chip.css`；跳轉編號是 `TaskIdChip`，兩者的「#」都由 `idChipText` 加）、時間（`lib/dateFormat.ts` 的 `formatAbsolute`、到期用 `lib/dueDate.ts` 的 `formatDue`）、沒有值的「-」（`t.common.emptyValue`）、整張卡是開關（`lib/cardToggle.ts`）、頁面工具列（`PageToolbar.tsx`）。`lore.css` 檔頭列的狀態圖示、卡頭圖示鈕等還是拷貝。新卡片或改這些樣子時，先找共用的那一份；CT `card-meta-rows` 以任務卡為基準量另外四種卡的列與編號 chip。
+
 ## 頁面工具列（筆數＋新增）
 
 檔案庫與金鑰頁卡片清單上面那一列是 `PageToolbar.tsx`＋`page-toolbar.css`：左邊筆數（`msg.sharedDocListedCount`／`msg.secretListedCount`，樣子跟任務頁的 `.filter-panel__summary` 一樣），右邊「＋ 新增」（`page-toolbar__btn`），右緣跟卡片右緣對齊（owner `c-0bd2716c5a31`、`c-ad3914549d2e`）。任務頁與傳承頁那一列是 `FilterPanel` 的 `summary`（右邊是篩選漏斗），不是這個元件。守衛：`shared-docs-list-narrow` 與 `secret-note-clamp` 在 320／390／1440 中英量筆數一行、在左緣，新增在卡片右緣、同一行。

@@ -175,8 +175,6 @@ function SecretRow({
             text={secret.id}
             label={msg.secretCopyId(secret.id)}
             copiedLabel={d.idCopied}
-            className="lore-row__id-badge"
-            copiedClassName="lore-row__id-badge-copied"
             testId="secret-id"
             copiedTestId="secret-id-copied"
           />

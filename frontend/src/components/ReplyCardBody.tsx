@@ -333,8 +333,7 @@ export function ReplyCardIdChip({ id }: { id: string }) {
       text={id.startsWith("rc-") ? id.slice(0, 9) : id}
       label={msg.replyCopyId(id)}
       copiedLabel={t.replies.idCopied}
-      className="task-card__id-badge task-card__id-badge--copy reply-card__id"
-      copiedClassName="task-card__id-badge-copied"
+      className="reply-card__id"
       testId="reply-card-id"
       copiedTestId="reply-card-id-copied"
     />

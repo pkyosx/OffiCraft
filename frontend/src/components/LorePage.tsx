@@ -2084,8 +2084,6 @@ function LoreRow({
             text={entry.id}
             label={msg.loreCopyEntryId(entry.id)}
             copiedLabel={t.lore.entryIdCopied}
-            className="lore-row__id-badge"
-            copiedClassName="lore-row__id-badge-copied"
             testId="lore-entry-id"
             copiedTestId="lore-entry-id-copied"
           />

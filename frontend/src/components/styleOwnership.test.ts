@@ -76,6 +76,8 @@ const OWNED_SHEETS = [
   "card-meta.css",
   // The count-and-add row above the 檔案庫 and 金鑰 lists.
   "page-toolbar.css",
+  // The copy id chip on every card's first line.
+  "id-chip.css",
 ] as const;
 
 /** Sheets whose BEM block is not just the filename. `member-detail.css` owns the

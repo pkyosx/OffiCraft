@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { copyText } from "../lib/clipboard";
 import { CheckIcon, CopyIcon } from "./icons";
+import "./id-chip.css";
 
 /** How every id chip writes its id: with a leading 「#」 (owner). The copy and
  * the link carry the bare id. */
@@ -21,7 +22,6 @@ export function CopyIdChip({
   label,
   copiedLabel,
   className,
-  copiedClassName,
   testId,
   copiedTestId,
 }: {
@@ -29,8 +29,8 @@ export function CopyIdChip({
   text: string;
   label: string;
   copiedLabel?: string;
-  className: string;
-  copiedClassName?: string;
+  /** Extra classes for where the chip sits; its look is .id-chip's. */
+  className?: string;
   testId: string;
   copiedTestId?: string;
 }) {
@@ -51,7 +51,7 @@ export function CopyIdChip({
   return (
     <button
       type="button"
-      className={className}
+      className={className ? `id-chip ${className}` : "id-chip"}
       data-testid={testId}
       aria-label={label}
       title={label}
@@ -60,7 +60,7 @@ export function CopyIdChip({
       {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
       {idChipText(text)}
       {copied && copiedLabel && (
-        <span className={copiedClassName} role="status" data-testid={copiedTestId}>
+        <span className="id-chip__copied" role="status" data-testid={copiedTestId}>
           {copiedLabel}
         </span>
       )}

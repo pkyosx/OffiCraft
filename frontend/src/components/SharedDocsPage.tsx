@@ -752,8 +752,6 @@ function SharedDocList({
                     text={shortDocId(doc.id)}
                     label={msg.sharedDocCopyId(doc.id)}
                     copiedLabel={d.idCopied}
-                    className="lore-row__id-badge"
-                    copiedClassName="lore-row__id-badge-copied"
                     testId="shared-doc-id"
                     copiedTestId="shared-doc-id-copied"
                   />
