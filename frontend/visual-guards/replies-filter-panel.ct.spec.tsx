@@ -7,13 +7,15 @@
 // its own markup once kept this guard green for a layout no page rendered.
 //
 // The shape measured: on 任務頁 and 請示頁 the row holds a funnel; the fields
-// open in a centred dialog (desktop) or a bottom sheet (≤720px). 傳承頁 keeps the
-// fields inline in the row, which `FilterFieldsStory` stands in for.
+// open in a panel anchored under it (desktop) or a bottom sheet (≤720px). 傳承頁
+// keeps the fields inline in the row, which `FilterFieldsStory` stands in for.
 //
 // What is asserted is geometry and computed colour:
-//   (1) the dialog / sheet and every field in it stay inside the viewport with
+//   (1) the panel / sheet and every field in it stay inside the viewport with
 //       no horizontal overflow, at desktop and phone widths, and a dropdown
 //       opened inside floats above the layer instead of being clipped by it;
+//       the desktop panel hangs under the funnel, right edges aligned, with
+//       nothing dimming the page, and is dismissed like 顯示方式;
 //   (2) the inline row WRAPS several fields inside the column at 320px, CJK
 //       labels on one line;
 //   (3) the folded row is page content — the list starts below it;
@@ -24,9 +26,9 @@
 //       shows only while something is filtered;
 //   (6) the shell adds no spacing of its own below the row;
 //   (7) on 請示頁 the three list labels hold one line inside the column at
-//       320, 390 and 1440 in both languages, with the note and the funnel on
+//       320, 390 and 1440 in both languages, with the funnel and 顯示方式 on
 //       the same line beside them on a desktop and on one line below them on a
-//       phone.
+//       phone, and no sort wording in the row.
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Locator, Page } from "@playwright/test";
 import { BUILTIN_THEME_IDS, expectBuiltinApplied } from "./builtinThemes";
@@ -115,7 +117,7 @@ async function overflow(locator: Locator) {
 
 const FULL_ID = "rc-428906235337"; // 15 chars, the real shape (api_replycards.go:283)
 
-/** The fields live in a dialog portalled to <body>, so they are found on the
+/** The fields live in a layer portalled to <body>, so they are found on the
  * page, not inside the mount. */
 async function openFilters(cmp: Locator, page: Page) {
   await cmp.getByTestId("replies-filter-toggle").click();
@@ -131,15 +133,15 @@ async function applyId(cmp: Locator, page: Page, id: string) {
 }
 
 for (const pageName of ["tasks", "replies"] as const) {
-  for (const width of [390, 1440]) {
-    test(`${pageName} width ${width}: the 篩選 ${width > 720 ? "dialog" : "sheet"} holds every field inside the viewport, with no horizontal overflow, and a dropdown in it is not clipped`, async ({
+  for (const width of [390, 721, 1440]) {
+    test(`${pageName} width ${width}: the 篩選 ${width > 720 ? "panel" : "sheet"} holds every field inside the viewport, with no horizontal overflow, and a dropdown in it is not clipped`, async ({
       mount,
       page,
     }) => {
       await page.setViewportSize({ width, height: width > 720 ? 900 : 844 });
       const cmp = await mount(<AppPageStory page={pageName} theme="office" wide={width > 1040} />);
       await cmp.getByTestId(`${pageName}-filter-toggle`).click();
-      const layer = page.getByTestId(`${pageName}-filter-${width > 720 ? "dialog" : "sheet"}`);
+      const layer = page.getByTestId(`${pageName}-filter-${width > 720 ? "pop" : "sheet"}`);
       await expect(layer).toBeVisible();
 
       const m = await layer.evaluate((box) => {
@@ -208,6 +210,32 @@ for (const pageName of ["tasks", "replies"] as const) {
       });
       expect(onTop, "the popover paints above the layer at its top and bottom").toBe(true);
       expect(await pop.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+      if (width <= 720) return;
+
+      const funnel = page.getByTestId(`${pageName}-filter-toggle`);
+      const f = (await funnel.boundingBox())!;
+      expect(m.box.top - (f.y + f.height), "the panel hangs just under the funnel").toBeGreaterThanOrEqual(0);
+      expect(m.box.top - (f.y + f.height)).toBeLessThanOrEqual(6);
+      expect(Math.abs(m.box.right - (f.x + f.width)), "right edges aligned").toBeLessThanOrEqual(1);
+      await expect(page.locator('[data-testid$="-filter-backdrop"]'), "nothing dims the page").toHaveCount(0);
+      await expect(layer).not.toHaveAttribute("aria-modal", /.*/);
+
+      await page.keyboard.press("Escape");
+      await expect(pop, "Esc closes the open dropdown first").toBeHidden();
+      await expect(layer).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(layer).toBeHidden();
+      await expect(funnel).toBeFocused();
+
+      await funnel.click();
+      await expect(layer).toBeVisible();
+      await page.mouse.click(4, (width > 720 ? 900 : 844) - 4);
+      await expect(layer, "an outside click closes it").toBeHidden();
+
+      await funnel.click();
+      await expect(layer).toBeVisible();
+      await funnel.click();
+      await expect(layer, "the funnel closes it again").toBeHidden();
     });
   }
 }
@@ -293,7 +321,7 @@ test("the folded 篩選 row is page content: the list starts below it", async ({
     .toBeLessThanOrEqual(belowBox.y + 1);
 });
 
-test("the ID field is no taller than the pill triggers beside it in the dialog", async ({
+test("the ID field is no taller than the pill triggers beside it in the panel", async ({
   mount,
   page,
 }) => {
@@ -309,7 +337,7 @@ test("the ID field is no taller than the pill triggers beside it in the dialog",
 });
 
 for (const theme of BUILTIN_THEME_IDS) {
-  test(`theme ${theme}: the ID field is distinguishable from the dialog behind it`, async ({
+  test(`theme ${theme}: the ID field is distinguishable from the panel behind it`, async ({
     mount,
     page,
   }) => {
@@ -326,7 +354,7 @@ for (const theme of BUILTIN_THEME_IDS) {
         border: cs.borderTopColor,
         fill: cs.backgroundColor,
         borderWidth: cs.borderTopWidth,
-        behind: getComputedStyle(node.closest(".confirm-modal__box")!).backgroundColor,
+        behind: getComputedStyle(node.closest(".filter-panel__pop")!).backgroundColor,
       };
     });
     const behind = parseColor(colours.behind);
@@ -335,7 +363,7 @@ for (const theme of BUILTIN_THEME_IDS) {
     expect(parseFloat(colours.borderWidth), "the field must declare a border width").toBeGreaterThan(0);
     expect(
       sameColour(border, behind) && sameColour(fill, behind),
-      "the field must differ from the dialog by a border, a fill, or both"
+      "the field must differ from the panel by a border, a fill, or both"
     ).toBe(false);
   });
 }
@@ -394,7 +422,7 @@ test("the 篩選 shell adds no spacing of its own: the gap below the label row i
 
 for (const width of [320, 390, 1440]) {
   for (const language of ["zh", "en"] as const) {
-    test(`width ${width}, ${language}: the three list labels keep one line inside the column, each label whole or cut with 「…」, and the note and 篩選 buttons share a line ${width > 720 ? "with them" : "below them"}`, async ({
+    test(`width ${width}, ${language}: the three list labels keep one line inside the column, each label whole or cut with 「…」, the 篩選 and 顯示方式 buttons share a line ${width > 720 ? "with them" : "below them"}, and the row names no sort`, async ({
       mount,
       page,
     }) => {
@@ -433,7 +461,7 @@ for (const width of [320, 390, 1440]) {
           column: r(column),
           tabs: Array.from(list.querySelectorAll('[role="tab"]')).map(r),
           labels,
-          sort: r(root.querySelector('[data-testid="replies-sort-active"]')!),
+          headText: (root.querySelector(".replies__head") as HTMLElement).textContent,
           funnel: r(root.querySelector('[data-testid="replies-filter-toggle"]')!),
           display: r(root.querySelector('[data-testid="display-options"]')!),
           page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -461,13 +489,13 @@ for (const width of [320, 390, 1440]) {
       }
 
       const mid = (b: { top: number; bottom: number }) => (b.top + b.bottom) / 2;
-      const tools = [m.sort, m.funnel, m.display];
-      expect(Math.max(...tools.map(mid)) - Math.min(...tools.map(mid)), "the note and the buttons on one line").toBeLessThanOrEqual(2);
-      expect(m.sort.right, "the note clear of the funnel").toBeLessThanOrEqual(m.funnel.left);
+      const tools = [m.funnel, m.display];
+      expect(Math.abs(mid(m.funnel) - mid(m.display)), "the buttons on one line").toBeLessThanOrEqual(2);
       for (const b of tools) expect(b.right).toBeLessThanOrEqual(m.column.right + 0.5);
+      expect(m.headText).not.toContain(language === "zh" ? "開卡時間" : "Opened");
       if (width > 720) {
         expect(Math.abs(mid(m.funnel) - mid(m.list)), "the buttons beside the labels").toBeLessThanOrEqual(2);
-        expect(m.sort.left, "the note after the labels").toBeGreaterThanOrEqual(m.list.right);
+        expect(m.funnel.left, "the buttons after the labels").toBeGreaterThanOrEqual(m.list.right);
       } else {
         expect(m.funnel.top, "the buttons on the line below the labels").toBeGreaterThanOrEqual(m.list.bottom);
       }

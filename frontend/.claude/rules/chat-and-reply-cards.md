@@ -116,11 +116,11 @@ ChatReplyCard 的 doReanswer 保留單卡 refetch：終態 delta 可能被刻意
 
 ## 請示卡頁的排序、任務列與稍後再看
 
-- 請示頁一次列一份清單，由清單上方的單選標籤（`ReplyListTabs`，`role="tablist"`，`replies-tab-<view>`）決定：等待回覆（`waiting`，預設）／稍後再看（`snoozed`）／近期已回覆（`answered`＝已回覆＋已過期）。選中的標籤不存、不進 hash，每次進頁面都是等待回覆；左右鍵、Home、End 換標籤並移焦點（roving tabindex）。每個標籤印篩選後的張數（`replies-tab-count-<view>`）；近期已回覆的張數在 `handledLoaded` 之前不印。篩選 dialog 的四個欄位作用在選中的標籤上，「清除篩選」不動標籤。
+- 請示頁一次列一份清單，由清單上方的單選標籤（`ReplyListTabs`，`role="tablist"`，`replies-tab-<view>`）決定：等待回覆（`waiting`，預設）／稍後再看（`snoozed`）／近期已回覆（`answered`＝已回覆＋已過期）。選中的標籤不存、不進 hash，每次進頁面都是等待回覆；左右鍵、Home、End 換標籤並移焦點（roving tabindex）。每個標籤印篩選後的張數（`replies-tab-count-<view>`）；近期已回覆的張數在 `handledLoaded` 之前不印。篩選面板的四個欄位作用在選中的標籤上，「清除篩選」不動標籤。
 - 卡片標題前沒有狀態標籤：近期已回覆下每張卡是已回覆或已過期，由卡頭右端的 `.reply-card__answered-at`（`已回覆／已過期 <時間>`）說明，另外兩個標籤下卡的狀態就是標籤本身。已回覆／已過期只列 server 的 24 小時窗（標籤列旁 `replies-answered-window` 寫「近 24 小時」），**只在選了近期已回覆時才撈**；套用編號時不撈，那張卡由 `getReplyCard` 回答。
 - 開著的卡自己換了清單時留在原處，直到切換標籤：別處回答或標為過期（`readCard` 讀到 status 變了 → `pinned`，帶當下的標籤），以及等待回覆／稍後再看之間被時間或別的視窗搬動（`heldOpen`：仍展開、上一輪畫在這份清單、不是這一頁自己按的延後／取消延後，`ownMoveIdsRef`）。`setView` 清掉兩者。
 - 等待回覆預設依開卡時間新到舊；「顯示方式」的排序依據（`lib/replyCardSort.ts`，localStorage `oc_replies_sort`）只排等待回覆，稍後再看依回來時間、近期已回覆依處理時間，都不受它影響。任務優先序的順序取 `lib/taskPriority.ts` 的 `priorityRank`（跟任務頁同一份），沒有任務的卡排在凍結後面。
-- 選了等待回覆時，目前的排序依據印在標籤旁（`replies-sort-active`），預設的開卡時間也照印；「顯示方式」面板選了就自己收起（`DisplayOptions` 共用，任務頁的分組依據同樣）。標籤列在電腦上跟註記、漏斗、顯示方式同一行；窄螢幕上標籤自己一行，註記與按鈕換到下一行（`.replies__head` 換行，標籤本身不換行；只有 320 寬的英文「Recently answered」會以「…」截斷，張數照留）。⚠️ 標籤不要加 `transition`：切換後的那一幀會讓 `reply-desk` 的名字欄截圖比對多出 1 階的像素差而紅。量在 `visual-guards/replies-filter-panel.ct.spec.tsx`（320／390／1440，中英）。
+- 目前的排序依據不印在標籤旁，只在「顯示方式」面板裡；選的不是 `DEFAULT_WAITING_SORT` 時，`DisplayOptions` 在按鈕右上角畫小圓點（`display-options-changed`），按鈕的 aria-label／title 帶出目前選擇（`msg.displayOptionsChanged`）。這條規則在 `DisplayOptions` 裡，靠呼叫端傳 `defaultValue`，任務頁的分組依據同樣。面板選了就自己收起。標籤列在電腦上跟註記（只有近期已回覆的「近 24 小時」）、漏斗、顯示方式同一行；窄螢幕上標籤自己一行，註記與按鈕換到下一行（`.replies__head` 換行，標籤本身不換行；只有 320 寬的英文「Recently answered」會以「…」截斷，張數照留）。⚠️ 標籤不要加 `transition`：切換後的那一幀會讓 `reply-desk` 的名字欄截圖比對多出 1 階的像素差而紅。量在 `visual-guards/replies-filter-panel.ct.spec.tsx`（320／390／1440，中英）。
 - `.reply-card__waited` 在每種裝置與寬度上都是同一個固定 64px 寬的 `.reply-card__waited-pill`（沙漏＋`formatDurationShort` 的單一單位；已延後的卡是 `SnoozeActionIcon`＋`snoozeBackShort` 的 MM/DD），完整說法只放在 `title`／`aria-label`（`replyWaitedFull`／`replySnoozeBack`），畫面上沒有整句（owner：「應該要一致」）。它排在卡頭第一行最右端（有按鈕列時在按鈕列之後），寬度一樣，每張卡的膠囊右緣、電腦上的抬頭按鈕才對齊在同一個 x；已回覆／已過期卡的 `.reply-card__answered-at`（`已回覆／已過期 <時間>`，文字）也排在同一個位置。64px 要放得下「999d」與 MM/DD；改字型或字級要重量，守衛在 `visual-guards/reply-desk.ct.spec.tsx`。
 - 任務列的優先序／期限是 server 在回應當下讀任務本身的值（`TaskRefDTO`），卡片不存。⇒ `useReplyCards` 除了 `reply_card` 也要在 `task` delta 重抓，否則改任務的優先序或期限，請示頁要等下一張卡變動才跟上。期限顏色走 `TaskDueChip`（`useDueState`，在跨過邊界的那一刻重繪，不是輪詢）。任務列畫在卡片最上方、抬頭之上；外包的「目前任務」那一行永遠照畫，即使跟任務列是同一個任務。
 - 優先序／期限篩選跟開卡人軸同一套：選項與張數從選中標籤的那份清單算，每一軸的張數只套用**其他**軸；各軸彼此 AND、也跟 id AND。
@@ -134,11 +134,11 @@ ChatReplyCard 的 doReanswer 保留單卡 refetch：終態 delta 可能被刻意
 
 ## 請示卡頁的 ID 篩選
 
-欄位收在篩選列的漏斗後面，點開是「篩選請示卡」dialog（手機是底部 sheet），形狀與規則跟任務頁同一個 `FilterPanel` collapse（見 `tasks-and-outsource.md`「任務頁的篩選與 ID 條件」與 `FilterPanel.tsx` 檔頭）。漏斗徽章數「有值的欄位數」（編號、開卡人、任務優先序、任務到期），跟 `narrowing` 同一個定義；選中的標籤不算；`#replies/opener/<id>` 種下的開卡人讓徽章是 1。`testId="replies-filter"` 以免和任務頁的控制項撞名。第一輪是常駐列但**每敲一個字元就篩一次已載入的那批卡**，owner 兩次否決（「每次都要全部都撈回來才濾不合理」），所以編號欄位一直是 Enter／blur 才提交。
+欄位收在篩選列的漏斗後面，點開是「篩選請示卡」面板（電腦錨定在漏斗下方，手機是底部 sheet），形狀與規則跟任務頁同一個 `FilterPanel` collapse（見 `tasks-and-outsource.md`「任務頁的篩選與 ID 條件」與 `FilterPanel.tsx` 檔頭）。漏斗徽章數「有值的欄位數」（編號、開卡人、任務優先序、任務到期），跟 `narrowing` 同一個定義；選中的標籤不算；`#replies/opener/<id>` 種下的開卡人讓徽章是 1。`testId="replies-filter"` 以免和任務頁的控制項撞名。第一輪是常駐列但**每敲一個字元就篩一次已載入的那批卡**，owner 兩次否決（「每次都要全部都撈回來才濾不合理」），所以編號欄位一直是 Enter／blur 才提交。
 
 **兩份狀態，不是一份**：`appliedId` 是清單真的被什麼篩，`draftId` 是欄位綁的值。**打字不篩、不發請求；Enter 或 blur 才由 `commitId()` 提交。** ⚠️ 這不是面板時代的殘留——套用 id 會打一支 `api.getReplyCard(id)`，**每按鍵提交＝每按鍵一支請求**，正是被否決兩次的那個形狀（一次獨立審查逐字寫過「一個字元一個請求」）。`commitId` 對相同值是 no-op，所以 Enter 之後再 blur 不會重打。`#replies/card/<id>` 仍然只是把 id 代進 **applied** 那一半（外加捲動 focus）。
 
-**清除有兩個出口**：清空欄位再 Enter，或按 dialog 底部的 `.filter-panel__clear`（只在 `narrowing` 為真時才渲染）。只有那一顆鈕，沒有「N 筆 已篩選」那串字或 chip（owner `c-2423dba8b65b`「清除篩選還是要留著」）。
+**清除有兩個出口**：清空欄位再 Enter，或按面板底部的 `.filter-panel__clear`（只在 `narrowing` 為真時才渲染）。只有那一顆鈕，沒有「N 筆 已篩選」那串字或 chip（owner `c-2423dba8b65b`「清除篩選還是要留著」）。
 
 ## 請示卡頁的「開卡人」軸（T-118 後半，owner `c-782404ee53d8`）
 

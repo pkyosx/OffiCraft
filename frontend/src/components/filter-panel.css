@@ -1,5 +1,5 @@
-/* FilterPanel — the 篩選 shell (inline row, or a funnel that opens a dialog /
- * phone sheet). Self-contained: FilterPanel.tsx imports this file itself.
+/* FilterPanel — the 篩選 shell (inline row, or a funnel that opens an anchored
+ * panel / phone sheet). Self-contained: FilterPanel.tsx imports this file itself.
  * Colours are theme tokens only.
  *
  * 🔴 NO `margin` ON THE ROW: both host pages are flex columns that space their
@@ -36,7 +36,7 @@
  * (`rc-5d2e6d48a108`), and a `flex-basis: 100%` would also make the id field
  * full-bleed. */
 
-/* 清除篩選: the inline row's last item, or the dialog footer's right end. A
+/* 清除篩選: the inline row's last item, or the panel footer's right end. A
  * link rather than a filled button: it is the least-used control. */
 .filter-panel__clear {
   border: 0;
@@ -104,7 +104,7 @@
   pointer-events: none;
 }
 
-/* ── the fields, as a labelled grid (dialog and sheet) ────────────────────── */
+/* ── the fields, as a labelled grid (panel and sheet) ─────────────────────── */
 .filter-panel__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -158,35 +158,41 @@
   color: var(--color-text-strong);
 }
 
-/* ── desktop: the shared confirm-modal backdrop and box ───────────────────── */
-.filter-panel__box.confirm-modal__box {
-  max-width: 520px;
-  gap: 16px;
+/* ── desktop: a dropdown under the funnel, in the 顯示方式 panel's look
+ * (display-options.css). Position, width and max-height come from
+ * FilterPanel.tsx; it is `fixed` so the list's scroll box cannot clip it, and
+ * it scrolls itself when the window is short. The inner dropdowns are `fixed`
+ * too (MultiSelectFilter), so that scroll does not clip them either. */
+.filter-panel__pop {
+  position: fixed;
+  z-index: 60;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  background: var(--color-card);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--color-shadow) 45%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
-.filter-panel__box:focus {
+.filter-panel__pop:focus {
   outline: none;
 }
-.filter-panel__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.filter-panel__close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 7px;
-  border: 1px solid var(--color-border);
-  background: var(--color-card);
+.filter-panel__pop-title {
+  font-size: 12.5px;
+  font-weight: 600;
   color: var(--color-text-muted);
-  cursor: pointer;
 }
-.filter-panel__close:hover {
-  color: var(--color-text);
-  border-color: var(--color-accent);
+.filter-panel__pop .filter-panel__foot {
+  min-height: 0;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+.filter-panel__pop .filter-panel__clear {
+  height: 26px;
 }
 
 /* ── phone: a bottom sheet in the chat search / chat group menu shape ───────

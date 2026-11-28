@@ -42,6 +42,7 @@ type Lang = "zh" | "en";
 
 export interface Messages {
   filterAppliedCount: (n: number) => string;
+  displayOptionsChanged: (choice: string) => string;
   // ── tasks ──
   taskProgress: (done: number, total: number) => string;
   taskElapsed: (elapsed: string) => string;
@@ -449,6 +450,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       `${replies.selectedCountLead} ${n} ${
         n === 1 ? replies.selectedCountTailOne : replies.selectedCountTailMany
       }`,
+    displayOptionsChanged: (choice) => `${tasks.displayOptionsChangedLead}${sp}${choice}`,
     // en has no lead word, so empty fragments drop out instead of leaving a space.
     filterAppliedCount: (n) =>
       [

@@ -1592,7 +1592,7 @@ describe("TasksPage", () => {
     expect(funnel.getAttribute("aria-expanded")).toBe("false");
     expect(funnel.getAttribute("aria-label")).toBe("篩選 · 1");
     expect(getByTestId("tasks-filter-count").textContent).toBe("1");
-    expect(queryByTestId("tasks-filter-dialog")).toBeNull();
+    expect(queryByTestId("tasks-filter-pop")).toBeNull();
     expect(queryByTestId("filter-status")).toBeNull();
   });
 
@@ -1605,7 +1605,7 @@ describe("TasksPage", () => {
     fireEvent.click(getByTestId("tasks-filter-toggle"));
 
     const dialog = getByRole("dialog", { name: "篩選任務" });
-    expect(dialog).toBe(getByTestId("tasks-filter-dialog"));
+    expect(dialog).toBe(getByTestId("tasks-filter-pop"));
     const fields = [...dialog.querySelectorAll(".filter-panel__field")];
     expect(fields.map((f) => f.querySelector(".filter-panel__label")!.textContent)).toEqual([
       "任務編號",
@@ -1624,10 +1624,10 @@ describe("TasksPage", () => {
     toggleFilter("filter-type", "adhoc");
     await waitFor(() => expect(getByTestId("tasks-filter-count").textContent).toBe("2"));
     expect(getByTestId("tasks-filter-applied").textContent).toBe("已套用 2 個條件");
-    expect(getByTestId("tasks-filter-dialog")).toBe(dialog);
+    expect(getByTestId("tasks-filter-pop")).toBe(dialog);
   });
 
-  it("清除篩選 in the dialog empties every axis and takes the badge and the applied line with it", async () => {
+  it("清除篩選 in the panel empties every axis and takes the badge and the applied line with it", async () => {
     __injectMockTask(mkTask({ title: "跑著的" }));
     const { findByText, getByTestId, queryByTestId } = renderPage();
     await findByText("跑著的");
@@ -1641,16 +1641,20 @@ describe("TasksPage", () => {
     expect(getByTestId("filter-status").textContent).toBe("所有狀態");
   });
 
-  it("closes the dialog on ✕, Esc and a backdrop click, handing focus back to the funnel; Esc in an open dropdown closes only the dropdown", async () => {
+  it("on a desktop opens a non-modal panel under the funnel that closes on an outside click, Esc or the funnel, handing focus back; Esc in an open dropdown closes only the dropdown", async () => {
     __injectMockTask(mkTask({ title: "跑著的" }));
     const { findByText, getByTestId, queryByTestId } = renderPage();
     await findByText("跑著的");
     const funnel = getByTestId("tasks-filter-toggle");
 
     fireEvent.click(funnel);
-    expect(document.activeElement).toBe(getByTestId("tasks-filter-dialog"));
-    fireEvent.click(getByTestId("tasks-filter-close"));
-    expect(queryByTestId("tasks-filter-dialog")).toBeNull();
+    const pop = getByTestId("tasks-filter-pop");
+    expect(document.activeElement).toBe(pop);
+    expect(pop.getAttribute("aria-modal")).toBeNull();
+    expect(queryByTestId("tasks-filter-backdrop")).toBeNull();
+    expect(pop.querySelector("button[aria-label='關閉']")).toBeNull();
+    fireEvent.click(funnel);
+    expect(queryByTestId("tasks-filter-pop")).toBeNull();
     expect(document.activeElement).toBe(funnel);
 
     fireEvent.click(funnel);
@@ -1658,16 +1662,19 @@ describe("TasksPage", () => {
     expect(getByTestId("filter-status").getAttribute("aria-expanded")).toBe("true");
     fireEvent.keyDown(window, { key: "Escape" });
     expect(getByTestId("filter-status").getAttribute("aria-expanded")).toBe("false");
-    expect(queryByTestId("tasks-filter-dialog")).not.toBeNull();
+    expect(queryByTestId("tasks-filter-pop")).not.toBeNull();
     fireEvent.keyDown(window, { key: "Escape" });
-    expect(queryByTestId("tasks-filter-dialog")).toBeNull();
+    expect(queryByTestId("tasks-filter-pop")).toBeNull();
     expect(funnel.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(funnel);
 
     fireEvent.click(funnel);
-    fireEvent.click(getByTestId("tasks-filter-dialog"));
-    expect(queryByTestId("tasks-filter-dialog")).not.toBeNull();
-    fireEvent.click(getByTestId("tasks-filter-backdrop"));
-    expect(queryByTestId("tasks-filter-dialog")).toBeNull();
+    fireEvent.click(getByTestId("filter-status"));
+    fireEvent.mouseDown(getByTestId("filter-status-opt-done"));
+    fireEvent.mouseDown(getByTestId("tasks-filter-pop"));
+    expect(queryByTestId("tasks-filter-pop")).not.toBeNull();
+    fireEvent.mouseDown(getByTestId("task-list"));
+    expect(queryByTestId("tasks-filter-pop")).toBeNull();
   });
 
   it("on a phone the funnel opens a bottom sheet with 完成, and tapping the dim area closes it", async () => {
@@ -1684,7 +1691,7 @@ describe("TasksPage", () => {
       await findByText("跑著的");
       fireEvent.click(getByTestId("tasks-filter-toggle"));
       expect(getByRole("dialog", { name: "篩選任務" })).toBe(getByTestId("tasks-filter-sheet"));
-      expect(queryByTestId("tasks-filter-dialog")).toBeNull();
+      expect(queryByTestId("tasks-filter-pop")).toBeNull();
       expect(getByTestId("tasks-filter-sheet").contains(getByTestId("filter-due"))).toBe(true);
       expect(getByTestId("tasks-filter-done").textContent).toBe("完成");
       fireEvent.click(getByTestId("tasks-filter-done"));
@@ -1708,6 +1715,8 @@ describe("TasksPage", () => {
     expect(trigger.parentElement!.nextElementSibling).toBeNull();
     expect(queryByTestId("group-by")).toBeNull();
     expect(queryByTestId("display-options-panel")).toBeNull();
+    expect(queryByTestId("display-options-changed")).toBeNull();
+    expect(trigger.getAttribute("aria-label")).toBeNull();
 
     fireEvent.click(trigger);
     const panel = getByTestId("display-options-panel");
@@ -1733,6 +1742,8 @@ describe("TasksPage", () => {
     expect(queryByTestId("display-options-panel")).toBeNull();
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(trigger);
+    expect(trigger.contains(getByTestId("display-options-changed"))).toBe(true);
+    expect(trigger.getAttribute("aria-label")).toBe("顯示方式：已改為負責人");
 
     fireEvent.click(trigger);
     const reopened = getByTestId("display-options-panel");

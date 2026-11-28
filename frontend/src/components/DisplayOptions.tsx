@@ -1,7 +1,9 @@
 // 顯示方式: a button at the right end of a list page's 篩選 row that opens a
 // small panel of view choices (the 任務頁's 分組依據, the 請示 page's 排序依據),
-// kept apart from the filters and from what 清除篩選 clears. Dismissal follows
-// GallerySenderFilter (outside mousedown, Esc through the layer stack).
+// kept apart from the filters and from what 清除篩選 clears. The current choice
+// is shown only inside the panel; a choice other than `defaultValue` puts a
+// dot on the button. Dismissal follows GallerySenderFilter (outside mousedown,
+// Esc through the layer stack).
 
 import { useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "../i18n";
@@ -12,6 +14,7 @@ import "./display-options.css";
 export function DisplayOptions<V extends string>({
   label,
   value,
+  defaultValue,
   options,
   onChange,
   selectTestId,
@@ -19,11 +22,13 @@ export function DisplayOptions<V extends string>({
   /** The select's label inside the panel. */
   label: string;
   value: V;
+  /** The choice that needs no reminder on the button. */
+  defaultValue: V;
   options: readonly { value: V; label: string }[];
   onChange: (next: V) => void;
   selectTestId: string;
 }) {
-  const { t } = useI18n();
+  const { t, msg } = useI18n();
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -51,6 +56,11 @@ export function DisplayOptions<V extends string>({
     return () => document.removeEventListener("mousedown", onDocDown, true);
   }, [open]);
 
+  const changed = value !== defaultValue;
+  const changedLabel = changed
+    ? msg.displayOptionsChanged(options.find((o) => o.value === value)?.label ?? value)
+    : undefined;
+
   return (
     <div className="display-options" ref={boxRef}>
       <button
@@ -60,11 +70,20 @@ export function DisplayOptions<V extends string>({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
+        aria-label={changedLabel}
+        title={changedLabel}
         data-testid="display-options"
         onClick={() => setOpen((v) => !v)}
       >
         <SlidersIcon size={14} aria-hidden="true" />
         <span className="display-options__label">{t.tasks.displayOptions}</span>
+        {changed && (
+          <span
+            className="display-options__dot"
+            aria-hidden="true"
+            data-testid="display-options-changed"
+          />
+        )}
       </button>
       {open && (
         <div

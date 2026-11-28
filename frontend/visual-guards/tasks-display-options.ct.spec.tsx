@@ -1,7 +1,8 @@
 // The 任務頁 顯示方式 button and its panel, on the real page in a real browser:
 // its label must clear AA in every built-in theme (closed and open, since the
 // open state paints a fill), and the button must hold the filter row's right
-// edge at desktop and phone widths without pushing the page sideways.
+// edge at desktop and phone widths without pushing the page sideways; a
+// non-default choice puts a dot inside the button's own box.
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Locator, Page } from "@playwright/test";
 import { AppPageStory } from "./stories/RepliesFilterPanelStory";
@@ -126,5 +127,14 @@ for (const width of [1280, 390, 360, 320]) {
     const overflow = await horizontalOverflow(page);
     expect(overflow.page, "page horizontal overflow").toBeLessThanOrEqual(1);
     expect(overflow.list, "list horizontal overflow").toBeLessThanOrEqual(1);
+
+    await expect(cmp.getByTestId("display-options-changed")).toHaveCount(0);
+    await cmp.getByTestId("group-by").selectOption("executor");
+    const dot = (await cmp.getByTestId("display-options-changed").boundingBox())!;
+    expect(dot.width, "a non-default choice dots the button").toBeGreaterThan(4);
+    expect(dot.x).toBeGreaterThanOrEqual(button.x);
+    expect(dot.x + dot.width).toBeLessThanOrEqual(button.x + button.width);
+    expect(dot.y).toBeGreaterThanOrEqual(button.y);
+    await expect(trigger).toHaveAccessibleName("顯示方式：已改為負責人");
   });
 }

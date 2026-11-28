@@ -4,6 +4,7 @@
   position: relative;
 }
 .display-options__trigger {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -33,6 +34,16 @@
     clip-path: inset(50%);
     white-space: nowrap;
   }
+}
+.display-options__dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  pointer-events: none;
 }
 .display-options__trigger:hover,
 .display-options__trigger[aria-expanded="true"] {

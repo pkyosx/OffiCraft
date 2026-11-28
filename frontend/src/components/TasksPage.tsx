@@ -80,6 +80,7 @@ const DEFAULT_STATUS = STATUS_OPTIONS.filter((s) => !TERMINAL.has(s));
 
 const GROUP_BY_OPTIONS = ["none", "due", "priority", "executor", "type", "status"] as const;
 type GroupBy = (typeof GROUP_BY_OPTIONS)[number] & TaskGroupBy;
+const DEFAULT_GROUP_BY: GroupBy = "none";
 
 const GROUP_BY_KEY = "oc_tasks_group_by";
 
@@ -228,7 +229,7 @@ export function TasksPage() {
   // being read. Only when that lane empties out does the default move to
   // whatever lane is first.
   const [groupBy, setGroupByState] = useState<GroupBy>(() =>
-    readStoredChoice(GROUP_BY_KEY, GROUP_BY_OPTIONS, "none")
+    readStoredChoice(GROUP_BY_KEY, GROUP_BY_OPTIONS, DEFAULT_GROUP_BY)
   );
   const [laneOpenOverrides, setLaneOpenOverrides] = useState<
     Map<string, boolean>
@@ -586,6 +587,7 @@ export function TasksPage() {
           <DisplayOptions
             label={t.tasks.groupByLabel}
             value={groupBy}
+            defaultValue={DEFAULT_GROUP_BY}
             options={GROUP_BY_OPTIONS.map((g) => ({ value: g, label: groupByLabels[g] }))}
             onChange={setGroupBy}
             selectTestId="group-by"

@@ -79,7 +79,7 @@ afterEach(() => {
 });
 
 describe("任務頁 篩選 (T-118)", () => {
-  it("an id typed but not committed is applied when the dialog closes", async () => {
+  it("an id typed but not committed is applied when the panel closes", async () => {
     __injectMockTask(mkTask({ id: "t-aaa1", title: "第一張" }));
     __injectMockTask(mkTask({ id: "t-bbb2", title: "第二張" }));
     const { queryByText, getByTestId, queryByTestId } = renderPage();
@@ -87,8 +87,8 @@ describe("任務頁 篩選 (T-118)", () => {
 
     typeIdFilter("t-aaa1");
     getByTestId("filter-task-id").focus();
-    fireEvent.click(getByTestId("tasks-filter-close"));
-    expect(queryByTestId("tasks-filter-dialog")).toBeNull();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(queryByTestId("tasks-filter-pop")).toBeNull();
     await waitFor(() => expect(queryByText("第二張")).toBeNull());
     expect(queryByText("第一張")).toBeTruthy();
   });

@@ -243,7 +243,7 @@ describe("MultiSelectFilter", () => {
     expect(document.activeElement).toBe(getByTestId("ms"));
   });
 
-  it("floats its popover fixed against the viewport inside the filter dialog, and leaves it to the stylesheet elsewhere", () => {
+  it("floats its popover fixed against the viewport inside the filter panel, and leaves it to the stylesheet elsewhere", () => {
     const inside = renderIn(true);
     fireEvent.click(inside.getByTestId("ms"));
     expect(inside.getByRole("group", { name: "負責人" }).style.position).toBe("fixed");

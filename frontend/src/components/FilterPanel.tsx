@@ -4,12 +4,13 @@
 //     always visible. 傳承頁 uses this shape.
 //   · collapsed (`collapse` given) — the row holds only a funnel button (with a
 //     count of the conditions in force) beside the page's actions. The funnel
-//     opens the fields in a centred dialog, or a bottom sheet on a phone. 任務頁
-//     and 請示頁 use this shape. It always starts closed, on every visit.
+//     opens the fields in a dropdown panel anchored under it (the 顯示方式
+//     panel's look), or a bottom sheet on a phone. 任務頁 and 請示頁 use this
+//     shape. It always starts closed, on every visit.
 //
 // Two rules hold in both shapes:
 //   1. Every field takes effect the moment it changes — there is no Apply. The
-//      list behind an open dialog is already the filtered one.
+//      list behind an open panel is already the filtered one.
 //   2. The ID field commits on Enter or blur only (IdFilterInput): a committed
 //      id is a SERVER request on both hosts, so a commit per keystroke would be
 //      a fetch per keystroke.
@@ -22,6 +23,7 @@ import {
   createContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -33,11 +35,10 @@ import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { useIsMobile } from "../hooks/useIsMobile";
-import { CloseIcon, FunnelIcon } from "./icons";
-import "./confirm-modal.css";
+import { FunnelIcon } from "./icons";
 import "./filter-panel.css";
 
-/** True inside the filter dialog / sheet. A dropdown there must float its
+/** True inside the filter panel / sheet. A dropdown there must float its
  * popover above the layer instead of being clipped by the scrolling box. */
 export const FilterLayerContext = createContext(false);
 
@@ -80,7 +81,7 @@ export function FilterPanel({
   /** Controls that are not filters (顯示方式), held at the row's right end,
    * outside what 清除篩選 clears. */
   actions?: ReactNode;
-  /** Opt into the funnel + dialog shape. `activeCount` is the number of fields
+  /** Opt into the funnel + panel shape. `activeCount` is the number of fields
    * holding a condition, as the host counts them; it is the funnel's badge. */
   collapse?: { title: string; activeCount: number };
 }) {
@@ -172,7 +173,7 @@ function CollapsedFilterPanel({
           onClear={onClear}
           applied={activeCount > 0 ? msg.filterAppliedCount(activeCount) : null}
           onClose={() => setOpen(false)}
-          returnFocusTo={triggerRef}
+          trigger={triggerRef}
         >
           {children}
         </FilterLayer>
@@ -201,6 +202,39 @@ function useVisibleBox(on: boolean): CSSProperties | undefined {
   return box;
 }
 
+const ANCHOR_GAP = 4;
+const VIEWPORT_EDGE = 8;
+const ANCHORED_WIDTH = 440;
+
+/** The desktop panel hangs under the funnel with its right edge on the
+ * funnel's. It is portalled and `fixed` because the host page's list is a
+ * scroll box the panel would otherwise be clipped by (or would scroll). */
+function useAnchoredBox(
+  on: boolean,
+  trigger: RefObject<HTMLButtonElement | null>,
+): CSSProperties | undefined {
+  const [box, setBox] = useState<CSSProperties | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (!on) return;
+    const place = () => {
+      const r = trigger.current?.getBoundingClientRect();
+      if (!r) return;
+      const width = Math.min(ANCHORED_WIDTH, window.innerWidth - 2 * VIEWPORT_EDGE);
+      const left = Math.max(VIEWPORT_EDGE, Math.min(r.right - width, window.innerWidth - VIEWPORT_EDGE - width));
+      const top = r.bottom + ANCHOR_GAP;
+      setBox({ left, top, width, maxHeight: Math.max(0, window.innerHeight - top - VIEWPORT_EDGE) });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [on, trigger]);
+  return box;
+}
+
 function FilterLayer({
   testId,
   title,
@@ -208,7 +242,7 @@ function FilterLayer({
   onClear,
   applied,
   onClose,
-  returnFocusTo,
+  trigger,
   children,
 }: {
   testId: string;
@@ -217,12 +251,13 @@ function FilterLayer({
   onClear?: () => void;
   applied: string | null;
   onClose: () => void;
-  returnFocusTo: RefObject<HTMLButtonElement | null>;
+  trigger: RefObject<HTMLButtonElement | null>;
   children: ReactNode;
 }) {
   const { t } = useI18n();
   const mobile = useIsMobile();
   const visible = useVisibleBox(mobile);
+  const anchored = useAnchoredBox(!mobile, trigger);
   const rootRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
@@ -235,15 +270,30 @@ function FilterLayer({
   };
   useEscapeLayer(close, rootRef);
 
-  // Focus goes in and comes back (the ThemeAppearanceDialog contract). The
-  // root, not the first field: on a phone a focused field raises the keyboard.
+  // Focus goes in, and comes back to the funnel unless the click that closed
+  // the panel put it somewhere else. The root, not the first field: on a phone
+  // a focused field raises the keyboard.
   useEffect(() => {
     rootRef.current?.focus();
-    const back = returnFocusTo.current;
+    const back = trigger.current;
     return () => {
+      const now = document.activeElement;
+      if (now && now !== document.body) return;
       if (back?.isConnected) back.focus({ preventScroll: true });
     };
-  }, [returnFocusTo]);
+  }, [trigger]);
+
+  // The funnel is left out: its own click toggles the panel shut.
+  useEffect(() => {
+    if (mobile) return;
+    const onDocDown = (e: globalThis.MouseEvent) => {
+      const target = e.target as Node;
+      if (rootRef.current?.contains(target) || trigger.current?.contains(target)) return;
+      close();
+    };
+    document.addEventListener("mousedown", onDocDown, true);
+    return () => document.removeEventListener("mousedown", onDocDown, true);
+  });
 
   const closeOnBackdrop = (e: MouseEvent) => {
     if (e.target === e.currentTarget) close();
@@ -309,37 +359,19 @@ function FilterLayer({
         </div>
       ) : (
         <div
-          className="confirm-modal filter-panel__modal"
-          data-testid={`${testId}-backdrop`}
-          onClick={closeOnBackdrop}
+          ref={rootRef}
+          className="filter-panel__pop"
+          style={anchored}
+          role="dialog"
+          aria-labelledby={titleId}
+          tabIndex={-1}
+          data-testid={`${testId}-pop`}
         >
-          <div
-            ref={rootRef}
-            className="confirm-modal__box filter-panel__box"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={titleId}
-            tabIndex={-1}
-            data-testid={`${testId}-dialog`}
-          >
-            <div className="filter-panel__head">
-              <h2 id={titleId} className="filter-panel__title">
-                {title}
-              </h2>
-              <button
-                type="button"
-                className="filter-panel__close"
-                aria-label={t.common.filterClose}
-                title={t.common.filterClose}
-                data-testid={`${testId}-close`}
-                onClick={close}
-              >
-                <CloseIcon size={15} />
-              </button>
-            </div>
-            {grid}
-            {footer}
+          <div id={titleId} className="filter-panel__pop-title">
+            {title}
           </div>
+          {grid}
+          {footer}
         </div>
       )}
     </FilterLayerContext.Provider>,

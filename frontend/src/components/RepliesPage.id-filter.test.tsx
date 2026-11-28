@@ -124,7 +124,7 @@ describe("請示 ID 篩選 (T-118)", () => {
     expect(getByTestId("replies-filter-count").textContent).toBe("1");
 
     fireEvent.click(getByTestId("replies-filter-toggle"));
-    expect(getByRole("dialog", { name: "篩選請示卡" })).toBe(getByTestId("replies-filter-dialog"));
+    expect(getByRole("dialog", { name: "篩選請示卡" })).toBe(getByTestId("replies-filter-pop"));
     expect(
       [...document.querySelectorAll(".filter-panel__label")].map((el) => el.textContent)
     ).toEqual(["請示卡編號", "開卡人", "任務優先序", "任務到期"]);

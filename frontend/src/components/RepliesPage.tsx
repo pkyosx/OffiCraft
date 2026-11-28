@@ -81,6 +81,7 @@ import {
 import { PRIORITIES } from "../lib/taskPriority";
 import { readStoredChoice, writeStoredChoice } from "../lib/storedChoice";
 import {
+  DEFAULT_WAITING_SORT,
   WAITING_SORTS,
   WAITING_SORT_KEY,
   type WaitingSort,
@@ -440,7 +441,7 @@ export function RepliesPage({
   const wantsHandled = view === "answered" && !filtering;
 
   const [waitingSort, setWaitingSortState] = useState<WaitingSort>(() =>
-    readStoredChoice(WAITING_SORT_KEY, WAITING_SORTS, "createdDesc")
+    readStoredChoice(WAITING_SORT_KEY, WAITING_SORTS, DEFAULT_WAITING_SORT)
   );
   function setWaitingSort(next: WaitingSort) {
     setWaitingSortState(next);
@@ -1771,15 +1772,11 @@ export function RepliesPage({
             onSelect={setView}
           />
           <div className="replies__head-tools">
-            {view === "waiting" ? (
-              <span className="replies__section-hint" data-testid="replies-sort-active">
-                {sortLabels[waitingSort]}
-              </span>
-            ) : view === "answered" ? (
+            {view === "answered" && (
               <span className="replies__section-hint" data-testid="replies-answered-window">
                 {t.replies.tabAnsweredHint}
               </span>
-            ) : null}
+            )}
             <FilterPanel
               testId="replies-filter"
               clearLabel={t.replies.clearFilters}
@@ -1789,6 +1786,7 @@ export function RepliesPage({
                 <DisplayOptions
                   label={t.replies.sortLabel}
                   value={waitingSort}
+                  defaultValue={DEFAULT_WAITING_SORT}
                   options={WAITING_SORTS.map((v) => ({ value: v, label: sortLabels[v] }))}
                   onChange={setWaitingSort}
                   selectTestId="replies-sort"

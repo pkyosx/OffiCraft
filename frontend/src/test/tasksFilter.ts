@@ -4,7 +4,7 @@
 // a two-line `toggleFilter`. One hand-copied gesture per suite is six chances to
 // drift, and the gesture has changed twice since.
 //
-// The fields live in the dialog the page's funnel opens (FilterPanel's
+// The fields live in the panel the page's funnel opens (FilterPanel's
 // collapsed shape), so every helper below opens it first.
 //
 // 🔴 THE ID FIELD IS THE EXCEPTION AND `applyIdFilter` STILL EARNS ITS NAME.
@@ -16,7 +16,7 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { expect } from "vitest";
 
-/** Open the page's 篩選 dialog unless it is already open (any list page:
+/** Open the page's 篩選 panel unless it is already open (any list page:
  * the funnel is `<page>-filter-toggle`). */
 export function openFilters() {
   const toggle = document.querySelector('[data-testid$="-filter-toggle"]');
@@ -163,7 +163,7 @@ export function clearAllFilters() {
   }
 }
 
-/** Wait for the page's funnel, then open the 篩選 dialog. */
+/** Wait for the page's funnel, then open the 篩選 panel. */
 export async function openFiltersWhenReady() {
   await waitFor(() =>
     expect(document.querySelector('[data-testid$="-filter-toggle"]')).not.toBeNull()

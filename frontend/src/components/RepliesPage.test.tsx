@@ -773,7 +773,7 @@ describe("RepliesPage", () => {
     expect(tab("snoozed").textContent).toBe("稍後再看1");
     expect(tab("answered").textContent, "no count before the list is loaded").toBe("近期已回覆");
     expect(shown()).toEqual([["rc-wait", null]]);
-    expect(getByTestId("replies-sort-active").textContent).toBe("開卡時間（新到舊）");
+    expect(queryByTestId("replies-answered-window")).toBeNull();
     expect(listSpy.mock.calls.map(([status]) => status)).not.toContain("answered");
     expect(listSpy.mock.calls.map(([status]) => status)).not.toContain("expired");
 
@@ -781,7 +781,6 @@ describe("RepliesPage", () => {
     expect(tab("snoozed").getAttribute("aria-selected")).toBe("true");
     expect(tab("waiting").getAttribute("aria-selected")).toBe("false");
     expect(shown()).toEqual([["rc-later", null]]);
-    expect(queryByTestId("replies-sort-active")).toBeNull();
     expect(listSpy.mock.calls.map(([status]) => status)).not.toContain("answered");
 
     await selectRepliesTab("answered");
@@ -793,7 +792,6 @@ describe("RepliesPage", () => {
     );
     expect(tab("answered").textContent).toBe("近期已回覆2");
     expect(getByTestId("replies-answered-window").textContent).toBe("近 24 小時");
-    expect(queryByTestId("replies-sort-active")).toBeNull();
   });
 
   it("the labels are one tab stop; arrow keys, Home and End move the selection and the focus", async () => {
@@ -1420,7 +1418,7 @@ describe("RepliesPage", () => {
     expect(queryByTestId("reply-task-ref")).toBeNull();
   });
 
-  it("顯示方式 › 排序依據 → each order re-sorts the 等待回覆 cards and is named beside the labels; 稍後再看 stays by return time and 近期已回覆 by handled time; the panel closes once a sort is picked, and the choice survives a remount", async () => {
+  it("顯示方式 › 排序依據 → each order re-sorts the 等待回覆 cards, and any order but the default dots the 顯示方式 button instead of being named beside the labels; 稍後再看 stays by return time and 近期已回覆 by handled time; the panel closes once a sort is picked, and the choice survives a remount", async () => {
     const now = Date.now() / 1000;
     const task = (id: string, priority: string, dueTs: number | null = null) => ({ id, typeKey: "", title: id, priority, dueTs });
     __injectMockReplyCard(mkCard({ id: "rc-notask", createdTs: now - 10 * 60, task: null }));
@@ -1456,9 +1454,12 @@ describe("RepliesPage", () => {
     const first = renderPage();
     await waitFor(() => expect(paneIds("waiting-card")).toHaveLength(5));
     expect(paneIds("waiting-card")).toEqual(["rc-notask", "rc-low", "rc-mid", "rc-high", "rc-frozen"]);
-    expect(first.getByTestId("replies-sort-active").textContent).toBe("開卡時間（新到舊）");
+    const trigger = first.getByTestId("display-options");
+    expect(first.queryByTestId("display-options-changed")).toBeNull();
+    expect(trigger.getAttribute("aria-label")).toBeNull();
+    expect(document.querySelector(".replies__head")!.textContent).not.toContain("開卡時間");
 
-    fireEvent.click(first.getByTestId("display-options"));
+    fireEvent.click(trigger);
     const select = first.getByTestId("replies-sort") as HTMLSelectElement;
     expect([...select.options].map((o) => o.textContent)).toEqual([
       "開卡時間（新到舊）",
@@ -1482,13 +1483,14 @@ describe("RepliesPage", () => {
       expect(paneIds("waiting-card")).toEqual(order);
       expect(localStorage.getItem("oc_replies_sort")).toBe(value);
     }
-    expect(first.getByTestId("replies-sort-active").textContent).toBe("開卡時間（新到舊）");
+    expect(first.queryByTestId("display-options-changed")).toBeNull();
 
     chooseSort("priority");
-    expect(first.getByTestId("replies-sort-active").textContent).toBe("任務優先序（高到低）");
+    expect(first.getByTestId("display-options-changed")).toBeTruthy();
+    expect(trigger.getAttribute("aria-label")).toBe("顯示方式：已改為任務優先序（高到低）");
+    expect(document.querySelector(".replies__head")!.textContent).not.toContain("任務優先序");
     await selectRepliesTab("snoozed");
     expect(paneIds("snoozed-card")).toEqual(["rc-snz-soon", "rc-snz-late"]);
-    expect(first.queryByTestId("replies-sort-active")).toBeNull();
     await selectRepliesTab("answered");
     await waitFor(() =>
       expect(paneIds("answered-card")).toEqual(["rc-handled", "rc-handled-mid", "rc-handled-early"])
@@ -1497,7 +1499,9 @@ describe("RepliesPage", () => {
 
     const second = renderPage();
     await waitFor(() => expect(paneIds("waiting-card")).toEqual(expected.priority));
-    expect(second.getByTestId("replies-sort-active").textContent).toBe("任務優先序（高到低）");
+    expect(second.getByTestId("display-options").getAttribute("aria-label")).toBe(
+      "顯示方式：已改為任務優先序（高到低）"
+    );
     localStorage.removeItem("oc_replies_sort");
   });
 

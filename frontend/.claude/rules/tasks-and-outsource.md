@@ -23,14 +23,14 @@ paths:
 
 跳到 #tasks/<id> 時，編號成為 applied 編號，以 `?ids=` 跟其他軸一起問伺服器（見下一節）；那一支還沒回來前兩個空狀態都不說話，否則還在路上的那張會被說成不存在。
 
-**讀取落定後有三種結局，話不一樣，不要合併（owner 2026-09-05 `rc-428906235337`；話術在 2026-09-06 選項①下再細分，見下一節）**：抓到且通過其他條件就顯示那一張；**404 ⇒ 錨點留著**，出口是**篩選 dialog 裡的任務編號欄位**——把它清空再按 Enter（或點到外面），`commitId("")` 連 hash 一起還原（T-118 之前這個出口是已篩選條上的「清除全部」鈕，owner 2026-09-06 連同那整條摘要列一起拿掉了；**同一天稍晚他又要求把清除留著**（`c-2423dba8b65b`），所以今天有**兩個**出口：清空編號欄位，或按 dialog 底部的 `.filter-panel__clear`。後者只在真的有東西被篩住時才出現 —— 錨點 404 而編號欄裡留著那個編號，正是「有東西被篩住」，所以它會在）；**其他失敗（500／離線）⇒ 讀取失敗**，`tasks-error` 寫「無法確認是否存在」並壓住兩個空狀態——沒問出口的問題不得給答案。錨點**不再自己把 hash 拿掉**；釘住這幾格的是 TasksPage.test.tsx、TasksPage.jump.test.tsx、TasksPage.id-filter.test.tsx 與 TasksPage.anchor-fetch.test.tsx。編號的那一列也是清單列，所以有 dep_tasks。
+**讀取落定後有三種結局，話不一樣，不要合併（owner 2026-09-05 `rc-428906235337`；話術在 2026-09-06 選項①下再細分，見下一節）**：抓到且通過其他條件就顯示那一張；**404 ⇒ 錨點留著**，出口是**篩選面板裡的任務編號欄位**——把它清空再按 Enter（或點到外面），`commitId("")` 連 hash 一起還原（T-118 之前這個出口是已篩選條上的「清除全部」鈕，owner 2026-09-06 連同那整條摘要列一起拿掉了；**同一天稍晚他又要求把清除留著**（`c-2423dba8b65b`），所以今天有**兩個**出口：清空編號欄位，或按面板底部的 `.filter-panel__clear`。後者只在真的有東西被篩住時才出現 —— 錨點 404 而編號欄裡留著那個編號，正是「有東西被篩住」，所以它會在）；**其他失敗（500／離線）⇒ 讀取失敗**，`tasks-error` 寫「無法確認是否存在」並壓住兩個空狀態——沒問出口的問題不得給答案。錨點**不再自己把 hash 拿掉**；釘住這幾格的是 TasksPage.test.tsx、TasksPage.jump.test.tsx、TasksPage.id-filter.test.tsx 與 TasksPage.anchor-fetch.test.tsx。編號的那一列也是清單列，所以有 dep_tasks。
 
 ## 任務頁的篩選與 ID 條件
 
-篩選列收在一顆漏斗按鈕後面（`FilterPanel` 的 `collapse`，每次進頁面都是收合、不持久化），漏斗緊貼在「顯示方式」左邊；有條件生效時漏斗右上角是綠色數字徽章，數的是「有值的欄位數」，預設的未結案狀態也算一個。點開是置中 dialog（標題「篩選任務」，≤720px 改成底部 sheet、右上「完成」），欄位標籤在上、兩欄 grid、任務編號整列；底下左邊「已套用 N 個條件」、右邊「清除篩選」。**沒有套用鈕**：dialog 開著時每改一格，背後清單就重跑。✕、Esc、點背景都會關；Esc 時下拉若開著先關下拉。關閉時若編號欄還有焦點會先 blur，所以打了沒 Enter 的編號在關閉時提交。
+篩選列收在一顆漏斗按鈕後面（`FilterPanel` 的 `collapse`，每次進頁面都是收合、不持久化），漏斗緊貼在「顯示方式」左邊；有條件生效時漏斗右上角是綠色數字徽章，數的是「有值的欄位數」，預設的未結案狀態也算一個。點開在桌面是錨定在漏斗下方、右緣對齊漏斗的下拉面板（`.filter-panel__pop`，標題「篩選任務」，外觀同 `display-options.css` 的面板，非 modal、沒有背景遮罩與 ✕），≤720px 改成底部 sheet、右上「完成」；欄位標籤在上、兩欄 grid、任務編號整列；底下左邊「已套用 N 個條件」、右邊「清除篩選」。**沒有套用鈕**：面板開著時每改一格，背後清單就重跑。桌面面板 portal 到 body、`position: fixed`，位置由漏斗的 rect 算（`useAnchoredBox`，寬 440 並夾在視窗內）：放在列裡用 absolute 會被清單的捲動框裁掉或撐出捲動。點面板外（document capture mousedown，漏斗本身除外，它的 click 自己切換）、Esc、再點漏斗都會關；Esc 時下拉若開著先關下拉（下拉在面板 DOM 內，Esc 層級靠巢狀判斷）。關閉時若編號欄還有焦點會先 blur，所以打了沒 Enter 的編號在關閉時提交。
 
 - **只剩一份狀態，除了編號**。四顆下拉（負責人／類型／狀態／到期）直接寫 applied，點下去就重跑。**編號欄位保留 draft/applied 兩份**：`draftId` 是框裡的字，`appliedId` 是清單真的被什麼篩，**只在 Enter 或 blur 時由 `commitId()` 提交**。⚠️ 這不是殘留的面板遺跡——編號會換一次伺服器請求（`?ids=<appliedId>`），**每按鍵提交就是每按鍵發請求**，那正是 owner 連退兩次的形狀（「每次都要全部都撈回來才濾不合理」）。**把 `onCommit` 接到 `onChange` 看起來像整理，實際上是把那個否決倒回去**；`TasksPage.id-filter.test.tsx` 有一支專門釘住「打字但未 Enter 也未 blur ⇒ 列表不動」，mutant 驗過會紅。
-- **shell 是 `FilterPanel`**（`components/FilterPanel.tsx`，自帶 CSS）。欄位是 children，每格包一個 `FilterField`（標籤）；dialog 裡的 `MultiSelectFilter` 從 `FilterLayerContext` 得知自己在浮層內，popover 改成相對視窗 `fixed` 定位，才不會被 dialog／sheet 的捲動框裁掉。傳承頁不傳 `collapse`，維持常駐的一列。
+- **shell 是 `FilterPanel`**（`components/FilterPanel.tsx`，自帶 CSS）。欄位是 children，每格包一個 `FilterField`（標籤）；面板／sheet 裡的 `MultiSelectFilter` 從 `FilterLayerContext` 得知自己在浮層內，popover 改成相對視窗 `fixed` 定位，才不會被面板／sheet 的捲動框裁掉。傳承頁不傳 `collapse`，維持常駐的一列。
 - 🔴 **全部條件一起生效，編號也不例外（選項①）**：applied 的編號以 `?ids=` 跟其他 applied 軸一起送伺服器，伺服器 AND 起來回答。編號因此是**精準比對**，不是第二輪的 substring。
 - **編號生效後的結局**（owner 2026-09-06 `rc-f603bbd447f4` 拿掉第三輪的兩則 by-id 專屬通知：「為什麼要顯示這種東西 拿掉!」「UI不是本來就秀0筆了嗎」）：
   - **404** 與 **抓到但被其他條件擋掉** → 都是一般的 `tasks-empty-filtered`，不得出 `tasks-empty`（那是在說工作區沒有任務）。

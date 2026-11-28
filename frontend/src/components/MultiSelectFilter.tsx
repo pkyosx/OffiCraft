@@ -100,7 +100,7 @@ export function MultiSelectFilter({
   const inLayer = useContext(FilterLayerContext);
   const [popStyle, setPopStyle] = useState<CSSProperties | undefined>(undefined);
 
-  // Nested inside the filter dialog's layer, so Esc closes this first.
+  // Nested inside the filter panel's layer, so Esc closes this first.
   useEscapeLayer(
     () => {
       setOpen(false);
@@ -110,7 +110,7 @@ export function MultiSelectFilter({
     open,
   );
 
-  // Inside the filter dialog / sheet the popover is `fixed` against the
+  // Inside the filter panel / sheet the popover is `fixed` against the
   // viewport: an absolute one would be clipped by the layer's scrolling box.
   // It opens below the trigger, or above when there is more room there.
   const place = () => {

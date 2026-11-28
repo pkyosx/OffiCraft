@@ -6,6 +6,7 @@ import { priorityRank } from "./taskPriority";
 
 export const WAITING_SORTS = ["createdDesc", "createdAsc", "priority", "due"] as const;
 export type WaitingSort = (typeof WAITING_SORTS)[number];
+export const DEFAULT_WAITING_SORT: WaitingSort = "createdDesc";
 
 export const WAITING_SORT_KEY = "oc_replies_sort";
 

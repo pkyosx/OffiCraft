@@ -176,6 +176,7 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "replyExpireConfirmBody", ["要不要買新的"], "要把「要不要買新的」標為過期嗎?此動作不可復原、也不算回答——成員會收到通知,問題還在的話他會重新開一張新卡。"],
     ["zh", "filterAppliedCount", [1], "已套用 1 個條件"],
     ["zh", "filterAppliedCount", [3], "已套用 3 個條件"],
+    ["zh", "displayOptionsChanged", ["負責人"], "顯示方式：已改為負責人"],
     ["zh", "replySelectedCount", [0], "已選 0 項"],
     ["zh", "replySelectedCount", [1], "已選 1 項"],
     ["zh", "replySelectedCount", [2], "已選 2 項"],
@@ -389,6 +390,7 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "replyExpireConfirmBody", ["要不要買新的"], "Mark \"要不要買新的\" as expired? This cannot be undone and does not count as an answer — the member is notified and will open a fresh card if the question still matters."],
     ["en", "filterAppliedCount", [1], "1 filter applied"],
     ["en", "filterAppliedCount", [3], "3 filters applied"],
+    ["en", "displayOptionsChanged", ["Assignee"], "Display: changed to Assignee"],
     ["en", "replySelectedCount", [0], "Selected 0 options"],
     // n=1 is its own row: en inflects and the other two rows cannot see it.
     ["en", "replySelectedCount", [1], "Selected 1 option"],

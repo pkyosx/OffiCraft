@@ -1,8 +1,8 @@
 // T-3 — the shared ID field's keyboard ring must survive its scrollport.
 //
 // This mounts the complete App shell (topbar, nav and the selected list page)
-// and opens the page's 篩選 dialog (a bottom sheet at 320). The ID field is the
-// first field in the dialog box / sheet body, both of which scroll; an outward
+// and opens the page's 篩選 panel (a bottom sheet at 320). The ID field is the
+// first field in the panel / sheet body, both of which scroll; an outward
 // outline would be clipped at that scrollport's edge. The screenshot diff below
 // is the pixel-level witness: focused pixels must exist on both the upper and
 // left field edges, while no focus pixels may be outside the field/scrollport
@@ -121,9 +121,9 @@ async function fieldLayout(field: Locator) {
     const input = node as HTMLInputElement;
     const fieldBox = input.getBoundingClientRect();
     const scrollport = input.closest(
-      ".confirm-modal__box, .filter-panel__sheet-body"
+      ".filter-panel__pop, .filter-panel__sheet-body"
     ) as HTMLElement | null;
-    if (!scrollport) throw new Error("ID field has no filter-dialog scrollport ancestor");
+    if (!scrollport) throw new Error("ID field has no filter-layer scrollport ancestor");
     const portBox = scrollport.getBoundingClientRect();
     const style = getComputedStyle(input);
     return {
@@ -162,7 +162,7 @@ async function pageOverflow(page: Page) {
 
 for (const pageName of ["tasks", "replies"] as const) {
   for (const width of [1040, 320]) {
-    test(`T-3 ${pageName} width ${width}: focused ring stays inside the filter dialog's scrollport`, async ({
+    test(`T-3 ${pageName} width ${width}: focused ring stays inside the filter layer's scrollport`, async ({
       mount,
       page,
     }) => {

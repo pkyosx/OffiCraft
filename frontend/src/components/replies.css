@@ -34,7 +34,7 @@
   flex-direction: column;
   gap: 14px;
 }
-/* The three list labels, then the selected list's note (its sort, or the 24h
+/* The three list labels, then the selected list's note (近期已回覆's 24h
  * window) and the filter / 顯示方式 buttons. The labels never wrap; when the
  * row is too narrow the note and buttons move below them as one group. */
 .replies__head {
