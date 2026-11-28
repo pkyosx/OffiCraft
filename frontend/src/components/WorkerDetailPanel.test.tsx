@@ -856,9 +856,9 @@ describe("WorkerDetailPanel — identity card matches the worker chat header", (
     // The codename line shows the full outsource identity label 「外包 · 代號」
     // (only the sidebar row drops the 外包 prefix).
     await findByText("外包 · O-19");
-    expect((await findByTestId("worker-detail-task-ow-1")).textContent).toBe("T-e9f4");
+    expect((await findByTestId("worker-detail-task-ow-1")).textContent).toBe("#T-e9f4");
     // The task line is the chat header's: chip then the short type label.
-    expect(header.textContent).toBe("T-e9f4OffiCraft 開發");
+    expect(header.textContent).toBe("#T-e9f4OffiCraft 開發");
     // The third line is the title, clamped like the roster row, full text on hover.
     const title = await findByTestId("worker-detail-header-task-title");
     expect(title.className).toBe("current-task-title current-task-title--clamp");
@@ -882,7 +882,7 @@ describe("WorkerDetailPanel — identity card matches the worker chat header", (
     );
     const untitled = renderOfficeAt("#office/worker/ow-2");
     const untitledLine = await untitled.findByTestId("worker-detail-task-line-ow-2");
-    expect(untitledLine.textContent).toBe("T-e9f5OffiCraft 開發");
+    expect(untitledLine.textContent).toBe("#T-e9f5OffiCraft 開發");
     expect(untitledLine.nextElementSibling).toBeNull();
     expect(untitled.queryByTestId("worker-detail-header-task-title")).toBeNull();
     expect(untitled.container.textContent).not.toContain("無當前任務");
@@ -978,7 +978,7 @@ describe("WorkerDetailPanel — identity card matches the worker chat header", (
     );
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
     const header = await findByTestId("worker-detail-task-line-ow-1");
-    expect(header.textContent).toBe("T-adhc自由代辦");
+    expect(header.textContent).toBe("#T-adhc自由代辦");
     expect((await findByTestId("worker-detail-header-task-title")).textContent).toBe("隨手需求");
   });
 

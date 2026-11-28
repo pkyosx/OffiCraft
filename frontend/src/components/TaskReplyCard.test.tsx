@@ -263,7 +263,7 @@ describe("TaskReplyCard", () => {
       "複製完整請示卡 ID rc-1a2b3c4d5e6f",
       "跳到原訊息",
     ]);
-    expect(head.querySelector('[data-testid="reply-card-id"]')!.textContent).toBe("rc-1a2b3c");
+    expect(head.querySelector('[data-testid="reply-card-id"]')!.textContent).toBe("#rc-1a2b3c");
     expect([...first.children].map((c) => c.className.split(" ")[0])).toEqual([
       "reply-card__head",
       "reply-card__summary",

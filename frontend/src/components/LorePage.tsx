@@ -2081,7 +2081,7 @@ function LoreRow({
 
           <CopyIdChip
             value={entry.id}
-            text={`#${entry.id}`}
+            text={entry.id}
             label={msg.loreCopyEntryId(entry.id)}
             copiedLabel={t.lore.entryIdCopied}
             className="lore-row__id-badge"

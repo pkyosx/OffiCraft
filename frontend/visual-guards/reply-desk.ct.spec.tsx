@@ -231,7 +231,7 @@ async function expectTaskRow(card: Locator, cardBox: Box) {
  * the name column on every device, so every run measures a cut line ending in
  * 「…」; at 390 on touch the long name still fits beside the pill. */
 const LONG_TASK_TITLE = "OffiCraft 入門介紹影片（繁中，4 章＋完整版）的旁白、字幕與封面，另含英文與日文版本的字幕翻譯、章節縮圖、配樂授權確認、各平台上架描述撰寫，以及上線後第一週的觀看數據整理與回報，並把觀眾留言中的常見問題整理成下一版的修改清單、附上每一章的平均觀看秒數與跳出點分析";
-const LONG_TASK_LINE = "T-9021034多語系入門影片的旁白錄製、字幕校對、封面設計、章節切分、配樂授權確認、各平台上架前的最終品質檢查與上線後數據回報流程";
+const LONG_TASK_LINE = "#T-9021034多語系入門影片的旁白錄製、字幕校對、封面設計、章節切分、配樂授權確認、各平台上架前的最終品質檢查與上線後數據回報流程";
 
 /** The open card's divider: right under `above` (its last meta row, or the
  * title on a chat card with none) and the full width of the card's content, a

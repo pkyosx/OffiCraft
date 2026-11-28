@@ -75,7 +75,7 @@ describe("TaskCard duplicated 終態 + 原票指向 (T-02c9)", () => {
     expect(within(card).getByTestId("task-status").getAttribute("aria-label")).toContain("重複");
     // … and a link naming the original by its id, which is its number.
     const link = within(card).getByTestId("task-duplicate-link");
-    expect(link.textContent).toBe(`重複於 ${original.id}`);
+    expect(link.textContent).toBe(`重複於 #${original.id}`);
 
     fireEvent.click(link);
     expect(window.location.hash).toBe(`#tasks/${original.id}`);

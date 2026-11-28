@@ -1218,7 +1218,7 @@ describe("RepliesPage", () => {
       const status = head.firstElementChild as HTMLElement;
       expect([status.dataset.testid, status.dataset.state]).toEqual(["reply-status-icon", state]);
       expect(status.nextElementSibling?.getAttribute("data-testid")).toBe("reply-card-id");
-      expect(status.nextElementSibling?.textContent).toBe(id);
+      expect(status.nextElementSibling?.textContent).toBe(`#${id}`);
       expect(head.querySelector(".reply-card__head-end")?.lastElementChild?.className).toBe("reply-card__fold");
     }
   });
@@ -1230,7 +1230,7 @@ describe("RepliesPage", () => {
     const card = document.querySelector<HTMLElement>('[data-reply-card-id="rc-83935a1b2c3d"]')!;
     const chip = card.querySelector<HTMLElement>('[data-testid="reply-card-id"]')!;
     expect([chip.textContent, chip.getAttribute("aria-label"), chip.title]).toEqual([
-      "rc-83935a",
+      "#rc-83935a",
       "複製完整請示卡 ID rc-83935a1b2c3d",
       "複製完整請示卡 ID rc-83935a1b2c3d",
     ]);
@@ -1238,7 +1238,7 @@ describe("RepliesPage", () => {
       fireEvent.click(chip);
     });
     await waitFor(() => expect(clipboard).toEqual(["rc-83935a1b2c3d"]));
-    expect(chip.textContent).toBe("rc-83935a已複製");
+    expect(chip.textContent).toBe("#rc-83935a已複製");
     expect(card.getAttribute("aria-expanded")).toBe("false");
   });
 
@@ -1254,7 +1254,7 @@ describe("RepliesPage", () => {
     await openCards();
     const ref = await findByTestId("reply-task-ref");
     expect(ref.querySelector(".reply-card__task-title")).toBeNull();
-    expect(ref.textContent).toBe("t-3");
+    expect(ref.textContent).toBe("#t-3");
     expect(within(ref).getByRole("button", { name: "查看任務" })).toBeTruthy();
   });
 
@@ -1619,7 +1619,7 @@ describe("RepliesPage", () => {
       ["reply-task-no", "outsource-row__chip outsource-row__chip--task"],
       ["reply-task-priority", "task-badge task-badge--prio-high"],
     ]);
-    expect(over.querySelector('[data-testid="reply-task-no"]')!.textContent).toBe("T-11");
+    expect(over.querySelector('[data-testid="reply-task-no"]')!.textContent).toBe("#T-11");
     expect(
       over.querySelector('[data-testid="reply-task-no"] > svg polyline')?.getAttribute("points"),
       "the jump icon leads the number",
@@ -1691,8 +1691,8 @@ describe("RepliesPage", () => {
       [...h.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"))
     );
     expect(heads).toEqual([
-      ["rc-1", "跳到原訊息", "稍後再看", "標為過期", "複製整張卡片內容"],
-      ["rc-2", "跳到原訊息", "稍後再看", "標為過期", "複製整張卡片內容"],
+      ["#rc-1", "跳到原訊息", "稍後再看", "標為過期", "複製整張卡片內容"],
+      ["#rc-2", "跳到原訊息", "稍後再看", "標為過期", "複製整張卡片內容"],
     ]);
     fireEvent.click(card.querySelector('[data-testid="snooze-card"]')!);
     expect(card.getAttribute("aria-expanded")).toBe("false");

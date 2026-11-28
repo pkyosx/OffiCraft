@@ -219,9 +219,9 @@ describe("ChatReplyCard", () => {
       ),
     ).toEqual(["reply-status-icon", "reply-card-id", "chat-reply-card-expire", "reply-card__fold reply-card__fold--open"]);
     expect(head.querySelector('[data-testid="reply-status-icon"]')!.getAttribute("data-state")).toBe("waiting");
-    expect(head.querySelector('[data-testid="reply-card-id"]')!.textContent).toBe("rc-83935a");
+    expect(head.querySelector('[data-testid="reply-card-id"]')!.textContent).toBe("#rc-83935a");
     expect(head.nextElementSibling!.getAttribute("data-testid")).toBe("reply-task-ref");
-    expect(head.nextElementSibling!.textContent).toBe("T-9高寄信");
+    expect(head.nextElementSibling!.textContent).toBe("#T-9高寄信");
     const summary = head.nextElementSibling!.nextElementSibling!;
     expect(summary.className).toBe("reply-card__summary doc-md");
     expect(summary.nextElementSibling!.className).toBe("reply-card__divider");

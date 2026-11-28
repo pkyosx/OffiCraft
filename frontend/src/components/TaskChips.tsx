@@ -6,6 +6,7 @@ import { useI18n } from "../i18n";
 import { useDueState } from "../hooks/useDueState";
 import { formatDue } from "../lib/dueDate";
 import { JumpToMessageIcon } from "./replyCardActionIcons";
+import { idChipText } from "./IdChips";
 import "./tasks.css";
 import "./office.css";
 import "./card-meta.css";
@@ -39,7 +40,7 @@ export function TaskIdChip({
       onKeyDown={(e) => e.stopPropagation()}
     >
       <JumpToMessageIcon size={11} />
-      {taskNo}
+      {idChipText(taskNo)}
     </button>
   );
 }

@@ -5,10 +5,16 @@ import { useEffect, useRef, useState } from "react";
 import { copyText } from "../lib/clipboard";
 import { CheckIcon, CopyIcon } from "./icons";
 
+/** How every id chip writes its id: with a leading 「#」 (owner). The copy and
+ * the link carry the bare id. */
+export function idChipText(id: string): string {
+  return `#${id}`;
+}
+
 /** The copy icon leads the chip; a successful copy swaps it for a check and,
  * given `copiedLabel`, shows that word after the id for a moment. Nothing is
  * shown when the clipboard refuses the write. `value` is what is copied, which
- * may be longer than the `text` on the chip. */
+ * may be longer than the `text` on the chip, which is written after a 「#」. */
 export function CopyIdChip({
   value,
   text,
@@ -52,7 +58,7 @@ export function CopyIdChip({
       onClick={() => void copy()}
     >
       {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
-      {text}
+      {idChipText(text)}
       {copied && copiedLabel && (
         <span className={copiedClassName} role="status" data-testid={copiedTestId}>
           {copiedLabel}

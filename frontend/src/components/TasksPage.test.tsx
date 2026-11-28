@@ -739,7 +739,7 @@ describe("TasksPage", () => {
     expect(
       card.querySelector('[data-testid="task-dep"] .task-card__dep-no')
         ?.textContent
-    ).toBe("等 T-7d40");
+    ).toBe("等 #T-7d40");
   });
 
   it("shows the transitional states: 未指派 → 等待指派, 有執行者但零節點 → 等待 ○○ 建立 Steps", async () => {

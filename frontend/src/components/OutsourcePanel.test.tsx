@@ -160,7 +160,7 @@ describe("OutsourcePanel", () => {
       chip.compareDocumentPosition(typeLine) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
-    expect(chip.textContent).toBe("T-9c21");
+    expect(chip.textContent).toBe("#T-9c21");
     expect(typeLine.textContent).toBe("review-pr");
     expect(typeLine.querySelector(".lifecycle-dot")).toBeNull();
     // line 3 (T-3451, owner 2026-07-23 REVERSES the 2026-07-16 "no title" rule):
@@ -518,7 +518,7 @@ describe("OutsourcePanel", () => {
 
     const { findByTestId } = renderOutsource();
     const chip = await findByTestId("outsource-task-ow-jump");
-    expect(chip.textContent).toBe("T-950f");
+    expect(chip.textContent).toBe("#T-950f");
     fireEvent.click(chip);
     // The chip routes to the task card's locate anchor (owner 2026-07-14:
     // 點 task id 連到該任務頁) and must NOT also open the worker chat.
@@ -773,7 +773,7 @@ describe("OutsourcePanel", () => {
     const sub = await findByTestId("outsource-chat-sub");
     const chip = within(sub).getByTestId("outsource-chat-task-ow-1");
     const typeLine = within(sub).getByTestId("outsource-chat-type-ow-1");
-    expect(chip.textContent).toBe("T-50c6");
+    expect(chip.textContent).toBe("#T-50c6");
     expect(typeLine.textContent).toBe("review-pr");
     expect(
       chip.compareDocumentPosition(typeLine) &

@@ -159,7 +159,7 @@ describe("請示卡的任務資訊 (RepliesPage)", () => {
     );
     const chip = within(ref).getByRole("button", { name: "查看任務" });
     expect(chip).toBe(ref.querySelector('[data-testid="reply-task-no"]'));
-    expect(chip.textContent).toBe("t-77");
+    expect(chip.textContent).toBe("#t-77");
     expect(chip.getAttribute("title")).toBe("查看任務");
     // Named by aria-label, not only by the title fallback.
     expect(chip.getAttribute("aria-label")).toBe("查看任務");
@@ -209,9 +209,9 @@ describe("請示卡的任務資訊 (ChatReplyCard)", () => {
     expect(ref.textContent).toContain("修 PR");
     // The chat card names the task by its number chip and title; the chip is
     // the jump, named 查看任務 like the 請示 page's.
-    expect(taskRefTextOutsideTitle(ref)).toBe("t-99");
+    expect(taskRefTextOutsideTitle(ref)).toBe("#t-99");
     const jump = within(ref).getByRole("button", { name: "查看任務" });
-    expect(jump.textContent).toBe("t-99");
+    expect(jump.textContent).toBe("#t-99");
     expect(jump.getAttribute("title")).toBe("查看任務");
     expect(jump.getAttribute("aria-label")).toBe("查看任務");
     fireEvent.click(jump);

@@ -39,7 +39,7 @@ describe("CopyIdChip", () => {
     expect(chip.firstElementChild?.tagName).toBe("svg");
     expect(icon()).toEqual(COPY_ICON);
     expect([chip.textContent, chip.getAttribute("aria-label"), chip.title]).toEqual([
-      "rc-83935a",
+      "#rc-83935a",
       "複製請示卡完整 ID rc-83935a1b2c3d",
       "複製請示卡完整 ID rc-83935a1b2c3d",
     ]);
@@ -47,7 +47,7 @@ describe("CopyIdChip", () => {
     fireEvent.click(chip);
     await waitFor(() => expect(icon()).toEqual(CHECK_ICON));
     expect(copyTextMock).toHaveBeenCalledWith("rc-83935a1b2c3d");
-    expect(chip.textContent).toBe("rc-83935a已複製");
+    expect(chip.textContent).toBe("#rc-83935a已複製");
     expect(copied()?.getAttribute("role")).toBe("status");
 
     await act(async () => {

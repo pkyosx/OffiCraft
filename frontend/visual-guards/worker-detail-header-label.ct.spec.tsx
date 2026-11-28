@@ -28,7 +28,7 @@ for (const width of [375, 390, 1280]) {
     const title = cmp.getByTestId("worker-detail-header-task-title");
     await expect(line).toBeVisible();
     await expect(title).toBeVisible();
-    expect(await line.textContent()).toBe("t-23cf5291a001OffiCraft 開發");
+    expect(await line.textContent()).toBe("#t-23cf5291a001OffiCraft 開發");
     expect(await title.textContent()).toBe(TITLE);
     await expect(title).toHaveAttribute("title", TITLE);
 

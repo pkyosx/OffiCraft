@@ -16,7 +16,7 @@ describe("TaskIdChip", () => {
       Array.from(chip.childNodes).map((n) =>
         n.nodeName === "svg" ? (n as Element).querySelector("polyline")?.getAttribute("points") : n.textContent,
       ),
-    ).toEqual(["15 3 21 3 21 9", "T-812"]);
+    ).toEqual(["15 3 21 3 21 9", "#T-812"]);
     expect([chip.getAttribute("aria-label"), chip.title]).toEqual(["查看任務", "查看任務"]);
     fireEvent.click(chip);
     expect(onOpen).toHaveBeenCalledTimes(1);

@@ -747,7 +747,7 @@ function SharedDocList({
                 <div className="lore-row__badges">
                   <CopyIdChip
                     value={doc.id}
-                    text={`#${shortDocId(doc.id)}`}
+                    text={shortDocId(doc.id)}
                     label={msg.sharedDocCopyId(doc.id)}
                     copiedLabel={d.idCopied}
                     className="lore-row__id-badge"

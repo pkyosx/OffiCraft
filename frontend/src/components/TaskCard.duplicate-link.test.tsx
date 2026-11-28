@@ -84,6 +84,6 @@ describe("T-c21e S1 重複原票列的編號", () => {
       Array.from(link.children).map((el) =>
         el.tagName === "svg" ? el.querySelector("polyline")?.getAttribute("points") : el.textContent,
       ),
-    ).toEqual(["15 3 21 3 21 9", `重複於 ${LONG_ID}`]);
+    ).toEqual(["15 3 21 3 21 9", `重複於 #${LONG_ID}`]);
   });
 });

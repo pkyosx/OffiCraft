@@ -160,7 +160,7 @@ import {
   SwapIcon,
   TasksIcon,
 } from "./icons";
-import { CopyIdChip } from "./IdChips";
+import { CopyIdChip, idChipText } from "./IdChips";
 import "./inline-edit.css";
 import "./card-meta.css";
 import "./replies.css";
@@ -1717,7 +1717,7 @@ export function TaskCard({
 
             <CopyIdChip
               value={task.taskNo}
-              text={`#${task.taskNo}`}
+              text={task.taskNo}
               label={msg.taskCopyTaskNo(task.taskNo)}
               copiedLabel={t.tasks.taskNoCopied}
               className="task-card__id-badge task-card__id-badge--copy"
@@ -2435,7 +2435,7 @@ export function TaskCard({
                 {depClosed ? <CheckIcon size={13} /> : <ClockIcon size={13} />}
                 <span className="task-card__dep-no">
                   {t.tasks.blockedByLabel} <ExternalLinkIcon size={11} />
-                  {dep.taskNo}
+                  {idChipText(dep.taskNo)}
                 </span>
                 {/* Full text on hover: the row truncates at one line, and the
                     title attribute is the only affordance that survives both
@@ -2500,7 +2500,7 @@ export function TaskCard({
           >
             <ExternalLinkIcon size={11} />
             <span>
-              {msg.taskDuplicateOf(deriveTaskNo(task.duplicateOf))}
+              {msg.taskDuplicateOf(idChipText(deriveTaskNo(task.duplicateOf)))}
             </span>
           </button>
         </div>

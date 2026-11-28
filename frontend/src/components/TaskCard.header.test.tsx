@@ -159,7 +159,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     expect(
       card.querySelector('[data-testid="task-dep"] .task-card__dep-no')
         ?.textContent
-    ).toBe("等 T-7d40");
+    ).toBe("等 #T-7d40");
   });
 
   it("shows 負責人 / 到期日 / 識別鍵 under their labels, and adds 類型 / 產物 / 建立者 right under 到期日 only while the card is expanded", async () => {

@@ -163,7 +163,7 @@ function SecretRow({
         <div className="lore-row__badges">
           <CopyIdChip
             value={secret.id}
-            text={`#${secret.id}`}
+            text={secret.id}
             label={msg.secretCopyId(secret.id)}
             copiedLabel={d.idCopied}
             className="lore-row__id-badge"
