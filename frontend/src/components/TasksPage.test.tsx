@@ -1252,17 +1252,19 @@ describe("TasksPage", () => {
     expect(getByTestId("tasks-filter").previousElementSibling).toBeNull();
   });
 
-  it("applies the filters before grouping and leaves out a lane the filters emptied", async () => {
+  it("applies the filters before grouping and leaves out a lane the filters emptied, the count left of the funnel adding up every lane, collapsed ones included", async () => {
     seedDueTasks(Date.now() / 1000);
-    renderPage();
+    const { getByTestId } = renderPage();
     await chooseGroupBy("due");
     await waitFor(() =>
       expect(laneKeys()).toEqual(["overdue", "soon", "later", "nodue"])
     );
+    await waitFor(() => expect(getByTestId("tasks-filter-summary").textContent).toBe("8 個任務"));
     toggleFilter("filter-type", "deploy");
     await waitFor(() => expect(laneKeys()).toEqual(["overdue"]));
     expect(laneTitles("overdue")).toEqual(["逾期的手冊任務"]);
     expect(laneCount("overdue")).toBe(" · 1");
+    await waitFor(() => expect(getByTestId("tasks-filter-summary").textContent).toBe("1 個任務"));
   });
 
   it("filters by 到期 offering only 已逾期 / 快到期, OR'd, ANDed with the other axes, never counting a closed task as overdue, and 清除篩選 clears it", async () => {
@@ -1596,12 +1598,14 @@ describe("TasksPage", () => {
     expect(queryByTestId("filter-status")).toBeNull();
   });
 
-  it("opens 篩選任務 with each field under its label, and a tick narrows the list behind it while it stays open", async () => {
+  it("opens 篩選任務 with each field under its label, and a tick narrows the list and the count left of the funnel behind it while it stays open", async () => {
     const now = Date.now() / 1000;
     __injectMockTask(mkTask({ title: "跑著的", status: "in_progress" }));
     __injectMockTask(mkTask({ title: "收工的", status: "done", closedTs: now - 10 }));
-    const { findByText, getByTestId, getByRole } = renderPage();
+    const { findByText, getByTestId, getByRole, queryByTestId } = renderPage();
+    expect(queryByTestId("tasks-filter-summary")).toBeNull();
     await findByText("跑著的");
+    await waitFor(() => expect(getByTestId("tasks-filter-summary").textContent).toBe("1 個任務"));
     fireEvent.click(getByTestId("tasks-filter-toggle"));
 
     const dialog = getByRole("dialog", { name: "篩選任務" });
@@ -1621,6 +1625,7 @@ describe("TasksPage", () => {
 
     toggleFilter("filter-status", "done");
     await findByText("收工的");
+    await waitFor(() => expect(getByTestId("tasks-filter-summary").textContent).toBe("2 個任務"));
     toggleFilter("filter-type", "adhoc");
     await waitFor(() => expect(getByTestId("tasks-filter-count").textContent).toBe("2"));
     expect(getByTestId("tasks-filter-applied").textContent).toBe("已套用 2 個條件");

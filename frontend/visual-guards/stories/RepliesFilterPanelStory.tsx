@@ -63,20 +63,21 @@ export function RepliesPageStory({ theme }: { theme: BuiltinThemeId }) {
 }
 
 /** The production shell with the requested page selected, including topbar and
- * nav. The width preference is set before I18nProvider reads it. */
+ * nav. The width preference is set before I18nProvider reads it. `lore` opens
+ * Mira's section page. */
 export function AppPageStory({
   page,
   theme,
   wide = false,
 }: {
-  page: "tasks" | "replies";
+  page: "tasks" | "replies" | "lore";
   theme: BuiltinThemeId;
   wide?: boolean;
 }) {
   window.localStorage.setItem(LS_THEME, theme);
   document.documentElement.setAttribute("data-theme", theme);
   window.localStorage.setItem("oc.wide", wide ? "true" : "false");
-  window.location.hash = `#${page}`;
+  window.location.hash = page === "lore" ? "#lore/agent/mira" : `#${page}`;
   return (
     <I18nProvider>
       <ReplyCardsProvider>

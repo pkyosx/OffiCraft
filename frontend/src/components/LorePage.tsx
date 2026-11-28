@@ -206,6 +206,8 @@ function capOf(page: LoreEntryPageView): CapInfo {
 
 interface SectionData {
   entries: LoreEntryView[];
+  /** The server's count for the current filter (all pages); null until page one lands. */
+  total: number | null;
   cap: CapInfo;
   loading: boolean;
   fetchingMore: boolean;
@@ -548,6 +550,7 @@ function LoreView({
         ...prev,
         [def.key]: {
           entries: [],
+          total: null,
           cap: NO_CAP,
           loading: true,
           fetchingMore: false,
@@ -565,6 +568,7 @@ function LoreView({
           flightRef.current.delete(def.key);
           patchSection(def.key, (p) => ({
             entries: page.entries,
+            total: page.total,
             cap: isLatestCap(def.key, capSeq) ? capOf(page) : p.cap,
             loading: false,
             fetchingMore: false,
@@ -822,12 +826,14 @@ function LoreView({
         const seen = new Set<string>();
         let offset = 0;
         let last: LoreEntryPageView | null = null;
+        let total: number | null = null;
         let exhausted = false;
         while (offset < want) {
           const limit = Math.min(MAX_LIST_LIMIT, want - offset);
           const p = await api.listLoreEntries({ ...baseOptsRef.current, ...scopeOpts(def), limit, offset });
           if (genRef.current.get(def.key) !== gen) return true;
           last = p;
+          total ??= p.total;
           offset += p.entries.length;
           for (const e of p.entries) {
             if (seen.has(e.id)) continue;
@@ -843,6 +849,7 @@ function LoreView({
         const fresh = last;
         patchSection(def.key, (p) => ({
           entries: rows,
+          total,
           cap: fresh && isLatestCap(def.key, capSeq) ? capOf(fresh) : p.cap,
           loading: false,
           fetchingMore: false,
@@ -1616,80 +1623,76 @@ function LoreView({
       {currentDef && (
         <>
           <div className="lore-section__head" data-testid="lore-section-head">
-            <div className="lore-section__title-row">
-              <div className="lore__group-title lore-section__title">
-                {sectionLead(currentDef)}
-                {currentDef.kind === "manual" ? (
-                  // The way back to the manual for every viewer; the card scope tag offers it only to those who may move entries.
-                  <button
-                    type="button"
-                    className="lore-section__name lore-section__name--link"
-                    data-testid="lore-section-name"
-                    title={msg.loreOpenManual(sectionName(currentDef))}
-                    aria-label={msg.loreOpenManual(sectionName(currentDef))}
-                    onClick={() => openManual(currentDef.scopeKey)}
-                  >
-                    {sectionName(currentDef)}
-                  </button>
-                ) : (
-                  <span className="lore-section__name" data-testid="lore-section-name">
-                    {sectionName(currentDef)}
-                  </span>
-                )}
-                <span className="lore__group-count">
-                  {" · "}
-                  <span data-testid="lore-section-count">{msg.loreEntryCount(currentDef.target.entryCount)}</span>
+            <div className="lore__group-title lore-section__title">
+              {sectionLead(currentDef)}
+              {currentDef.kind === "manual" ? (
+                // The way back to the manual for every viewer; the card scope tag offers it only to those who may move entries.
+                <button
+                  type="button"
+                  className="lore-section__name lore-section__name--link"
+                  data-testid="lore-section-name"
+                  title={msg.loreOpenManual(sectionName(currentDef))}
+                  aria-label={msg.loreOpenManual(sectionName(currentDef))}
+                  onClick={() => openManual(currentDef.scopeKey)}
+                >
+                  {sectionName(currentDef)}
+                </button>
+              ) : (
+                <span className="lore-section__name" data-testid="lore-section-name">
+                  {sectionName(currentDef)}
                 </span>
-                {currentDef.target.droppedCount > 0 && (
-                  <span className="lore-section__dropped" data-testid="lore-section-dropped">
-                    {msg.loreDropped(currentDef.target.droppedCount)}
-                  </span>
-                )}
-              </div>
-              <FilterPanel
-                testId="lore-filter"
-                clearLabel={t.lore.clearFilters}
-                onClear={activeFilterCount > 0 ? clearFilters : undefined}
-                collapse={{ title: t.lore.filterDialogTitle, activeCount: activeFilterCount }}
-              >
-                <FilterField label={t.lore.idSearchLabel} wide>
-                  <IdFilterInput
-                    value={searchDraft}
-                    onChange={setSearchDraft}
-                    onCommit={(v) => setAppliedSearch(v.trim())}
-                    label={t.lore.idSearchLabel}
-                    testId="lore-filter-id"
-                    widthCh={7}
-                  />
-                </FilterField>
-                <FilterField label={t.lore.filterTypeNoun}>
-                  <MultiSelectFilter
-                    noun={t.lore.filterTypeNoun}
-                    allLabel={t.lore.filterTypeAll}
-                    testId="lore-filter-type"
-                    options={LORE_TYPES.map((lt) => ({ value: lt, label: loreTypeLabel(t, lt) }))}
-                    selected={loreTypes}
-                    onChange={(next) => setLoreTypes(next as Set<LoreType>)}
-                  />
-                </FilterField>
-                <FilterField label={t.lore.filterStateNoun}>
-                  <MultiSelectFilter
-                    noun={t.lore.filterStateNoun}
-                    allLabel={t.lore.filterStateAll}
-                    testId="lore-filter-state"
-                    options={[
-                      { value: "pinned", label: t.lore.statePinned },
-                      { value: "active", label: t.lore.stateActive },
-                      { value: "retired", label: t.lore.stateRetired },
-                    ]}
-                    selected={states}
-                    onChange={(next) => setStates(next as Set<LoreEntryState>)}
-                  />
-                </FilterField>
-              </FilterPanel>
+              )}
+              {currentDef.target.droppedCount > 0 && (
+                <span className="lore-section__dropped" data-testid="lore-section-dropped">
+                  {msg.loreDropped(currentDef.target.droppedCount)}
+                </span>
+              )}
             </div>
             {renderSummary(currentDef, sd)}
           </div>
+
+          <FilterPanel
+            testId="lore-filter"
+            clearLabel={t.lore.clearFilters}
+            onClear={activeFilterCount > 0 ? clearFilters : undefined}
+            collapse={{ title: t.lore.filterDialogTitle, activeCount: activeFilterCount }}
+            summary={sd?.total == null ? undefined : msg.loreListedCount(sd.total)}
+          >
+            <FilterField label={t.lore.idSearchLabel} wide>
+              <IdFilterInput
+                value={searchDraft}
+                onChange={setSearchDraft}
+                onCommit={(v) => setAppliedSearch(v.trim())}
+                label={t.lore.idSearchLabel}
+                testId="lore-filter-id"
+                widthCh={7}
+              />
+            </FilterField>
+            <FilterField label={t.lore.filterTypeNoun}>
+              <MultiSelectFilter
+                noun={t.lore.filterTypeNoun}
+                allLabel={t.lore.filterTypeAll}
+                testId="lore-filter-type"
+                options={LORE_TYPES.map((lt) => ({ value: lt, label: loreTypeLabel(t, lt) }))}
+                selected={loreTypes}
+                onChange={(next) => setLoreTypes(next as Set<LoreType>)}
+              />
+            </FilterField>
+            <FilterField label={t.lore.filterStateNoun}>
+              <MultiSelectFilter
+                noun={t.lore.filterStateNoun}
+                allLabel={t.lore.filterStateAll}
+                testId="lore-filter-state"
+                options={[
+                  { value: "pinned", label: t.lore.statePinned },
+                  { value: "active", label: t.lore.stateActive },
+                  { value: "retired", label: t.lore.stateRetired },
+                ]}
+                selected={states}
+                onChange={(next) => setStates(next as Set<LoreEntryState>)}
+              />
+            </FilterField>
+          </FilterPanel>
 
           {highlightMissing && (
             <div className="lore__empty" data-testid="lore-highlight-missing">

@@ -3,7 +3,8 @@
 // right, then the ID badge and 最後修改 — with no sideways scroll on the page or
 // the table's own wrapper, and the header row hidden. At 1280 it is the
 // four-column table: header shown, ID → 檔案 → 最後修改 → 操作 side by side,
-// a long name clipped inside its own cell at both widths.
+// a long name clipped inside its own cell at both widths. Above the list, the
+// count of files sits at the bar's left end on ＋ 新增's line.
 //
 // Every measurement scores a missing element as a FAILURE — a renamed class
 // must not turn these checks into no-ops.
@@ -148,3 +149,41 @@ test("at 1280px the list stays the four-column table with its header", async ({ 
       if (fileCell && box) expect.soft(box.right, `${tag} ${part} runs out of the 檔案 cell`).toBeLessThanOrEqual(fileCell.right + 1);
   }
 });
+
+for (const width of [320, 390, 1280]) {
+  for (const language of ["zh", "en"] as const) {
+    test(`width ${width}, ${language}: the file count sits whole on one line at the bar's left end, on ＋ 新增's line`, async ({ mount, page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate((lang) => localStorage.setItem("oc.language", lang), language);
+      const cmp = await mount(<SharedDocsListStory />);
+      const count = cmp.getByTestId("shared-docs-count");
+      await expect(count).toHaveText(language === "zh" ? "3 份檔案" : "3 files");
+      const m = await count.evaluate((el: HTMLElement) => {
+        const r = (e: Element | Range) => {
+          const b = e.getBoundingClientRect();
+          return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+        };
+        const bar = el.closest(".shared-docs__bar")!;
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const se = document.scrollingElement!;
+        return {
+          count: r(el),
+          text: r(range),
+          bar: r(bar),
+          add: r(bar.querySelector('[data-testid="shared-docs-add-menu"]')!),
+          lines: new Set(Array.from(range.getClientRects()).map((x) => Math.round(x.top))).size,
+          cut: el.scrollWidth > el.clientWidth + 0.5,
+          pageOver: se.scrollWidth - se.clientWidth,
+        };
+      });
+      expect.soft(m.pageOver, "page horizontal scroll").toBeLessThanOrEqual(1);
+      expect.soft(m.lines, "count on one line").toBe(1);
+      expect.soft(m.cut, "count whole").toBe(false);
+      expect.soft(Math.abs(m.count.left - m.bar.left), "count at the bar's left end").toBeLessThanOrEqual(1);
+      expect.soft(Math.abs(m.add.right - m.bar.right), "＋ 新增 at the bar's right end").toBeLessThanOrEqual(1);
+      expect.soft(m.count.right, "count left of ＋ 新增").toBeLessThanOrEqual(m.add.left);
+      expect.soft(Math.abs(mid(m.text) - mid(m.add)), "count on ＋ 新增's line").toBeLessThanOrEqual(2);
+    });
+  }
+}

@@ -655,6 +655,9 @@ function SharedDocList({ actorName }: { actorName: (id: string) => string }) {
   return (
     <div className="shared-docs" data-testid="shared-docs-page">
       <div className="shared-docs__bar">
+        <span className="shared-docs__count" data-testid="shared-docs-count">
+          {!loading && !loadError && msg.sharedDocListedCount(docs.length)}
+        </span>
         <RuntimeActionMenu
           label={d.add}
           testIdPrefix="shared-docs-add"

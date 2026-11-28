@@ -347,15 +347,17 @@ describe("SharedDocsPage", () => {
     expect(within(ownerRow).getByTestId("shared-doc-delete").getAttribute("title")).toBe("永久刪除");
   });
 
-  it("永久刪除 asks first, then removes the doc for good", async () => {
+  it("永久刪除 asks first, then removes the doc for good, the count left of ＋ 新增 following", async () => {
     const { container, getByTestId } = renderPage();
     const [, review] = await waitRows(container, 2);
+    expect(getByTestId("shared-docs-count").textContent).toBe("2 份檔案");
     fireEvent.click(within(review!).getByTestId("shared-doc-delete"));
     expect(getByTestId("shared-doc-delete-confirm").textContent).toContain(
       "要永久刪除「Review Rule」嗎？檔案與所有版本都會刪除，無法復原。",
     );
     fireEvent.click(getByTestId("shared-doc-delete-confirm-btn"));
     await waitRows(container, 1);
+    await waitFor(() => expect(getByTestId("shared-docs-count").textContent).toBe("1 份檔案"));
     expect((await api.listSharedDocs()).map((d) => d.id)).toEqual(["sd-0c41e97a2b58"]);
   });
 

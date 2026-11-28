@@ -6,8 +6,9 @@
 // (stories/RepliesFilterPanelStory.tsx); a story that assembled the row out of
 // its own markup once kept this guard green for a layout no page rendered.
 //
-// The shape measured: on 任務頁 and 請示頁 the row holds a funnel; the fields
-// open in a panel anchored under it (desktop) or a bottom sheet (≤720px).
+// The shape measured: on 任務頁, 請示頁 and a 傳承 section page the row holds a
+// funnel; the fields open in a panel anchored under it (desktop) or a bottom
+// sheet (≤720px).
 //
 // What is asserted is geometry and computed colour:
 //   (1) the panel / sheet and every field in it stay inside the viewport with
@@ -25,7 +26,10 @@
 //   (6) on 請示頁 the three list labels hold one line inside the column at
 //       320, 390 and 1440 in both languages, with the funnel and 顯示方式 on
 //       the same line beside them on a desktop and on one line below them on a
-//       phone, and no sort wording in the row.
+//       phone, and no sort wording in the row;
+//   (7) on 任務頁 and a 傳承 section page the row's count (「5 個任務」) sits at
+//       its left end on the funnel's centre line, whole and on one line, at
+//       320, 390 and 1440 in both languages.
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Locator, Page } from "@playwright/test";
 import { BUILTIN_THEME_IDS, expectBuiltinApplied } from "./builtinThemes";
@@ -90,7 +94,14 @@ async function applyId(cmp: Locator, page: Page, id: string) {
   await expect(cmp.getByTestId("replies-empty")).toBeVisible();
 }
 
-for (const pageName of ["tasks", "replies"] as const) {
+const FIELD_COUNT = { tasks: 5, replies: 4, lore: 3 };
+const DROPDOWN = {
+  tasks: ["filter-status", "狀態"],
+  replies: ["filter-priority", "任務優先序"],
+  lore: ["lore-filter-state", "狀態"],
+};
+
+for (const pageName of ["tasks", "replies", "lore"] as const) {
   for (const width of [390, 721, 1440]) {
     test(`${pageName} width ${width}: the 篩選 ${width > 720 ? "panel" : "sheet"} holds every field inside the viewport, with no horizontal overflow, and a dropdown in it is not clipped`, async ({
       mount,
@@ -134,7 +145,7 @@ for (const pageName of ["tasks", "replies"] as const) {
       expect(m.box.left).toBeGreaterThanOrEqual(-0.5);
       expect(m.box.right).toBeLessThanOrEqual(width + 0.5);
       expect(m.box.bottom).toBeLessThanOrEqual((width > 720 ? 900 : 844) + 0.5);
-      expect(m.fields).toHaveLength(pageName === "tasks" ? 5 : 4);
+      expect(m.fields).toHaveLength(FIELD_COUNT[pageName]);
       for (const f of m.fields) {
         expect(f.left, `${f.label} left edge`).toBeGreaterThanOrEqual(m.box.left);
         expect(f.right, `${f.label} right edge`).toBeLessThanOrEqual(m.box.right);
@@ -143,13 +154,12 @@ for (const pageName of ["tasks", "replies"] as const) {
         expect(f.labelLines, `${f.label} label lines`).toBe(1);
       }
       const rows = new Set(m.fields.slice(1).map((f) => Math.round(f.top))).size;
-      expect(rows, "the dropdowns in two columns").toBe(2);
+      expect(rows, "the dropdowns in two columns").toBe(Math.ceil((FIELD_COUNT[pageName] - 1) / 2));
       expect(Math.round(m.fields[0].right - m.fields[0].left), "the ID field spans both columns").toBe(
         Math.round(m.fields[2].right - m.fields[1].left)
       );
 
-      const [dropdown, noun] =
-        pageName === "tasks" ? ["filter-status", "狀態"] : ["filter-priority", "任務優先序"];
+      const [dropdown, noun] = DROPDOWN[pageName];
       await page.getByTestId(dropdown).click();
       const pop = page.getByRole("group", { name: noun });
       await expect(pop).toBeVisible();
@@ -421,3 +431,54 @@ for (const width of [320, 390, 1440]) {
   }
 }
 
+
+const COUNT_WORDING = {
+  tasks: { zh: /^\d+ 個任務$/, en: /^\d+ tasks?$/ },
+  lore: { zh: /^\d+ 筆傳承$/, en: /^\d+ (entry|entries)$/ },
+};
+
+for (const pageName of ["tasks", "lore"] as const) {
+  for (const width of [320, 390, 1440]) {
+    for (const language of ["zh", "en"] as const) {
+      test(`${pageName} width ${width}, ${language}: the count sits whole on one line at the 篩選 row's left end, on the funnel's centre line, inside the column`, async ({
+        mount,
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.evaluate((lang) => localStorage.setItem("oc.language", lang), language);
+        const cmp = await mount(<AppPageStory page={pageName} theme="office" wide={width > 1040} />);
+        const summary = cmp.getByTestId(`${pageName}-filter-summary`);
+        await expect(summary).toHaveText(COUNT_WORDING[pageName][language]);
+
+        const m = await summary.evaluate((el: HTMLElement) => {
+          const r = (e: Element) => {
+            const b = e.getBoundingClientRect();
+            return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+          };
+          const row = el.closest(".filter-panel")!;
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          return {
+            count: r(el),
+            text: range.getBoundingClientRect(),
+            row: r(row),
+            main: r(el.closest(".app__main")!),
+            funnel: r(row.querySelector(".filter-panel__trigger")!),
+            lines: new Set(Array.from(range.getClientRects()).map((x) => Math.round(x.top))).size,
+            cut: el.scrollWidth > el.clientWidth + 0.5,
+            page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          };
+        });
+        const mid = (b: { top: number; bottom: number }) => (b.top + b.bottom) / 2;
+        expect(m.page, "page horizontal overflow").toBeLessThanOrEqual(0);
+        expect(m.lines, "the count on one line").toBe(1);
+        expect(m.cut, "the count whole").toBe(false);
+        expect(Math.abs(m.count.left - m.row.left), "the count at the row's left end").toBeLessThanOrEqual(1);
+        expect(m.count.right, "the count left of the funnel").toBeLessThanOrEqual(m.funnel.left);
+        expect(Math.abs(mid(m.text) - mid(m.funnel)), "the count's text on the funnel's centre line").toBeLessThanOrEqual(2);
+        expect(m.row.left).toBeGreaterThanOrEqual(m.main.left - 0.5);
+        expect(m.row.right).toBeLessThanOrEqual(m.main.right + 0.5);
+      });
+    }
+  }
+}

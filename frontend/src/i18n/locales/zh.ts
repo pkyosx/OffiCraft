@@ -165,6 +165,8 @@ export const zh = {
     kindManual: "任務手冊",
     entryCountTailOne: " 筆",
     entryCountTailMany: " 筆",
+    listedCountOne: "筆傳承",
+    listedCountMany: "筆傳承",
     charsTail: " 字",
     everyoneReadByAll: "・每位成員都會讀",
     droppedTail: " 筆讀不到",
@@ -196,6 +198,8 @@ export const zh = {
   sharedDocs: {
     loadFailed: "讀不到檔案庫，請稍後再試",
     empty: "檔案庫裡還沒有檔案",
+    listedCountOne: "份檔案",
+    listedCountMany: "份檔案",
     add: "新增",
     uploadFile: "上傳檔案",
     addLink: "新增連結",
@@ -294,6 +298,8 @@ export const zh = {
     // 空狀態 ×2(SPEC §2.3 指定文案)
     emptyNone: "目前沒有任務",
     emptyFiltered: "沒有符合篩選條件的任務",
+    listedCountOne: "個任務",
+    listedCountMany: "個任務",
     loadError: "載入任務失敗，請稍後重試",
     loadingMore: "載入中…",
     // 篩選列(任一生效顯「清除篩選」)
@@ -689,8 +695,9 @@ export const zh = {
   // 整組 `filterPanel` 詞條**已經刪掉**，不是整理，是 owner 2026-09-06
   // c-c3d681fe05da 把每一個帶字的控制項都拿掉了：「篩選」漏斗鈕與「取消」／
   // 「套用篩選」兩顆鈕一起消失，「N 筆」／「已篩選：」／「清除全部」／「移除篩選」
-  // 隨那條摘要列一起消失。取代它的那一列只有欄位、沒有任何自己的字，所以這裡
-  // 不留空殼；欄位的標籤本來就分別住在 `tasks.*` 與 `replies.*`，兩頁各自措辭。
+  // 隨那條摘要列一起消失，所以這裡不留空殼；欄位的標籤本來就分別住在 `tasks.*`
+  // 與 `replies.*`，兩頁各自措辭。漏斗左邊的「5 個任務」（owner 2026-11-28）不是
+  // 那條摘要列復活：它只有一個數字、沒有「已篩選」，詞條在各頁的 `listedCount*`。
   replies: {
     // 清單上方的三個標籤。tabSnoozed 跟延後動作同一個詞。
     tabsLabel: "請示卡",

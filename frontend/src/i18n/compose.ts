@@ -61,6 +61,8 @@ export interface Messages {
   taskDueLead: (minutes: number) => string;
   taskDueLeadWorkspace: (minutes: number) => string;
   taskCountSummary: (overdue: number, dueSoon: number, open: number) => string;
+  /** 「5 個任務」: how many the list holds under the current filters. */
+  taskListedCount: (n: number) => string;
   // ── task artifact versions (T-60) ──
   taskArtifactVersionCount: (n: number) => string;
   taskArtifactVersionLabel: (when: string) => string;
@@ -86,6 +88,7 @@ export interface Messages {
   loreScopeManual: (manualName: string) => string;
   loreScopeAgent: (authorName: string) => string;
   loreEntryCount: (n: number) => string;
+  loreListedCount: (n: number) => string;
   loreChars: (n: number) => string;
   loreDropped: (n: number) => string;
   loreEveryoneUsed: (chars: number) => string;
@@ -106,6 +109,7 @@ export interface Messages {
   secretDeleteConfirmBody: (name: string) => string;
   sharedDocCopyId: (docId: string) => string;
   sharedDocDeleteConfirmBody: (name: string) => string;
+  sharedDocListedCount: (n: number) => string;
   sharedDocEditHint: () => string;
   sharedDocUpdated: (by: string, when: string) => string;
   // ── office ──
@@ -376,6 +380,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     },
     taskDueLeadWorkspace: (minutes) =>
       `${tasks.dueLeadWorkspaceLead}${messages.taskDueLead(minutes)}`,
+    taskListedCount: (n) => counted(n, tasks.listedCountOne, tasks.listedCountMany),
     taskCountSummary: (overdue, dueSoon, open) =>
       [
         overdue > 0 &&
@@ -488,6 +493,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       `${t.lore.openManualLabel} ${manualName}`,
     loreScopeManual: (manualName) => `${t.lore.scopeManualLead}${manualName}`,
     loreScopeAgent: (authorName) => `${t.lore.scopeAgentLead}${authorName}`,
+    loreListedCount: (n) => counted(n, t.lore.listedCountOne, t.lore.listedCountMany),
     loreEntryCount: (n) =>
       `${num(n)}${n === 1 ? t.lore.entryCountTailOne : t.lore.entryCountTailMany}`,
     loreChars: (n) => `${num(n)}${t.lore.charsTail}`,
@@ -517,6 +523,8 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     sharedDocCopyId: (docId) => `${t.sharedDocs.copyIdLabel} ${docId}`,
     sharedDocDeleteConfirmBody: (name) =>
       `${t.sharedDocs.deleteConfirmLead}${name}${t.sharedDocs.deleteConfirmTail}`,
+    sharedDocListedCount: (n) =>
+      counted(n, t.sharedDocs.listedCountOne, t.sharedDocs.listedCountMany),
     sharedDocEditHint: () =>
       `${t.sharedDocs.editHintLead}${t.sharedDocs.uploadVersion}${t.sharedDocs.editHintTail}`,
     sharedDocUpdated: (by, when) => `${by} · ${when}`,

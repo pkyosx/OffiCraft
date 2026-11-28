@@ -75,6 +75,7 @@ function page(
     entries,
     limit: 30,
     offset: 0,
+    total: entries.length,
     usedChars: 0,
     firstDroppedChars: 0,
     budgetSegments: [],
@@ -660,10 +661,14 @@ describe("LorePage — 篩選器複選", () => {
     fireEvent.click(box);
   }
 
-  it("asks for 置頂 and 生效中 by default, and ticking 已失效 adds it to the same request", async () => {
-    const spy = stubList(page([mkEntry({ id: "L-1" })]));
+  it("asks for 置頂 and 生效中 by default, and ticking 已失效 adds it to the same request and shows that request's server total", async () => {
+    const spy = vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) => ({
+      ...page([mkEntry({ id: "L-1" })]),
+      total: o?.states?.includes("retired") ? 50 : 42,
+    }));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    expect(screen.getByTestId("lore-filter-summary").textContent).toBe("42 筆傳承");
     expect(lastOpts(spy)).toEqual({
       states: ["pinned", "active"],
       scopeKinds: ["everyone", "agent"],
@@ -687,6 +692,7 @@ describe("LorePage — 篩選器複選", () => {
     );
     expect(screen.getByTestId("lore-filter-count").textContent).toBe("1");
     expect(screen.getByTestId("lore-filter-clear")).not.toBeNull();
+    await waitFor(() => expect(screen.getByTestId("lore-filter-summary").textContent).toBe("50 筆傳承"));
   });
 
   it("sends the ticked types as loreTypes, counts each narrowed field once on the funnel, and 清除篩選 drops them all", async () => {
@@ -739,13 +745,17 @@ describe("LorePage — 篩選器複選", () => {
     expect(screen.getByTestId<HTMLInputElement>("lore-filter-id").value).toBe("");
   });
 
-  it("keeps the id box, the type and state filters behind a closed funnel in the section title row, labelled in the panel it opens, with no 撰寫人 filter", async () => {
+  it("keeps the id box, the type and state filters behind a closed funnel in the toolbar row between the section head and the list, labelled in the panel it opens, with no 撰寫人 filter", async () => {
     const spy = stubList(page([mkEntry({ id: "L-1" })]));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
 
     const toggle = screen.getByTestId("lore-filter-toggle");
-    expect(container.querySelector('[data-testid="lore-section-head"]')!.contains(toggle)).toBe(true);
+    const toolbar = screen.getByTestId("lore-filter");
+    expect(toolbar.previousElementSibling!.getAttribute("data-testid")).toBe("lore-section-head");
+    expect(toolbar.nextElementSibling!.getAttribute("data-testid")).toBe("lore-section");
+    expect(toolbar.contains(toggle)).toBe(true);
+    expect(screen.getByTestId("lore-filter-summary").textContent).toBe("1 筆傳承");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(document.querySelector('[data-testid^="lore-filter-id"]')).toBeNull();
     expect(document.querySelector('[data-testid="lore-filter-type"]')).toBeNull();
@@ -1176,7 +1186,7 @@ describe("LorePage — 可變動作面", () => {
       ["lore-revert-scope", "還原為「Mira」"],
     ]);
     expect(revertMarks(container, "L-3")).toEqual([]);
-    expect(sectionHead(container)).toBe("Mira · 3 筆1,200 / 10,000 字");
+    expect(sectionHead(container)).toBe("Mira1,200 / 10,000 字");
     expect(container.querySelector('[data-testid="lore-staged-count"]')!.textContent).toBe("3 項變更還沒儲存");
     expect(
       Array.from(bar(container)!.querySelectorAll("button")).map((b) => b.textContent),
@@ -2213,11 +2223,12 @@ describe("LorePage — 目錄與段落頁", () => {
     expect(container.querySelector('[data-testid="lore-back"]')!.getAttribute("href")).toBe("#lore");
     expect(
       Array.from(container.querySelector('[data-testid="lore-page"]')!.children).map((el) => el.getAttribute("data-testid")),
-    ).toEqual(["lore-back", "lore-section-head", "lore-section"]);
+    ).toEqual(["lore-back", "lore-section-head", "lore-filter", "lore-section"]);
     const head = container.querySelector<HTMLElement>('[data-testid="lore-section-head"]')!;
-    expect(head.querySelector('[data-testid="lore-filter-toggle"]')).not.toBeNull();
+    expect(head.querySelector('[data-testid="lore-filter-toggle"]')).toBeNull();
     expect(head.querySelector('[data-testid="lore-section-name"]')!.textContent).toBe("Mira");
-    expect(head.querySelector('[data-testid="lore-section-count"]')!.textContent).toBe("11 筆");
+    expect(head.querySelector('[data-testid="lore-section-count"]')).toBeNull();
+    expect(screen.getByTestId("lore-filter-summary").textContent).toBe("6 筆傳承");
     expect(head.querySelector('[data-testid="lore-section-dropped"]')!.textContent).toBe("4 筆讀不到");
     expect(list.mock.calls).toEqual([
       [{ states: ["pinned", "active"], scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], limit: 30, offset: 0 }],
@@ -3254,7 +3265,7 @@ describe("LorePage — 晚到的回應", () => {
     vi.spyOn(api, "listLoreBudgets").mockImplementation(async () => {
       budgetCalls += 1;
       if (budgetCalls === 2) return firstBudgets.promise;
-      return [{ ...MIRA_TARGET, entryCount: budgetCalls === 1 ? 2 : 5 }];
+      return [{ ...MIRA_TARGET, entryCount: 5, droppedCount: budgetCalls === 1 ? 2 : 5 }];
     });
     const { container } = await renderOpen();
     await waitFor(() => expect(rowById(container, "L-1").dataset.dimmed).toBe("true"));
@@ -3268,16 +3279,18 @@ describe("LorePage — 晚到的回應", () => {
     chooseStateOn(container, "L-2", "retired");
     fireEvent.click(container.querySelector('[data-testid="lore-staged-save"]')!);
     await waitFor(() => expect(renderedIds(container)).toEqual(["L-1"]));
-    await waitFor(() => expect(sectionHead(container)).toContain("5 筆"));
+    await waitFor(() => expect(sectionHead(container)).toContain("5 筆讀不到"));
     expect(rowById(container, "L-1").dataset.dimmed).toBe("false");
+    expect(screen.getByTestId("lore-filter-summary").textContent).toBe("1 筆傳承");
 
     firstReread.resolve(lineAtL2);
-    firstBudgets.resolve([{ ...MIRA_TARGET, entryCount: 2 }]);
+    firstBudgets.resolve([{ ...MIRA_TARGET, entryCount: 5, droppedCount: 2 }]);
     await new Promise((r) => setTimeout(r, 20));
 
     expect(renderedIds(container)).toEqual(["L-1"]);
     expect(rowById(container, "L-1").dataset.dimmed).toBe("false");
-    expect(sectionHead(container)).toContain("5 筆");
+    expect(sectionHead(container)).toContain("5 筆讀不到");
+    expect(screen.getByTestId("lore-filter-summary").textContent).toBe("1 筆傳承");
   });
 
   it("a next page still in flight when the section is re-read is dropped: the re-read's rows and cap stand", async () => {

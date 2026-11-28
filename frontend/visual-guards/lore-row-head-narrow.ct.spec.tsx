@@ -6,7 +6,7 @@
 // the head without overlapping them, no open card has a clamped body, the 撰寫人／生效期
 // label/value grid stays inside the card, a folded row (讀不到 or folded by its
 // 收合) holds one line, the message box's 📎, input and 送出 sit on one row
-// inside the card with room to type, the section head's title, 篩選 funnel, bar and legend stay
+// inside the card with room to type, the section head's title, bar and legend stay
 // inside it, the 適用範圍 menu opens inside the viewport, the inline editor fits,
 // the unsaved-changes bar holds one line on the screen's bottom edge without
 // covering the last card, a staged card keeps its height with its ↺ marks inside
@@ -379,7 +379,7 @@ for (const width of [390, 1440]) {
     assertHeadContained(width, l4!);
   });
 
-  test(`a member's section head sits on the page under the back link, not on a card, with the 篩選 funnel at its title row's right end opening ${width > 720 ? "a panel under it" : "a bottom sheet"}, and its legend swatches match the bar @${width}px`, async ({ mount, page }) => {
+  test(`a member's section head sits on the page under the back link, not on a card, followed by the toolbar row (count left, 篩選 funnel right) above the list opening ${width > 720 ? "a panel under it" : "a bottom sheet"}, and its legend swatches match the bar @${width}px`, async ({ mount, page }) => {
     await mountAt(mount, page, width, false, MIRA);
     await expect(page.locator('[data-testid="lore-bar-everyone"]')).toBeVisible();
     const look = await page.evaluate(() => {
@@ -396,17 +396,29 @@ for (const width of [390, 1440]) {
         order: [
           [bottom('[data-testid="lore-back"]'), top(".lore-section__title")],
           [bottom(".lore-section__title"), top('[data-testid="lore-section-bar"]')],
-          [bottom('[data-testid="lore-section-summary"]'), top('[data-testid="lore-row"]')],
+          [bottom('[data-testid="lore-section-summary"]'), top('[data-testid="lore-filter"]')],
+          [bottom('[data-testid="lore-filter"]'), top('[data-testid="lore-row"]')],
         ],
-        funnel: (() => {
-          const f = head.querySelector('[data-testid="lore-filter-toggle"]');
-          const t = document.querySelector(".lore-section__title")!.getBoundingClientRect();
-          if (!f) return null;
+        toolbar: (() => {
+          const bar = document.querySelector('[data-testid="lore-filter"]');
+          const f = document.querySelector('[data-testid="lore-filter-toggle"]');
+          const n = document.querySelector('[data-testid="lore-filter-summary"]');
+          if (!bar || !f || !n) return null;
+          const b = bar.getBoundingClientRect();
+          const h = head.getBoundingClientRect();
           const r = f.getBoundingClientRect();
+          const c = n.getBoundingClientRect();
+          const range = document.createRange();
+          range.selectNodeContents(n);
+          const text = range.getBoundingClientRect();
           return {
-            rightGap: head.getBoundingClientRect().right - r.right,
-            leftOfFunnel: r.left - t.right,
-            midDelta: Math.abs((r.top + r.bottom) / 2 - (t.top + t.bottom) / 2),
+            inHead: head.contains(f),
+            rightGap: h.right - r.right,
+            countLeftGap: c.left - h.left,
+            countBeforeFunnel: r.left - c.right,
+            midDelta: Math.abs((r.top + r.bottom) / 2 - (text.top + text.bottom) / 2),
+            countCut: (n as HTMLElement).scrollWidth > (n as HTMLElement).clientWidth + 0.5,
+            barWithinHead: b.left >= h.left - 0.5 && b.right <= h.right + 0.5,
           };
         })(),
         titleLines: (() => {
@@ -420,11 +432,15 @@ for (const width of [390, 1440]) {
     look.order.forEach(([above, below], i) =>
       expect.soft(above, `[${width}px] head order step ${i}`).toBeLessThanOrEqual(below + 0.5),
     );
-    expect.soft(look.titleLines, `[${width}px] name · count and 讀不到 on one line`).toBe(1);
-    expect(look.funnel, `[${width}px] 篩選 funnel in the section head`).not.toBeNull();
-    expect.soft(Math.abs(look.funnel!.rightGap), `[${width}px] funnel right edge vs head`).toBeLessThanOrEqual(1);
-    expect.soft(look.funnel!.leftOfFunnel, `[${width}px] title ends left of the funnel`).toBeGreaterThanOrEqual(0);
-    expect.soft(look.funnel!.midDelta, `[${width}px] funnel centred on the title line`).toBeLessThanOrEqual(3);
+    expect.soft(look.titleLines, `[${width}px] name and 讀不到 on one line`).toBe(1);
+    expect(look.toolbar, `[${width}px] toolbar row with a count and the 篩選 funnel`).not.toBeNull();
+    expect.soft(look.toolbar!.inHead, `[${width}px] funnel out of the section head`).toBe(false);
+    expect.soft(look.toolbar!.barWithinHead, `[${width}px] toolbar as wide as the head`).toBe(true);
+    expect.soft(Math.abs(look.toolbar!.rightGap), `[${width}px] funnel right edge vs head`).toBeLessThanOrEqual(1);
+    expect.soft(Math.abs(look.toolbar!.countLeftGap), `[${width}px] count left edge vs head`).toBeLessThanOrEqual(1);
+    expect.soft(look.toolbar!.countBeforeFunnel, `[${width}px] count ends left of the funnel`).toBeGreaterThanOrEqual(0);
+    expect.soft(look.toolbar!.midDelta, `[${width}px] count centred on the funnel`).toBeLessThanOrEqual(2);
+    expect.soft(look.toolbar!.countCut, `[${width}px] count whole`).toBe(false);
 
     await page.getByTestId("lore-filter-toggle").click();
     const layer = page.getByTestId(width > 720 ? "lore-filter-pop" : "lore-filter-sheet");

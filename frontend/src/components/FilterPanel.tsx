@@ -62,6 +62,7 @@ export function FilterPanel({
   onClear,
   children,
   actions,
+  summary,
   collapse,
 }: {
   testId?: string;
@@ -76,6 +77,8 @@ export function FilterPanel({
   /** Controls that are not filters (顯示方式), held at the row's right end,
    * outside what 清除篩選 clears. */
   actions?: ReactNode;
+  /** Muted text at the row's left end (「5 個任務」). */
+  summary?: ReactNode;
   /** `activeCount` is the number of fields holding a condition, as the host
    * counts them; it is the funnel's badge. */
   collapse: { title: string; activeCount: number };
@@ -86,6 +89,7 @@ export function FilterPanel({
       clearLabel={clearLabel}
       onClear={onClear}
       actions={actions}
+      summary={summary}
       title={collapse.title}
       activeCount={collapse.activeCount}
     >
@@ -99,6 +103,7 @@ function CollapsedFilterPanel({
   clearLabel,
   onClear,
   actions,
+  summary,
   title,
   activeCount,
   children,
@@ -107,6 +112,7 @@ function CollapsedFilterPanel({
   clearLabel: string;
   onClear?: () => void;
   actions?: ReactNode;
+  summary?: ReactNode;
   title: string;
   activeCount: number;
   children: ReactNode;
@@ -119,6 +125,11 @@ function CollapsedFilterPanel({
 
   return (
     <div className="filter-panel" data-testid={testId}>
+      {summary != null && (
+        <span className="filter-panel__summary" data-testid={`${testId}-summary`}>
+          {summary}
+        </span>
+      )}
       <div className="filter-panel__bar">
         <button
           ref={triggerRef}

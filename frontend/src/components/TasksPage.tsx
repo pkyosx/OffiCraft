@@ -100,7 +100,7 @@ interface Lane {
 const sorted = (set: Set<string>) => [...set].sort();
 
 export function TasksPage() {
-  const { t } = useI18n();
+  const { t, msg } = useI18n();
   const {
     members,
     loading: membersLoading,
@@ -474,6 +474,12 @@ export function TasksPage() {
   const nothingAtAll =
     !idApplied && answered && listedNothing && (count?.total ?? 0) === 0;
   const nothingMatches = answered && !nothingAtAll && listedNothing;
+  const listedCount =
+    !answered || count === null
+      ? null
+      : groupBy === "none"
+        ? count.listTotal
+        : count.lanes.reduce((sum, lane) => sum + lane.count, 0);
 
   function renderCard(task: TaskView) {
     return (
@@ -583,6 +589,7 @@ export function TasksPage() {
         clearLabel={t.tasks.clearFilters}
         onClear={anyFilter ? clearFilters : undefined}
         collapse={{ title: t.tasks.filterDialogTitle, activeCount: activeFilterCount }}
+        summary={listedCount === null ? undefined : msg.taskListedCount(listedCount)}
         actions={
           <DisplayOptions
             label={t.tasks.groupByLabel}
