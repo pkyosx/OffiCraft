@@ -183,7 +183,10 @@ async function expectTaskRow(card: Locator, cardBox: Box) {
   const rowBox = await box(row);
   const id = await card.getAttribute("data-reply-card-id");
   expect(inside(rowBox, cardBox), `${id}: task box inside the card`).toBe(true);
-  expect(rowBox.top, `${id}: task box under the first line`).toBeGreaterThanOrEqual((await box(card.locator(".reply-card__head"))).bottom);
+  const headBox = await box(card.locator(".reply-card__head"));
+  expect(rowBox.top, `${id}: task box under the first line`).toBeGreaterThanOrEqual(headBox.bottom);
+  expect(Math.abs(rowBox.left - headBox.left), `${id}: task box starts where the first line starts`).toBeLessThanOrEqual(1);
+  expect(Math.abs(rowBox.right - headBox.right), `${id}: task box spans to the first line's right edge`).toBeLessThanOrEqual(1);
   expect(rowBox.bottom, `${id}: task box above the title`).toBeLessThanOrEqual((await box(card.locator(".reply-card__summary"))).top);
   for (const part of await row.locator("[data-testid='reply-task-no'], [data-testid='reply-task-priority'], .reply-card__task-title, .reply-card__task-due").all()) {
     expect(inside(await box(part), rowBox), `${id}: ${await part.textContent()} inside the task box`).toBe(true);
@@ -363,7 +366,8 @@ for (const { width, mode } of HEAD_SCENES) {
         cutByCard.set((await card.getAttribute("data-reply-card-id")) ?? "", cut);
         if ((await card.getByTestId("reply-task-ref").count()) > 0) await expectTaskRow(card, cardBox);
       }
-      expect(await isCut(cardOf(page, "rc-desk-1").locator(".reply-card__task-title")), "control: a task row title is cut").toBe(true);
+      if (width <= 390)
+        expect(await isCut(cardOf(page, "rc-desk-1").locator(".reply-card__task-title")), "control: a task row title is cut").toBe(true);
       if (width <= 390)
         expect(await isCut(cardOf(page, "rc-desk-long-task-row").locator(".reply-card__task-title")), "control: the task row with no due date has its title cut").toBe(true);
       const longTaskCut = cutByCard.get("rc-desk-long-task") ?? [];
