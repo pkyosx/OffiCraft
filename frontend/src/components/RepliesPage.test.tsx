@@ -765,7 +765,7 @@ describe("RepliesPage", () => {
         (el) => [
           el.dataset.replyCardId,
           el.querySelector('[data-testid="reply-status-icon"]')?.getAttribute("data-state"),
-          el.querySelector(".reply-card__handled-at .reply-card__meta-label")?.textContent ?? null,
+          el.querySelector(".reply-card__handled-at .card-meta__label")?.textContent ?? null,
         ]
       );
     const tab = (v: string) => getByTestId(`replies-tab-${v}`);
@@ -1214,7 +1214,7 @@ describe("RepliesPage", () => {
       const ref = card.querySelector('[data-testid="reply-task-ref"]')!;
       const head = card.querySelector(".reply-card__head")!;
       const summary = card.querySelector(".reply-card__summary")!;
-      const meta = card.querySelector(".reply-card__meta")!;
+      const meta = card.querySelector(".card-meta")!;
       expect(card.firstElementChild).toBe(head);
       expect(head.nextElementSibling).toBe(ref);
       expect(

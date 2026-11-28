@@ -115,8 +115,8 @@ for (const width of [320, 390, 1440]) {
                 bg: getComputedStyle(b).backgroundColor,
               })),
               name: r(row.querySelector('[data-testid="secret-name"]')),
-              labels: [...row.querySelectorAll(".lore-row__meta-label")].map((l) => r(l)!),
-              values: [...row.querySelectorAll(".lore-row__meta-label + *")].map((v) => r(v)!),
+              labels: [...row.querySelectorAll(".card-meta__label")].map((l) => r(l)!),
+              values: [...row.querySelectorAll(".card-meta__label + *")].map((v) => r(v)!),
               never: never
                 ? { style: getComputedStyle(never).fontStyle, color: getComputedStyle(never).color }
                 : null,

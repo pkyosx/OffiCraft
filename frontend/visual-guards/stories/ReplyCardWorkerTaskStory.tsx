@@ -1,15 +1,15 @@
-// CT story: the asking outsource worker's CURRENT TASK line under the
-// 請示卡's 開卡人 chip.
+// CT story: the asking outsource worker's CURRENT TASK, the 目前任務 row under
+// the 請示卡's 開卡人 row.
 //
 // Same philosophy as ReplyCardOpenerStory: RepliesPage owns live hooks this
 // story does not wire up, so it reproduces the REAL DOM skeleton
-// (.reply-card__meta / .reply-card__meta-value / .reply-card__worker-task) against the
+// (.card-meta / .reply-card__worker-task) against the
 // REAL replies.css + office.css, and mounts the REAL components RepliesPage
 // renders — `OutsourceTaskLine` and `CurrentTaskTitle`, not a hand-copied
 // approximation, so a mutant in either can redden this guard.
 //
-// ⚠️ KNOWN BOUNDARY: the SKELETON is a copy. If RepliesPage moves the line out
-// of `.reply-card__meta-value`, this guard keeps measuring the old arrangement and
+// ⚠️ KNOWN BOUNDARY: the SKELETON is a copy. If RepliesPage moves the row out
+// of `.card-meta`, this guard keeps measuring the old arrangement and
 // stays green. What it does cover is the thing jsdom cannot see at all: with
 // both stylesheets loaded and real layout in play, does the title actually
 // clamp here the way it does in the rail, and does the card survive a long
@@ -20,6 +20,7 @@ import { OutsourceTaskLine } from "../../src/components/OutsourcePanel";
 import { JumpToMessageIcon } from "../../src/components/replyCardActionIcons";
 import { mkWorker, VERY_LONG_TITLE } from "./currentTaskFixtures";
 import "../../src/components/replies.css";
+import "../../src/components/card-meta.css";
 import "../../src/components/office.css";
 
 export function ReplyCardWorkerTaskStory() {
@@ -44,21 +45,19 @@ export function ReplyCardWorkerTaskStory() {
             </div>
           </header>
           <div className="reply-card__summary">要照這個方向做嗎？</div>
-          <div className="reply-card__meta">
-            <span className="reply-card__meta-label">開卡人</span>
-            <div className="reply-card__meta-value">
-              <button type="button" className="reply-card__opener">
-                <span className="reply-card__name">O-30</span>
-              </button>
-              <span className="reply-card__worker-task">
-                <span className="reply-card__worker-task-head">
-                  <span className="reply-card__meta-label">目前任務</span>
-                  <OutsourceTaskLine
-                    worker={worker}
-                    onOpenTask={() => {}}
-                    idPrefix="reply-card-rc-1"
-                  />
-                </span>
+          <div className="card-meta">
+            <span className="card-meta__label">開卡人</span>
+            <button type="button" className="reply-card__opener">
+              <span className="reply-card__name">O-30</span>
+            </button>
+            <div className="card-meta__row reply-card__worker-task">
+              <span className="card-meta__label">目前任務</span>
+              <span className="reply-card__worker-task-value">
+                <OutsourceTaskLine
+                  worker={worker}
+                  onOpenTask={() => {}}
+                  idPrefix="reply-card-rc-1"
+                />
                 <CurrentTaskTitle
                   title={VERY_LONG_TITLE}
                   clamp

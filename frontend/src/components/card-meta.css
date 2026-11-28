@@ -1,0 +1,27 @@
+/* card-meta.css — the label/value rows of every card: 任務卡 (負責人／到期日…),
+ * 請示卡 (開卡人／目前任務／處理時間), 金鑰卡, 檔案庫卡 and 傳承卡. One sheet
+ * so the five cannot drift apart: a label sits on the same column, in the same
+ * colour, centred on its value, on every card. Each component that draws these
+ * rows imports this file itself.
+ *
+ * The label column is as wide as the card's widest label (max-content), never
+ * a hard-coded width, so it holds in every language. */
+.card-meta {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 7px 12px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--color-text);
+}
+.card-meta__label {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  opacity: 0.75;
+  white-space: nowrap;
+}
+/* A row that comes and goes as one unit; its two cells sit on the grid. */
+.card-meta__row {
+  display: contents;
+}

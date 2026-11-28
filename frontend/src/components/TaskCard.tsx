@@ -164,6 +164,7 @@ import {
 } from "./icons";
 import { CopyIdChip } from "./IdChips";
 import "./inline-edit.css";
+import "./card-meta.css";
 import "./replies.css";
 import "./card-composer.css";
 
@@ -1487,6 +1488,9 @@ export function TaskCard({
             initialStatus={step.replyCardStatus}
             fallbackSummary={step.name}
             commentRecipientFor={docCommentRecipientFor}
+            members={members}
+            workers={workers}
+            taskId={task.id}
           />
         )}
       </div>
@@ -1887,7 +1891,7 @@ export function TaskCard({
             click. 負責人 / 到期日 (+ 前任 / 識別鍵 when set) are always shown;
             類型 / 產物 / 建立者 join them, right under 到期日, only while the
             card is expanded. */}
-        <div className="task-card__meta">
+        <div className="card-meta">
           {/* 負責人 (聊天泡泡 in the chip when reachable) + 轉派 icon to its right
               (owner 2026-07-18): 轉派 is a hand-the-task-to-a-new-executor
               action, so it belongs beside WHO owns the task. The chip and the
@@ -1898,7 +1902,7 @@ export function TaskCard({
               button is a real interactive element (closest() in the card-toggle
               filter already excludes it), shown only while the task is
               non-terminal — the server 409s a reassign on a closed task. */}
-          <span className="task-card__meta-label">{t.tasks.assigneeLabel}</span>
+          <span className="card-meta__label">{t.tasks.assigneeLabel}</span>
           <div className="task-card__assignee-cell">
             {assigneePeerId ? (
               <button
@@ -1940,7 +1944,7 @@ export function TaskCard({
 
           {dueRowShown && (
             <>
-              <span className="task-card__meta-label task-card__meta-label--due">{t.tasks.dueLabel}</span>
+              <span className="card-meta__label task-card__due-label">{t.tasks.dueLabel}</span>
               <div className="task-card__due" ref={dueRef}>
                 {dueEditable ? (
                   <button
@@ -2155,7 +2159,7 @@ export function TaskCard({
 
           {expanded && (
             <div className="task-card__more" data-testid="task-meta-more">
-              <span className="task-card__meta-label">{t.tasks.metaTypeLabel}</span>
+              <span className="card-meta__label">{t.tasks.metaTypeLabel}</span>
               {typeClickable ? (
                 <button
                   type="button"
@@ -2179,7 +2183,7 @@ export function TaskCard({
 
               {(view.artifactCount ?? 0) > 0 && (
                 <div className="task-card__artifacts-row">
-                  <span className="task-card__meta-label">
+                  <span className="card-meta__label">
                     {t.tasks.artifacts.label}
                   </span>
                   {/* A closed task's deliverable set is frozen (the server
@@ -2199,7 +2203,7 @@ export function TaskCard({
                   2026-07-17): the row would restate the line directly above it. */}
               {!creatorIsExecutor && (
                 <>
-                  <span className="task-card__meta-label">{t.tasks.creatorLabel}</span>
+                  <span className="card-meta__label">{t.tasks.creatorLabel}</span>
                   {creator.peerId ? (
                     <button
                       type="button"
@@ -2235,7 +2239,7 @@ export function TaskCard({
               whether the peer still resolves to a live roster/worker row). */}
           {previousAssignee && (
             <>
-              <span className="task-card__meta-label">
+              <span className="card-meta__label">
                 {t.tasks.previousAssigneeLabel}
               </span>
               <button
@@ -2263,7 +2267,7 @@ export function TaskCard({
           {/* 識別鍵 — URL 值可外連(chip 內帶外連圖示); 空值整列不顯示 (ad-hoc) */}
           {task.dedupeKey && (
             <>
-              <span className="task-card__meta-label">{t.tasks.keyLabel}</span>
+              <span className="card-meta__label">{t.tasks.keyLabel}</span>
               {isUrl(task.dedupeKey) ? (
                 <a
                   className="task-card__chip task-card__chip--link task-card__key-chip"
@@ -2577,7 +2581,7 @@ export function TaskCard({
            identically to one that was never rendered. ── */}
       {view.forcedDoneBy && (
         <div className="task-card__forced-done" data-testid="task-forced-done">
-          <span className="task-card__meta-label">{t.tasks.forcedDoneLabel}</span>
+          <span className="card-meta__label">{t.tasks.forcedDoneLabel}</span>
           <span className="task-card__forced-done-by">
             {members.find((m) => m.id === forcedDoneBy)?.name ??
               forcedDoneByNames.get(forcedDoneBy) ??

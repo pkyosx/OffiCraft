@@ -147,7 +147,7 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
     // not.toContain("建立者") would stay green if the whole meta grid vanished;
     // this cannot).
     const labels = Array.from(
-      card.querySelectorAll(".task-card__meta-label")
+      card.querySelectorAll(".card-meta__label")
     ).map((n) => n.textContent);
     expect(labels).toEqual(["負責人", "到期日", "類型"]);
   });
@@ -177,7 +177,7 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
     // …and despite the identical text, the row stays: the ids differ.
     expect(queryByTestId("task-creator-link")).toBeTruthy();
     const labels = Array.from(
-      document.querySelectorAll(".task-card__meta-label")
+      document.querySelectorAll(".card-meta__label")
     ).map((n) => n.textContent);
     expect(labels).toEqual(["負責人", "類型", "建立者"]);
   });

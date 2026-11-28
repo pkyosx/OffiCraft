@@ -182,7 +182,7 @@ describe("spec ③ 詳細敘述排在訊息輸入框之後", () => {
     fireEvent.click(await findByTestId("task-card"));
     await act(async () => {});
 
-    const meta = container.querySelector(".task-card__meta")!;
+    const meta = container.querySelector(".card-meta")!;
     const composer = container.querySelector(".task-card__composer")!;
     const desc = container.querySelector(".task-card__desc")!;
     // 任務類型 / 負責人 / 建立者 did NOT ride along — they stay in the head,

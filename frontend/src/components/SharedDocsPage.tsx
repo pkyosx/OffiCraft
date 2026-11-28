@@ -38,6 +38,7 @@ import {
 } from "./icons";
 import { CopyIdChip } from "./IdChips";
 import "./confirm-modal.css";
+import "./card-meta.css";
 import "./inline-edit.css";
 import "./lore.css";
 import "./md-preview.css";
@@ -766,10 +767,10 @@ function SharedDocList({
                 />
               </div>
               <FileBlock doc={doc} onPreview={setPreview} />
-              <div className="lore-row__meta">
-                <span className="lore-row__meta-label">{d.createdByLabel}</span>
+              <div className="card-meta">
+                <span className="card-meta__label">{d.createdByLabel}</span>
                 <CreatorChip id={doc.createdBy} name={actorName(doc.createdBy)} member={actorMember(doc.createdBy)} />
-                <span className="lore-row__meta-label">{d.updatedLabel}</span>
+                <span className="card-meta__label">{d.updatedLabel}</span>
                 <UpdatedButton
                   text={msg.sharedDocUpdatedAgo(actorName(doc.updatedBy), nowSecs - doc.updatedTs)}
                   onOpen={() => setHistoryId(doc.id)}

@@ -53,6 +53,7 @@ import { ConfirmModal } from "./ConfirmModal";
 import { ChevronRightIcon } from "./icons";
 import { ExpireActionIcon } from "./replyCardActionIcons";
 import "./replies.css";
+import "./card-meta.css";
 
 export function ChatReplyCard({
   replyCardId,
@@ -476,7 +477,7 @@ export function ChatReplyCard({
           )}
           {summaryNode}
           {handledTs !== null && (
-            <div className="reply-card__meta">
+            <div className="card-meta">
               <ReplyCardHandledRow time={formatAbsolute(handledTs, Date.now() / 1000)} />
             </div>
           )}

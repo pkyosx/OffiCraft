@@ -141,18 +141,18 @@ for (const width of [320, 390, 1440]) {
 
       const g = await card.evaluate((el) => {
         const cardBox = el.getBoundingClientRect();
-        const meta = el.querySelector(".task-card__meta")!;
+        const meta = el.querySelector(".card-meta")!;
         const more = meta.querySelector("[data-testid='task-meta-more']")!;
         const due = meta.querySelector(".task-card__due")!;
         const rows = [...more.querySelectorAll(":scope > *, .task-card__artifacts-row > *")];
-        const labels = [...more.querySelectorAll(".task-card__meta-label")].map((n) =>
+        const labels = [...more.querySelectorAll(".card-meta__label")].map((n) =>
           n.getBoundingClientRect().left
         );
         return {
           rowCount: rows.length,
           maxRight: Math.max(...rows.map((n) => n.getBoundingClientRect().right)),
           labelLefts: labels,
-          dueLabelLeft: meta.querySelector(".task-card__meta-label--due")!.getBoundingClientRect().left,
+          dueLabelLeft: meta.querySelector(".task-card__due-label")!.getBoundingClientRect().left,
           followsDue: due.nextElementSibling === more,
           dueBottom: due.getBoundingClientRect().bottom,
           moreTop: more.getBoundingClientRect().top,

@@ -982,7 +982,7 @@ describe("LorePage — 卡片底下的撰寫人與生效期", () => {
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
     const row = rowById(container, "L-7");
-    const meta = row.querySelector<HTMLElement>(".lore-row__meta")!;
+    const meta = row.querySelector<HTMLElement>(".card-meta")!;
     expect(Array.from(meta.children).map((el) => el.getAttribute("data-testid") ?? el.textContent)).toEqual([
       "撰寫人",
       "lore-author-row",
@@ -1075,7 +1075,7 @@ describe("LorePage — 卡片收合", () => {
     ]);
     expect(
       Array.from(folded.children).map((el) => el.getAttribute("data-testid") ?? el.className),
-    ).toEqual(["lore-row__head", "lore-row__title", "lore-body", "lore-row__meta"]);
+    ).toEqual(["lore-row__head", "lore-row__title", "lore-body", "card-meta"]);
     expect(folded.querySelector('[data-testid="lore-entry-id"]')!.textContent).toBe("#L-7");
     expect(folded.querySelector(".lore-row__title")!.textContent).toBe("標題 L-7");
     expect(folded.querySelector('[data-testid="lore-type"]')!.textContent).toBe("Owner 決策");
@@ -2476,10 +2476,10 @@ describe("LorePage — 目錄與段落頁", () => {
     await waitFor(() => expect(renderedIds(container)).toEqual(["L-1", "L-2", "L-9"]));
     const reason = rowById(container, "L-9").querySelector('[data-testid="lore-retire-reason"]')!;
     expect(Array.from(reason.children).map((el) => [el.className, el.textContent])).toEqual([
-      ["lore-row__meta-label", "失效理由"],
+      ["card-meta__label", "失效理由"],
       ["lore-row__retire", "併進 SOP"],
     ]);
-    expect(reason.parentElement!.className).toBe("lore-row__meta");
+    expect(reason.parentElement!.className).toBe("card-meta");
   });
 
   it("the directory's count is hidden until the office total arrives, and a server without a total counts the live entries, 所有人 once", async () => {

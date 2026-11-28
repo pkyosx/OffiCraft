@@ -206,7 +206,7 @@ for (const width of [320, 390, 1440]) {
         await expect(card.locator(".reply-card__body")).toBeVisible();
         await expectDivider(
           card,
-          card.locator(answered ? ".reply-card__meta" : ".reply-card__summary"),
+          card.locator(answered ? ".card-meta" : ".reply-card__summary"),
           tag,
         );
         await cmp.unmount();

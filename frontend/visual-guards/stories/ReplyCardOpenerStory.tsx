@@ -2,7 +2,7 @@
 //
 // RepliesPage owns live hooks (useMembers/useReplyCards/useHashRoute) that
 // this story deliberately does NOT wire up — same philosophy as
-// OfficeSidebarStory: reproduce the REAL DOM skeleton (.reply-card__meta)
+// OfficeSidebarStory: reproduce the REAL DOM skeleton (.card-meta)
 // against the REAL replies.css, but mount the REAL ReplyCardOpenerChip
 // component RepliesPage.tsx itself renders (not a hand-copied approximation
 // of its markup — a mutant in the real component must be able to redden
@@ -15,6 +15,7 @@ import { useState } from "react";
 import { I18nProvider } from "../../src/i18n";
 import { ReplyCardOpenerChip } from "../../src/components/ReplyCardOpenerChip";
 import "../../src/components/replies.css";
+import "../../src/components/card-meta.css";
 
 export function ReplyCardOpenerStory() {
   const [openCount, setOpenCount] = useState(0);
@@ -22,8 +23,8 @@ export function ReplyCardOpenerStory() {
     <I18nProvider>
       <div data-testid="open-count">{openCount}</div>
       <div className="reply-card" style={{ width: 360 }}>
-        <div className="reply-card__meta">
-          <span className="reply-card__meta-label">開卡人</span>
+        <div className="card-meta">
+          <span className="card-meta__label">開卡人</span>
           <ReplyCardOpenerChip onClick={() => setOpenCount((n) => n + 1)} name="Mira" />
         </div>
       </div>

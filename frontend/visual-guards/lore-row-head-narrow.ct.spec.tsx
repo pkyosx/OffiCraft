@@ -143,9 +143,9 @@ async function measure(page: any): Promise<{
             return body ? body.scrollHeight > body.clientHeight + 1 : null;
           })(),
           toggle: row.getAttribute("role") === "button",
-          meta: r(row.querySelector(".lore-row__meta")),
+          meta: r(row.querySelector(".card-meta")),
           metaItems: [
-            ...row.querySelectorAll(".lore-row__meta > :not(.lore-row__meta-row), .lore-row__meta-row > *"),
+            ...row.querySelectorAll(".card-meta > :not(.card-meta__row), .card-meta__row > *"),
           ].map((c) => r(c)!),
           composer: r(row.querySelector('[data-testid="lore-message-box"] .task-card__composer')),
           composerItems: [

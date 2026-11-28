@@ -1374,7 +1374,7 @@ test.describe("touch screen", () => {
       await expect(card.locator(".reply-card__summary")).toBeVisible();
       await expect(head).toHaveCSS("display", "none");
       await expect(card.getByTestId("reply-task-ref")).toBeHidden();
-      await expect(card.locator(".reply-card__meta")).toBeHidden();
+      await expect(card.locator(".card-meta")).toBeHidden();
       await expect(card.locator(".reply-card__divider")).toHaveCount(1);
       await expect(card.locator(".reply-card__divider")).toBeHidden();
       const thread = page.locator(".chat__messages");

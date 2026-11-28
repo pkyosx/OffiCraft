@@ -20,29 +20,43 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
-import type { ReplyCard, ReplyCardAnswerInput } from "../api/adapter";
+import type { OutsourceWorkerView, ReplyCard, ReplyCardAnswerInput } from "../api/adapter";
+import type { Member } from "../types";
 import { api } from "../api";
 import { useHashRoute } from "../lib/hashRoute";
 import { secretCardMayStillChange } from "../lib/replyCardReceipt";
+import { formatAbsolute } from "../lib/dateFormat";
+import { avatarKindForMember } from "../lib/avatarKind";
+import { OWNER_ID } from "../lib/ownerUnread";
+import { useReplyCardSnoozed } from "../hooks/useReplyCards";
+import { useWorkerAvatarUrls, useWorkerCodenames } from "../hooks/useWorkerCodenames";
 import { Markdown } from "./Markdown";
 import {
   ReplyCardAnsweredBody,
   ReplyCardExpiredBody,
+  ReplyCardHandledRow,
+  ReplyCardIdChip,
   ReplyCardLinkComments,
   ReplyCardQuestionAttachments,
+  ReplyCardStatusIcon,
   ReplyCardWaitingBody,
 } from "./ReplyCardBody";
+import { ReplyCardOpenerChip } from "./ReplyCardOpenerChip";
 import type { DocCommentRecipient } from "../lib/docComments";
 import { unlinkMentions } from "../lib/mentionLinks";
 import { ChevronRightIcon } from "./icons";
 import { JumpToMessageIcon } from "./replyCardActionIcons";
 import "./replies.css";
+import "./card-meta.css";
 
 export function TaskReplyCard({
   replyCardId,
   initialStatus,
   fallbackSummary,
   commentRecipientFor,
+  members = [],
+  workers = [],
+  taskId,
 }: {
   replyCardId: string;
   /** The bound step's read-time `reply_card_status` hint. ANSWERED or EXPIRED
@@ -57,6 +71,12 @@ export function TaskReplyCard({
   /** Who a document linked from the card is commented to, by author id;
    * absent ⇒ such documents open read-only. */
   commentRecipientFor?: (id: string) => DocCommentRecipient | null;
+  /** The rosters the 開卡人 chip names the asker from; an asker in neither is
+   * read by id. */
+  members?: Member[];
+  workers?: OutsourceWorkerView[];
+  /** The task this card sits in, for the asker's profile to lead back to. */
+  taskId?: string;
 }) {
   const { t, msg } = useI18n();
   const [, setRoute] = useHashRoute();
@@ -87,6 +107,15 @@ export function TaskReplyCard({
   );
   const cardRef = useRef(card);
   cardRef.current = card;
+  const snoozed = useReplyCardSnoozed(replyCardId);
+
+  const askerId = card?.from ?? "";
+  const askerMember = members.find((m) => m.id === askerId);
+  const askerWorker = workers.find((w) => w.id === askerId);
+  const askerUnlisted =
+    askerId !== "" && askerId !== OWNER_ID && !askerMember && !askerWorker ? [askerId] : [];
+  const unlistedNames = useWorkerCodenames(askerUnlisted);
+  const unlistedAvatars = useWorkerAvatarUrls(askerUnlisted);
 
   // 🔴 READ GENERATION — the same hazard as ChatReplyCard (see the long note
   // there), found by sweeping for it rather than by a report. This card ALSO
@@ -223,6 +252,15 @@ export function TaskReplyCard({
     });
   }
 
+  function openAsker() {
+    const back = taskId ? { backTo: "tasks" as const, backToId: taskId } : {};
+    setRoute(
+      askerMember?.kind === "staff"
+        ? { page: "office", detailId: askerId, ...back }
+        : { page: "office", workerId: askerId, ...back },
+    );
+  }
+
   // ── collapsed one-line summary (answered + not expanded) ───────────────────
   // Collapsed when the card is answered-ish and not expanded: either the card
   // is loaded and answered, or it mounted with an answered hint and was never
@@ -292,6 +330,20 @@ export function TaskReplyCard({
     );
   }
 
+  const headState =
+    card?.status === "answered" || card?.status === "expired"
+      ? card.status
+      : snoozed
+        ? "snoozed"
+        : "waiting";
+  // A secret card shows no time (owner).
+  const handledTs =
+    card && card.status !== "waiting" && card.kind !== "secret"
+      ? (card.status === "expired" ? card.expiredTs : card.answeredTs) ?? null
+      : null;
+
+  // The same first line, title, meta rows and divider as the 請示 page's card.
+  // No task box: the card already sits inside its task.
   return (
     <ReplyCardLinkComments from={card?.from} recipientFor={commentRecipientFor}>
       <div
@@ -299,37 +351,61 @@ export function TaskReplyCard({
         data-testid="task-reply-card"
         data-reply-card-id={replyCardId}
       >
-        <header className="task-reply-card__head">
-          <span className="task-reply-card__title">{t.tasks.replyHeader}</span>
-          {card && (
-            <button
-              type="button"
-              className="reply-card__icon-btn task-reply-card__jump"
-              aria-label={t.replies.jumpToChat}
-              title={t.replies.jumpToChat}
-              onClick={jumpToChat}
-            >
-              <JumpToMessageIcon size={13} />
-            </button>
-          )}
-          {(card?.status === "answered" || card?.status === "expired") && (
-            <button
-              type="button"
-              className="task-reply-card__collapse"
-              aria-label={t.tasks.collapseReply}
-              title={t.tasks.collapseReply}
-              data-testid="task-reply-card-collapse"
-              onClick={() => setAnsweredOpen(false)}
-            >
-              <ChevronRightIcon size={12} className="reply-card__caret reply-card__caret--open" />
-            </button>
-          )}
+        <header className="reply-card__head">
+          <ReplyCardStatusIcon state={headState} />
+          <ReplyCardIdChip id={replyCardId} />
+          <div className="reply-card__head-end">
+            <div className="reply-card__actions">
+              {card && (
+                <button
+                  type="button"
+                  className="reply-card__icon-btn"
+                  aria-label={t.replies.jumpToChat}
+                  title={t.replies.jumpToChat}
+                  onClick={jumpToChat}
+                >
+                  <JumpToMessageIcon size={13} />
+                </button>
+              )}
+            </div>
+            {terminal && (
+              <button
+                type="button"
+                className="reply-card__fold reply-card__fold--open task-reply-card__collapse"
+                aria-label={t.tasks.collapseReply}
+                title={t.tasks.collapseReply}
+                data-testid="task-reply-card-collapse"
+                onClick={() => setAnsweredOpen(false)}
+              >
+                <ChevronRightIcon size={14} />
+              </button>
+            )}
+          </div>
         </header>
 
         {/* T-a20b: summary is agent-authored free text (markdown), like body. */}
         {card?.summary && (
           <Markdown source={card.summary} className="reply-card__summary doc-md" />
         )}
+        {card && (
+          <div className="card-meta">
+            <span className="card-meta__label">{t.replies.openerLabel}</span>
+            <ReplyCardOpenerChip
+              onClick={openAsker}
+              name={askerMember?.name ?? askerWorker?.codename ?? unlistedNames.get(askerId) ?? askerId}
+              kind={askerWorker ? "outsource" : avatarKindForMember(askerMember ?? { id: askerId })}
+              src={
+                (askerMember?.kind === "outsource" ? undefined : askerMember?.avatarUrl) ??
+                askerWorker?.avatarUrl ??
+                unlistedAvatars.get(askerId)
+              }
+            />
+            {handledTs !== null && (
+              <ReplyCardHandledRow time={formatAbsolute(handledTs, Date.now() / 1000)} />
+            )}
+          </div>
+        )}
+        {card && <hr className="reply-card__divider" />}
         {card?.body && (
           <Markdown source={card.body} className="reply-card__body doc-md" />
         )}

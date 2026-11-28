@@ -157,6 +157,7 @@ import "./office.css"; // chat composer classes the ReplyComposer reuses, AND
 // current-task line is drawn with (T-196) — removing this import as an
 // unused-looking tidy-up unstyles that line, and no vitest test can see it.
 import "./replies.css";
+import "./card-meta.css";
 
 const HANDLED_WINDOW_SECONDS = 24 * 3600;
 const SELECTING_CARD = ".reply-card--selecting";
@@ -1425,9 +1426,9 @@ export function RepliesPage({
     // above, one field later.
     const bound = Boolean(worker.taskNo);
     return (
-      <span className="reply-card__worker-task">
-        <span className="reply-card__worker-task-head">
-          <span className="reply-card__meta-label">{t.replies.askerTaskLabel}</span>
+      <div className="card-meta__row reply-card__worker-task">
+        <span className="card-meta__label">{t.replies.askerTaskLabel}</span>
+        <span className="reply-card__worker-task-value">
           {bound && (
             <OutsourceTaskLine
               worker={worker}
@@ -1435,13 +1436,13 @@ export function RepliesPage({
               idPrefix={`reply-card-${row.id}`}
             />
           )}
+          <CurrentTaskTitle
+            title={worker.taskTitle ?? ""}
+            clamp
+            testid={`reply-card-task-title-${row.id}`}
+          />
         </span>
-        <CurrentTaskTitle
-          title={worker.taskTitle ?? ""}
-          clamp
-          testid={`reply-card-task-title-${row.id}`}
-        />
-      </span>
+      </div>
     );
   }
 
@@ -1503,27 +1504,25 @@ export function RepliesPage({
     );
   }
 
-  /** 開卡人 (with an outsource asker's current task under the chip), and on a
-   * settled card when it was answered or expired. */
+  /** 開卡人, an outsource asker's 目前任務, and on a settled card when it was
+   * answered or expired. */
   function renderMeta(row: ReplyCardRow, handled?: ReactNode) {
     const who = whoOf(row);
     const asker = members.find((x) => x.id === row.from);
     const askerTask = renderAskerCurrentTask(row);
     return (
-      <div className="reply-card__meta">
-        <span className="reply-card__meta-label">{t.replies.openerLabel}</span>
-        <div className="reply-card__meta-value">
-          <ReplyCardOpenerChip
-            onClick={() => openProfile(row)}
-            name={who.chipName}
-            src={
-              (asker?.kind === "outsource" ? undefined : asker?.avatarUrl) ??
-              workerAvatarUrls.get(row.from)
-            }
-            kind={avatarKindForMember(asker ?? { id: row.from })}
-          />
-          {askerTask}
-        </div>
+      <div className="card-meta">
+        <span className="card-meta__label">{t.replies.openerLabel}</span>
+        <ReplyCardOpenerChip
+          onClick={() => openProfile(row)}
+          name={who.chipName}
+          src={
+            (asker?.kind === "outsource" ? undefined : asker?.avatarUrl) ??
+            workerAvatarUrls.get(row.from)
+          }
+          kind={avatarKindForMember(asker ?? { id: row.from })}
+        />
+        {askerTask}
         {handled}
       </div>
     );

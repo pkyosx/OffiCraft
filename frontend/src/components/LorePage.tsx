@@ -109,6 +109,7 @@ import {
 } from "./icons";
 import { CopyIdChip } from "./IdChips";
 import "./lore.css";
+import "./card-meta.css";
 // The message box wears the 任務卡 box's classes: .chat__input / .chat__attach
 // and ComposerAttachmentPreview's .chat__preview-* from office.css, the row and
 // 送出 from card-composer.css.
@@ -2322,17 +2323,17 @@ function LoreRow({
         </>
       )}
 
-      <div className="lore-row__meta">
-        <span className="lore-row__meta-label">{t.lore.authorLabel}</span>
+      <div className="card-meta">
+        <span className="card-meta__label">{t.lore.authorLabel}</span>
         <LoreAuthorChip author={author} avatar={avatar} />
-        <span className="lore-row__meta-label">{t.lore.effectiveLabel}</span>
+        <span className="card-meta__label">{t.lore.effectiveLabel}</span>
         <span className="lore-row__effective-ts" data-testid="lore-effective">
           {loreEffectiveText(entry)}
         </span>
         {/* No reason, no row: an empty one would teach that retirements come unexplained. */}
         {entry.retireReason !== "" && (
-          <div className="lore-row__meta-row" data-testid="lore-retire-reason">
-            <span className="lore-row__meta-label">{t.lore.retireReasonLabel}</span>
+          <div className="card-meta__row" data-testid="lore-retire-reason">
+            <span className="card-meta__label">{t.lore.retireReasonLabel}</span>
             <span className="lore-row__retire">{entry.retireReason}</span>
           </div>
         )}

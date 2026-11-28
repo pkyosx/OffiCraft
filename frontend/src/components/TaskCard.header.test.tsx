@@ -7,7 +7,7 @@
 //   4. the executor/creator/type/key VALUES are chips (pill), not flat text; a
 //      member is the bare name (no "· 成員" — the 負責人 label already says it).
 //   5. every value row is preceded by its field label in a shared max-content
-//      label column (the .task-card__meta grid) so the chips line up; 類型 /
+//      label column (the .card-meta grid) so the chips line up; 類型 /
 //      產物 / 建立者 appear right under 到期日 only while the card is expanded.
 //   Jump behaviour is unchanged from T-e987 (verified below): 類型 chip →
 //   #settings/manuals/<typeKey>; 負責人/建立者 chip → that peer's chat compose.
@@ -134,7 +134,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     // title line, not in the meta stack.
     expect(badge.closest(".task-card__badge-row")).toBeTruthy();
     expect(badge.closest(".task-card__title-line")).toBeNull();
-    expect(badge.closest(".task-card__meta")).toBeNull();
+    expect(badge.closest(".card-meta")).toBeNull();
   });
 
   it("#no and 識別鍵 live in the head; the dep marker keeps its own block", async () => {
@@ -178,9 +178,9 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     );
     const { findByTestId } = renderPage();
     const card = await findByTestId("task-card");
-    const meta = card.querySelector(".task-card__meta")!;
+    const meta = card.querySelector(".card-meta")!;
     const labels = () =>
-      Array.from(meta.querySelectorAll(".task-card__meta-label")).map(
+      Array.from(meta.querySelectorAll(".card-meta__label")).map(
         (n) => n.textContent
       );
     expect(labels()).toEqual(["負責人", "到期日", "識別鍵"]);
@@ -193,7 +193,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     expect(card.getAttribute("aria-expanded")).toBe("true");
     expect(labels()).toEqual(["負責人", "到期日", "類型", "產物", "建立者", "識別鍵"]);
     const region = meta.querySelector('[data-testid="task-meta-more"]')!;
-    const dueValue = meta.querySelector(".task-card__meta-label--due")!.nextElementSibling!;
+    const dueValue = meta.querySelector(".task-card__due-label")!.nextElementSibling!;
     expect(dueValue.nextElementSibling).toBe(region);
     expect(region.querySelector('[data-testid="task-type-link"]')).toBeTruthy();
     expect(
@@ -212,7 +212,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     const { findByTestId } = renderPage();
     const card = await findByTestId("task-card");
     expandCards(card);
-    const labels = Array.from(card.querySelectorAll(".task-card__meta-label")).map(
+    const labels = Array.from(card.querySelectorAll(".card-meta__label")).map(
       (n) => n.textContent
     );
     expect(labels).toEqual(["負責人", "到期日", "類型", "建立者"]);

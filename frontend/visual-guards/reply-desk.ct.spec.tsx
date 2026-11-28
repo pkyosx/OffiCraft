@@ -158,11 +158,11 @@ async function expectHeadLine(card: Locator, what: string, mode: "touch" | "mous
     expect(stamp.right, `${what}: the pill before the chevron`).toBeLessThanOrEqual(fold.left + 0.5);
     if (mode === "mouse") expect(stamp.left, `${what}: the pill after the buttons`).toBeGreaterThanOrEqual(buttonsRight - 0.5);
   }
-  const meta = card.locator(".reply-card__meta");
-  const value = await box(meta.locator(".reply-card__meta-value"));
-  expect(inside(value, c), `${what}: the 開卡人 value inside the card`).toBe(true);
-  for (const part of await meta.locator(".reply-card__opener, .reply-card__worker-task").all()) {
-    expect(inside(await box(part), value), `${what}: ${await part.textContent()} inside the 開卡人 value`).toBe(true);
+  const meta = card.locator(".card-meta");
+  const rows = await box(meta);
+  expect(inside(rows, c), `${what}: the meta rows inside the card`).toBe(true);
+  for (const part of await meta.locator(".reply-card__opener, .reply-card__worker-task-value").all()) {
+    expect(inside(await box(part), rows), `${what}: ${await part.textContent()} inside the meta rows`).toBe(true);
   }
   const phone = (await card.page().viewportSize())!.width <= 720;
   const cut = await expectOpenerCutWithEllipsis(meta, what, phone);
@@ -611,14 +611,14 @@ for (const width of [320, 390, 1440]) {
       const waiting = cardOf(page, "rc-desk-q");
       await waiting.locator(".reply-card__summary").click();
       await expect(waiting.locator(".reply-card__body")).toBeVisible();
-      await expectDivider(waiting, waiting.locator(".reply-card__meta"), `${width} ${language} waiting`);
+      await expectDivider(waiting, waiting.locator(".card-meta"), `${width} ${language} waiting`);
 
       await selectTab(page, "answered", "click");
       const answered = cardOf(page, "rc-desk-done");
       await expect(answered.locator(".reply-card__divider")).toHaveCount(0);
       await answered.locator(".reply-card__summary").click();
       await expect(answered.locator(".reply-card__body")).toBeVisible();
-      await expectDivider(answered, answered.locator(".reply-card__meta"), `${width} ${language} answered`);
+      await expectDivider(answered, answered.locator(".card-meta"), `${width} ${language} answered`);
       await noPageOverflow(page);
     });
   }
@@ -835,7 +835,7 @@ for (const [width, height] of [
       for (const hidden of [
         "[data-testid='reply-task-ref']",
         ".reply-card__head",
-        ".reply-card__meta",
+        ".card-meta",
         "[data-testid='waited']",
         ".reply-card__actions",
         ".reply-card__answer-side",

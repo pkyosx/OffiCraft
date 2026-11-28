@@ -1890,7 +1890,6 @@ var messageKeys = map[string]bool{
 	"tasks.reassignToMember":                           true,
 	"tasks.reassignToOutsource":                        true,
 	"tasks.replyAnsweredTag":                           true,
-	"tasks.replyHeader":                                true,
 	"tasks.replySnoozedTag":                            true,
 	"tasks.replyWaitingTag":                            true,
 	"tasks.send":                                       true,

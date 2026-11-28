@@ -297,7 +297,7 @@ describe("TaskCard whole-card toggle (mobile refactor)", () => {
     const badge = card.querySelector('[data-testid="task-no"]')!;
     expect(badge.closest(".task-card__badge-row")).toBeTruthy();
     expect(badge.closest(".task-card__title-line")).toBeNull();
-    expect(badge.closest(".task-card__meta")).toBeNull();
+    expect(badge.closest(".card-meta")).toBeNull();
     expect(badge.textContent).toContain(`#${task.taskNo}`);
     const row = badge.closest(".task-card__badge-row")!;
     const prio = row.querySelector('[data-testid="task-priority"]')!;

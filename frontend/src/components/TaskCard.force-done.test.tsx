@@ -577,7 +577,7 @@ describe("④ what the server recorded comes back onto the card", () => {
     // this is the arm where the absence is evidence rather than ignorance.
     expandCard(await findByTestId("task-card"));
     await waitFor(() =>
-      expect(document.querySelector(".task-card__workflow, .task-card__meta")).toBeTruthy()
+      expect(document.querySelector(".task-card__workflow, .card-meta")).toBeTruthy()
     );
 
     await waitFor(() =>

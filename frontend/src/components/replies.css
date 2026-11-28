@@ -238,27 +238,8 @@
 .reply-card__fold--open svg {
   transform: rotate(90deg);
 }
-/* 開卡人 and, on a settled card, 已回覆／已過期: label/value rows whose
- * values share one column. */
-.reply-card__meta {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  align-items: baseline;
-  gap: 6px 10px;
-  font-size: 12.5px;
-}
-.reply-card__meta-label {
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
-.reply-card__meta-value {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  min-width: 0;
-}
 .reply-card__opener {
+  justify-self: start;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -290,46 +271,42 @@
   font-weight: 600;
   color: var(--color-text-strong);
 }
-/* The asking outsource worker's CURRENT TASK, a small block under the
- * 開卡人 chip: 目前任務 with the rail's task line, then the title. The two
- * lines inside are the office rail's own `.outsource-row__task-line` and
+/* The asking outsource worker's CURRENT TASK, the 目前任務 row under 開卡人:
+ * the rail's task line, then the title. The two lines inside are the office rail's own `.outsource-row__task-line` and
  * `.current-task-title`, drawn by the rail's components and styled by the rail's
  * rules in office.css — including the `+` rule that spaces them. This block only
  * stacks them; it must never restate their appearance, or the two surfaces drift
  * on the next change to either. The two exceptions are about cutting, not
  * looks: the task line becomes one line of text that ends in 「…」 (the rule
  * below), and a phone cuts the title to one line (the ≤720px block). */
-.reply-card__worker-task {
+.reply-card__worker-task-value {
   display: flex;
   flex-direction: column;
-  align-self: stretch;
   min-width: 0;
   font-size: 12px;
 }
-/* The rail's task line (chip + type) inside the name column, which on a
+/* Two lines of value: the label stays on the task line, not between them. */
+.reply-card__worker-task > * {
+  align-self: baseline;
+}
+/* The rail's task line (chip + type) in the value column, which on a
  * narrow head is far narrower than on the rail. As a flex row its chip, an
  * inline-flex box, is cut mid-character once the column is narrower than it,
  * and the type gets a sliver too thin for 「…」. Laid out as one line of text
  * instead, whatever does not fit ends in a single 「…」: the type's text first,
  * then the chip as a whole. Scoped to this head so the rail keeps its own. */
-.reply-card__worker-task-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.reply-card__meta .outsource-row__task-line {
+.reply-card__worker-task .outsource-row__task-line {
   min-width: 0;
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.reply-card__meta .outsource-row__task-line > .outsource-row__chip {
+.reply-card__worker-task .outsource-row__task-line > .outsource-row__chip {
   margin-right: 6px;
   vertical-align: middle;
 }
-.reply-card__meta .outsource-row__task-line > .outsource-row__type {
+.reply-card__worker-task .outsource-row__task-line > .outsource-row__type {
   display: inline;
   vertical-align: middle;
 }
@@ -469,9 +446,6 @@
   .reply-card__head .reply-card__actions {
     gap: 10px;
   }
-}
-.reply-card__meta-row {
-  display: contents;
 }
 .reply-card__meta-time {
   color: var(--color-text);
@@ -956,7 +930,7 @@
     padding: 14px;
   }
   /* An outsource asker's task title: one line, ending in 「…」 when cut. */
-  .reply-card__meta .current-task-title {
+  .reply-card__worker-task .current-task-title {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

@@ -69,6 +69,7 @@ import { CopyIdChip } from "./IdChips";
 import { TaskDueChip, TaskIdChip, TaskPriorityBadge } from "./TaskChips";
 import { effectiveLeadMinutes } from "../lib/dueDate";
 import "./replies.css";
+import "./card-meta.css";
 import { autosizeTextarea } from "../lib/autosize";
 import { SecretValueInput } from "./SecretValueInput";
 import {
@@ -340,14 +341,14 @@ export function ReplyCardIdChip({ id }: { id: string }) {
   );
 }
 
-/** 處理時間, as a label/value row of `.reply-card__meta`. Whether the card was
+/** 處理時間, as a label/value row of `.card-meta`. Whether the card was
  * answered or expired is the first line's status icon (owner). A secret card
  * shows no time (owner), so it has no such row. */
 export function ReplyCardHandledRow({ time }: { time: string }) {
   const { t } = useI18n();
   return (
-    <div className="reply-card__meta-row reply-card__handled-at" data-testid="reply-card-handled-at">
-      <span className="reply-card__meta-label">{t.replies.handledAtLabel}</span>{" "}
+    <div className="card-meta__row reply-card__handled-at" data-testid="reply-card-handled-at">
+      <span className="card-meta__label">{t.replies.handledAtLabel}</span>{" "}
       <span className="reply-card__meta-time">{time}</span>
     </div>
   );

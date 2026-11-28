@@ -451,7 +451,7 @@ describe("the replies page's handled pane", () => {
   });
 });
 
-describe("the chat card's handled row", () => {
+describe("the chat and task cards' handled row", () => {
   it("a settled secret card shows answered or expired by its status icon, with no 處理時間 row", async () => {
     const ts = Date.now() / 1000 - 60;
     __injectMockReplyCard(
@@ -486,6 +486,20 @@ describe("the chat card's handled row", () => {
     };
     expect(await stamp("rc-aaaaaaaaaaa1")).toEqual(["answered", null]);
     expect(await stamp("rc-aaaaaaaaaaa3")).toEqual(["expired", null]);
+
+    const taskStamp = async (id: string, status: "answered" | "expired") => {
+      const u = render(withBystander(<TaskReplyCard replyCardId={id} initialStatus={status} />));
+      fireEvent.click(u.getByTestId("task-reply-card-expand"));
+      await u.findByTestId("secret-face");
+      const shown = [
+        u.getByTestId("reply-status-icon").getAttribute("data-state"),
+        u.queryByTestId("reply-card-handled-at"),
+      ];
+      u.unmount();
+      return shown;
+    };
+    expect(await taskStamp("rc-aaaaaaaaaaa1", "answered")).toEqual(["answered", null]);
+    expect(await taskStamp("rc-aaaaaaaaaaa3", "expired")).toEqual(["expired", null]);
   });
 });
 

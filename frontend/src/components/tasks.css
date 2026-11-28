@@ -300,15 +300,6 @@ button.task-card__id-badge--copy:hover {
   min-width: 0;
 }
 
-/* label column: a two-column grid so every label cell takes the same
-   max-content width (widest label) and the value chips line up across rows —
-   language-agnostic, no hard-coded label width. */
-.task-card__meta {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  align-items: center;
-  gap: 7px 12px;
-}
 /* The expanded-only 類型/產物/建立者 group and the 產物 row are subgrids so
    their chips stay on the shared label column; the 產物 row is its own box so
    the artifact popover can anchor to it on phones. */
@@ -319,11 +310,6 @@ button.task-card__id-badge--copy:hover {
   grid-template-columns: subgrid;
   align-items: center;
   row-gap: 7px;
-}
-.task-card__meta-label {
-  font-size: 12.5px;
-  color: var(--color-text-muted);
-  opacity: 0.75;
 }
 /* value chip: a rounded pill holding the value text + a trailing icon (齒輪 /
    聊天泡泡 / 外連). Clickable chips (link modifier) reset the UA button chrome
@@ -822,7 +808,7 @@ button.task-card__prio-chip:hover {
    anchored in it has the card's width to work with on a phone. When the
    relative time wraps to a second line, the baseline keeps the label on the
    date's line instead of centred between the two. */
-.task-card__meta-label--due,
+.task-card__due-label,
 .task-card__due {
   align-self: baseline;
 }
@@ -1636,19 +1622,6 @@ button.task-card__waiting--dep:focus-visible {
   border-color: color-mix(in srgb, var(--color-dot-waking) 35%, transparent);
   background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
 }
-.task-reply-card__head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.task-reply-card__title {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--color-dot-waking);
-}
-.task-reply-card__jump {
-  margin-left: auto;
-}
 /* 卡內嵌在所屬 step 內 (owner 2026-07-14) */
 .task-step .task-reply-card {
   margin-top: 8px;
@@ -1723,13 +1696,12 @@ button.task-card__waiting--dep:focus-visible {
 }
 /* .reply-tag--answered moved to replies.css (shared with the chat inline card,
  * next to the other reply-tag variants). */
+/* The first line's chevron, as a button: it folds the settled card back to
+   its one line. */
 .task-reply-card__collapse {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px;
+  padding: 0;
   border: none;
   background: transparent;
-  color: var(--color-text-muted);
   cursor: pointer;
 }
 .task-reply-card__collapse:hover {

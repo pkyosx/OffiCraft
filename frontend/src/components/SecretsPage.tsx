@@ -15,6 +15,7 @@ import {
 } from "./icons";
 import { CopyIdChip } from "./IdChips";
 import "./lore.css";
+import "./card-meta.css";
 import "./secrets.css";
 import { SecretValueInput } from "./SecretValueInput";
 
@@ -202,9 +203,9 @@ function SecretRow({
           <ClampedText text={secret.note} testId="secret-note-text" bodyToggle />
         </div>
       )}
-      <div className="lore-row__meta">
-        <div className="secrets__meta-row" data-testid="secret-last-accessed">
-          <span className="lore-row__meta-label">{d.colLastAccessed}</span>
+      <div className="card-meta">
+        <div className="card-meta__row" data-testid="secret-last-accessed">
+          <span className="card-meta__label">{d.colLastAccessed}</span>
           {secret.lastAccessedTs == null ? (
             <span className="secrets__never">{d.neverAccessed}</span>
           ) : (
@@ -213,8 +214,8 @@ function SecretRow({
             </span>
           )}
         </div>
-        <div className="secrets__meta-row" data-testid="secret-updated">
-          <span className="lore-row__meta-label">{d.colUpdated}</span>
+        <div className="card-meta__row" data-testid="secret-updated">
+          <span className="card-meta__label">{d.colUpdated}</span>
           <span className="secrets__time">{formatAbsolute(secret.updatedTs, nowSecs)}</span>
         </div>
       </div>

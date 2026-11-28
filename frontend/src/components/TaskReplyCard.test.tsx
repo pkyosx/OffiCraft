@@ -12,6 +12,7 @@ import { render, fireEvent, waitFor, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { TaskReplyCard } from "./TaskReplyCard";
 import type { ReplyCard } from "../api/adapter";
+import type { Member } from "../types";
 import { api } from "../api";
 import {
   __resetMock,
@@ -228,27 +229,57 @@ describe("TaskReplyCard", () => {
     const final = await findByTestId("final-answer");
     expect(final.textContent).toBe("你選的AI 建議先不要");
     expect(getSpy).toHaveBeenCalledTimes(1);
+    const card = await findByTestId("task-reply-card");
+    expect(card.querySelector('[data-testid="reply-status-icon"]')!.getAttribute("data-state")).toBe("answered");
+    expect(card.querySelector('[data-testid="reply-card-handled-at"]')!.textContent).toMatch(/^處理時間 \d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
+    const fold = card.querySelector('.reply-card__head [data-testid="task-reply-card-collapse"]')!;
+    expect(fold.getAttribute("aria-label")).toBe("收合回覆卡");
+    fireEvent.click(fold);
+    expect(await findByTestId("task-reply-card-expand")).toBeTruthy();
   });
 
-  it("a waiting card's head reads only 請示 · 跳到原訊息, snoozed or not", async () => {
-    __injectMockReplyCard(mkCard({ id: "rc-1", snoozedUntilTs: Date.now() / 1000 + 3600 }));
+  it("an expanded card reads its status, own id and 跳到原訊息, then its title, 開卡人, the divider and the question", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-1a2b3c4d5e6f", body: "信已經寫好了", snoozedUntilTs: Date.now() / 1000 + 3600 }));
     __injectMockReplyCard(mkCard({ id: "rc-2" }));
+    const mira = { id: "mira", name: "Mira", kind: "staff" } as unknown as Member;
     render(
       <I18nProvider>
         <ReplyCardsProvider>
-          <TaskReplyCard replyCardId="rc-1" />
-          <TaskReplyCard replyCardId="rc-2" />
+          <TaskReplyCard replyCardId="rc-1a2b3c4d5e6f" members={[mira]} taskId="t-9" />
+          <TaskReplyCard replyCardId="rc-2" members={[mira]} />
         </ReplyCardsProvider>
       </I18nProvider>
     );
-    const head = (id: string) =>
-      document.querySelector(`[data-reply-card-id="${id}"] .task-reply-card__head`);
-    await waitFor(() => expect(head("rc-1")?.querySelector('[aria-label="跳到原訊息"]')).not.toBeNull());
-    await waitFor(() => expect(head("rc-2")?.querySelector('[aria-label="跳到原訊息"]')).not.toBeNull());
-    for (const id of ["rc-1", "rc-2"]) {
-      expect(head(id)!.textContent).toBe("請示");
-      expect(head(id)!.querySelectorAll("button")).toHaveLength(1);
-    }
+    const card = (id: string) => document.querySelector<HTMLElement>(`[data-reply-card-id="${id}"]`)!;
+    await waitFor(() => expect(card("rc-2").querySelector('[aria-label="跳到原訊息"]')).not.toBeNull());
+    await waitFor(() =>
+      expect(card("rc-1a2b3c4d5e6f").querySelector('[data-testid="reply-status-icon"]')?.getAttribute("data-state")).toBe("snoozed")
+    );
+    expect(card("rc-2").querySelector('[data-testid="reply-status-icon"]')?.getAttribute("data-state")).toBe("waiting");
+
+    const first = card("rc-1a2b3c4d5e6f");
+    const head = first.querySelector(".reply-card__head")!;
+    expect([...head.querySelectorAll("button")].map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual([
+      "複製完整請示卡 ID rc-1a2b3c4d5e6f",
+      "跳到原訊息",
+    ]);
+    expect(head.querySelector('[data-testid="reply-card-id"]')!.textContent).toBe("rc-1a2b3c");
+    expect([...first.children].map((c) => c.className.split(" ")[0])).toEqual([
+      "reply-card__head",
+      "reply-card__summary",
+      "card-meta",
+      "reply-card__divider",
+      "reply-card__body",
+      "reply-card__options",
+      "reply-composer",
+    ]);
+    const meta = first.querySelector(".card-meta")!;
+    expect(meta.textContent).toBe("開卡人Mira");
+    expect(first.querySelector('[data-testid="reply-card-handled-at"]')).toBeNull();
+    expect(first.querySelector(".reply-card__task")).toBeNull();
+
+    fireEvent.click(meta.querySelector('[data-testid="reply-card-opener"]')!);
+    expect(window.location.hash).toBe("#office/member/mira/from/tasks/t-9");
   });
 
   it("a WAITING-hinted card loads eagerly on mount (waiting 卡照常)", async () => {

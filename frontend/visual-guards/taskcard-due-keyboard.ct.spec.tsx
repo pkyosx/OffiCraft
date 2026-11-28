@@ -259,7 +259,7 @@ for (const { width, language, label, dueTs } of DUE_ROW_CASES) {
       await expect(cmp.getByTestId("task-meta-more-toggle")).toHaveCount(0);
       await expect(cmp.getByTestId("task-meta-more")).toHaveCount(0);
       const card = (await cmp.locator(".task-card").boundingBox())!;
-      const content = (await cmp.locator(".task-card__meta").boundingBox())!;
+      const content = (await cmp.locator(".card-meta").boundingBox())!;
       const chip = (await cmp.getByTestId("task-due").boundingBox())!;
       expect(chip.x + chip.width).toBeLessThanOrEqual(content.x + content.width);
       const left = (await cmp.getByTestId("task-due-remaining").boundingBox())!;
@@ -268,7 +268,7 @@ for (const { width, language, label, dueTs } of DUE_ROW_CASES) {
         await cmp.locator(".task-card").evaluate((el) => el.scrollWidth - el.clientWidth)
       ).toBe(0);
 
-      const rows = await cmp.locator(".task-card__meta").evaluate((meta) => {
+      const rows = await cmp.locator(".card-meta").evaluate((meta) => {
         const plain = (r: DOMRect) => ({ top: r.top, bottom: r.bottom, left: r.left, right: r.right });
         const box = (el: Element | null) => plain(el!.getBoundingClientRect());
         const firstLine = (el: Element) => {
@@ -276,7 +276,7 @@ for (const { width, language, label, dueTs } of DUE_ROW_CASES) {
           range.selectNodeContents(el);
           return plain(range.getClientRects()[0]);
         };
-        const labels = [...meta.querySelectorAll(":scope > .task-card__meta-label")];
+        const labels = [...meta.querySelectorAll(":scope > .card-meta__label")];
         return {
           assigneeLabel: firstLine(labels[0]),
           assigneeChip: box(meta.querySelector(".task-card__assignee-cell > :first-child")),

@@ -100,7 +100,7 @@ const remaining = () => screen.queryByTestId("task-due-remaining");
 const toneOf = (el: HTMLElement) =>
   el.className.match(/task-card__due-date--(\w+)/)?.[1] ?? null;
 const metaLabels = () =>
-  Array.from(document.querySelectorAll(".task-card__meta > .task-card__meta-label")).map(
+  Array.from(document.querySelectorAll(".card-meta > .card-meta__label")).map(
     (el) => el.textContent
   );
 
@@ -125,7 +125,7 @@ describe("TaskCard", () => {
   it("shows the due date with its weekday in a 到期日 row right below 負責人, in the plain text colour while the date is beyond the lead, followed by the calendar days left", () => {
     renderCard(mkTask({ dueTs: OCT_30_END }));
     expect(metaLabels()).toEqual(["負責人", "到期日"]);
-    expect(chip().closest(".task-card__meta")).not.toBeNull();
+    expect(chip().closest(".card-meta")).not.toBeNull();
     expect(chip().previousElementSibling).toBeNull();
     expect(chip().parentElement!.previousElementSibling!.textContent).toBe("到期日");
     expect(chip().textContent).toBe("2026/10/30（五）");

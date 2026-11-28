@@ -92,8 +92,8 @@ async function measure(page: any): Promise<{
           idBadge: r(row.querySelector('[data-testid="shared-doc-id"]')),
           actions: r(row.querySelector(".shared-docs__actions")),
           buttons: [...row.querySelectorAll(".shared-docs__actions button")].map((b) => r(b)!),
-          labels: [...row.querySelectorAll(".lore-row__meta > .lore-row__meta-label")].map((l) => r(l)!),
-          values: [...row.querySelectorAll(".lore-row__meta > :not(.lore-row__meta-label)")].map((v) => r(v)!),
+          labels: [...row.querySelectorAll(".card-meta > .card-meta__label")].map((l) => r(l)!),
+          values: [...row.querySelectorAll(".card-meta > :not(.card-meta__label)")].map((v) => r(v)!),
         };
       }),
     };

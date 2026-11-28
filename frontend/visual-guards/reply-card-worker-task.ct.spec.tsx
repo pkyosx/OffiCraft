@@ -1,6 +1,6 @@
 // HOTSPOT — T-196: the asking outsource worker's current-task line, the THIRD
 // surface of `CurrentTaskTitle` (after the office rail row and the worker chat
-// header), under the 開卡人 chip of a reply card.
+// header), the 目前任務 row under a reply card's 開卡人.
 //
 // jsdom resolves no -webkit-line-clamp box, no ellipsis and no layout, so every
 // property below is invisible to the unit tests that pin the line's CONTENT:
@@ -22,7 +22,7 @@
 //      cut end is drawn as 「…」" reddens at 390.
 // 🔴 AND TWO THAT DID **NOT** REDDEN, recorded because a guard nobody could
 // make fail is worth exactly what it can be shown to catch: removing
-// `min-width: 0` from `.reply-card__worker-task`, and removing
+// `min-width: 0` from `.reply-card__worker-task-value`, and removing
 // `overflow-wrap: anywhere` from `.current-task-title`, left this file green.
 // Assertions (3) and (4) below — no horizontal overflow, head controls stay
 // inside the card — are NOT known to bite; they are kept as a floor, not

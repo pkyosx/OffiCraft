@@ -17,15 +17,14 @@
  *   .lore-row__icon-btn      ← .task-card__reassign (borderless icon action)
  *   .lore-row__menu-pop      ← .task-card__menu-pop
  *   .lore-row__menu-item     ← .task-card__menu-item (+ --active = accent/700)
- *   .lore-row__meta / __meta-label
- *                            ← .task-card__meta / __meta-label
  *   .lore-row__chip(--link)  ← .task-card__chip(--link)
  *   .lore-row__title         ← .task-card__title
  *   .lore-dir-card           ← .task-card
  *   .lore-dir-card__usage / __bar / __bar-fill / __usage-text
  *                            ← .task-card__progress / -bar / -fill / -text
  *
- * The 金鑰 and 檔案庫 cards wear these same .lore-row* classes.
+ * The 金鑰 and 檔案庫 cards wear these same .lore-row* classes. The label/value
+ * rows are not copied: every card shares card-meta.css.
  *
  * The one exception is the message box: owner wants it to BE the 任務卡's box,
  * so both cards share card-composer.css rather than a copy. The directory's
@@ -872,20 +871,6 @@ button.lore-row__status-icon--staged {
 }
 
 /* ── 撰寫人 / 生效期: 任務卡's label/value grid ── */
-.lore-row__meta {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  align-items: center;
-  gap: 7px 12px;
-  min-width: 0;
-  font-size: 12.5px;
-  color: var(--color-text);
-}
-.lore-row__meta-label {
-  font-size: 12.5px;
-  color: var(--color-text-muted);
-  opacity: 0.75;
-}
 .lore-row__chip {
   justify-self: start;
   max-width: 100%;
@@ -995,9 +980,6 @@ button.lore-row__action:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
 }
 
-.lore-row__meta-row {
-  display: contents;
-}
 .lore-row__retire {
   min-width: 0;
   overflow-wrap: anywhere;

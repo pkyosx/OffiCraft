@@ -38,6 +38,10 @@ iOS Safari 在字小於 16px 的 input／textarea／select 聚焦時會放大整
 
 請示頁的時間膠囊 `.reply-card__waited-pill`（`replies.css`）沒有拷貝：任務卡的步驟耗時與任務已歷時直接用同一個 class。改它的寬度、高度或字級，請示頁與任務卡一起變，兩邊的守衛（`reply-desk`、`taskcard-sections`）都要跑。
 
+## 卡片的 label/value 列
+
+任務卡、請示卡（請示頁、聊天室、任務步驟裡）、金鑰卡、檔案庫卡、傳承卡的 label/value 列都是 `card-meta.css` 的 `.card-meta`／`.card-meta__label`／`.card-meta__row`，各元件自己 import（styleOwnership 有登記）。owner 看過請示卡的「開卡人」比任務卡的列低、顏色不同、欄距不同：那是 `replies.css` 自己抄了一份（baseline、10px 欄距、沒有 opacity）。不要在各頁的 stylesheet 再寫一份格線或 label 樣式；值的樣式（chip、時間）才放在各頁。label 欄寬是那張卡最寬的 label（max-content），所以 label 字數不同的卡（例如有「處理時間」的請示卡）欄寬本來就不同。兩行的值（請示卡的目前任務）在那一列自己用 `align-self: baseline`。CT `card-meta-rows` 在 320／390／1440 中英拿任務卡的列當基準量另外四種卡：label 顏色、透明度、字級相同，label 在列的左緣，值在最寬 label 加同一個欄距之後，一行的值跟 label 垂直置中。
+
 ## lazy fetch
 
 lazy prompt 的 fetch function 若由 wrapper inline 建立，不得直接放進 effect deps。用 ref 保存讀取函式，deps 只放真正的 cache key；in-flight 與 loaded key 分開，只有文字成功到手才蓋 loaded key。重繪不能取消仍有效的讀取，失敗要落 error state 並提供 retry。測試要在讀取途中用新 element 觸發 rerender、覆蓋成功、失敗重試與收合再展開。

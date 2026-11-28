@@ -232,7 +232,7 @@ test("with the artifacts panel open, nothing in its own task card paints above i
   // identity rows and the 送出 composer are in the head and show either way; the
   // expansion is what puts everything else in front of it too.
   await cmp.locator(".task-card__title").click();
-  await expect(cmp.locator(".task-card__meta")).toBeVisible();
+  await expect(cmp.locator(".card-meta")).toBeVisible();
   await expect(cmp.getByTestId("task-msg-send")).toBeVisible();
   await openPopover(cmp);
 

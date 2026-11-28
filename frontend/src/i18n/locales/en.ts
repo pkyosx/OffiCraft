@@ -593,7 +593,6 @@ export const en: Dict = {
     reassignNotePlaceholder: "Anything the new executor should know…",
     reassignConfirm: "Reassign",
     reassignError: "The reassign failed. Please try again.",
-    replyHeader: "Ask",
     needsApproval: "Needs your approval",
     replyAnsweredTag: "Answered",
     replyWaitingTag: "Pending",
