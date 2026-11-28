@@ -80,7 +80,7 @@ describe("SecretsPage", () => {
     expect(container.querySelector("h2")).toBeNull();
   });
 
-  it("a note taller than three lines is clamped and the note itself opens and closes it on that card only, by click, Enter or Space; a note that fits is plain text", async () => {
+  it("a note taller than three lines is clamped and the note itself opens and closes it on that card only, by click, Enter or Space, but not by the click that ends a drag-selection; a note that fits is plain text", async () => {
     const longNote = "Rotate quarterly. ".repeat(20).trim();
     await api.createSecret({ name: "Staging DB", value: FAKE_VALUE, note: longNote });
     // jsdom lays nothing out: a clamped note body reports one height unit per
@@ -130,6 +130,13 @@ describe("SecretsPage", () => {
     expect(body.getAttribute("aria-expanded")).toBe("true");
     fireEvent.keyDown(body, { key: " " });
     expect(body.getAttribute("aria-expanded")).toBe("false");
+
+    const range = document.createRange();
+    range.selectNodeContents(body);
+    window.getSelection()!.addRange(range);
+    fireEvent.click(body);
+    expect(body.getAttribute("aria-expanded")).toBe("false");
+    window.getSelection()!.removeAllRanges();
   });
 
   it("clicking the id copies it and confirms only after the copy succeeded", async () => {
