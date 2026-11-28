@@ -79,9 +79,10 @@ a.lore__back:focus-visible {
 }
 /* The office's 44px tap box reaches 8px past the button's right edge; here
  * that edge is the scrollport's, so the box grows leftward instead or the
- * page scrolls sideways on a phone. */
+ * page scrolls sideways on a phone. The extra class outranks chat-groups.css
+ * whichever stylesheet loads last. */
 @media (max-width: 720px), (hover: none) {
-  .lore__collapse-all::after {
+  .lore__dir-search .lore__collapse-all::after {
     inset: -8px 0 -8px -16px;
   }
 }
