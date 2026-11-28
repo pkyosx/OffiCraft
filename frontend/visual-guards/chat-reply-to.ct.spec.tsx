@@ -1375,6 +1375,8 @@ test.describe("touch screen", () => {
       await expect(head).toHaveCSS("display", "none");
       await expect(card.getByTestId("reply-task-ref")).toBeHidden();
       await expect(card.locator(".reply-card__meta")).toBeHidden();
+      await expect(card.locator(".reply-card__divider")).toHaveCount(1);
+      await expect(card.locator(".reply-card__divider")).toBeHidden();
       const thread = page.locator(".chat__messages");
       const clearOfBar = async (state: string) => {
         const rowBottom = (await card.boundingBox())!;
@@ -1513,6 +1515,9 @@ test.describe("touch screen", () => {
       await expect(expire).toHaveCount(1);
       await expect(expire).toBeHidden();
       await expect(card.locator(".reply-card__head")).toHaveCSS("display", "none");
+      const divider = card.locator(".reply-card__divider");
+      await expect(divider).toHaveCount(1);
+      await expect(divider).toBeHidden();
       for (const spot of [body, card.locator(".reply-card__summary")]) await spot.tap();
       const box = (await card.locator(".reply-card").boundingBox())!;
       await page.touchscreen.tap(box.x + box.width - 4, box.y + box.height - 4);
@@ -1560,6 +1565,7 @@ test.describe("touch screen", () => {
       await expect(card.getByTestId("reply-task-ref")).toBeVisible();
       await expect(card.locator(".reply-card__question-atts")).toBeVisible();
       await expect(expire).toBeVisible();
+      await expect(divider).toBeVisible();
       await expect(card.locator(".reply-card")).not.toHaveClass(/reply-card--collapsed/);
       await expect(card.locator(".chat__input")).toBeFocused();
       await expectNoZoomOnFocus(page);

@@ -661,14 +661,18 @@ describe("ChatReplyCard", () => {
     await waitFor(() => expect(tagOf("rc-1")).toBe("已回覆"));
   });
 
-  it("an EXPIRED-hinted card is collapsed, tagged 已過期, and fetches nothing", async () => {
-    __injectMockReplyCard(mkCard({ status: "expired" }));
+  it("an EXPIRED-hinted card is collapsed, tagged 已過期, fetches nothing, and shows 處理時間 once expanded", async () => {
+    __injectMockReplyCard(mkCard({ status: "expired", expiredTs: Date.now() / 1000 - 60 }));
     const getSpy = vi.spyOn(api, "getReplyCard");
     const { findByTestId } = renderHinted("expired");
 
     const stub = await findByTestId("chat-reply-card-expand");
     expect(stub.textContent).toContain("已過期");
     expect(getSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(stub);
+    expect((await findByTestId("reply-status-icon")).getAttribute("data-state")).toBe("expired");
+    expect((await findByTestId("reply-card-handled-at")).textContent).toMatch(/^處理時間 \d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
   });
 
   it("an ANSWERED-hinted card paints nothing actionable while its expand read is in flight", async () => {
