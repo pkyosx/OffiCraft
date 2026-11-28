@@ -596,7 +596,7 @@ For the contents of each page and every setting, see [Settings](settings.md). Fo
 
 ### The ⓘ after a title
 
-In Settings, the avatar menu and their dialogs, what a row or a setting is for sits behind the ⓘ after its title instead of in a gray line under it. On a computer, hover over the ⓘ (or move to it with Tab) to read it; on a phone, tap it. A tapped explanation stays open until you tap it again, tap anywhere else, press Esc or scroll; tapping an ⓘ inside a row does not open that row. Warnings stay on the page as before, for example "Notifications are not sent until this is set." under Notification email, or "Anything past this number is permanently deleted on the next backup." under Backups kept. In Global context each row shows "editable" (or "not editable") as a small tag beside its name.
+In Settings, the avatar menu and their dialogs, what a row or a setting is for sits behind the ⓘ after its title instead of in a gray line under it. On a computer, hover over the ⓘ (or move to it with Tab) to read it; on a phone, tap it. An ⓘ inside a row that opens a page is not a Tab stop of its own: a screen reader reads its explanation as the row's description. A tapped explanation stays open until you tap it again, tap anywhere else, press Esc or scroll; tapping an ⓘ inside a row does not open that row. Warnings stay on the page as before, for example "Notifications are not sent until this is set." under Notification email, or "Anything past this number is permanently deleted on the next backup." under Backups kept. In Global context each row shows "editable" (or "not editable") as a small tag beside its name.
 
 ## Avatar menu
 

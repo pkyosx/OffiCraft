@@ -70,6 +70,6 @@ styleOwnership test 防止最後一個間接 importer 消失後 dialog 變成原
 標題底下只在解釋「這是什麼、怎麼用、範圍多少」的灰字，收進標題後的 ⓘ（`InfoHint`；接在一段標題文字後面用 `TitleWithInfo`）。會讓人做錯事的字**留在畫面上**：警告與後果（會刪除、要重新安裝、不會喚醒、還原會覆蓋、會被別人看到）、目前狀態（可編輯、開著、份數）、錯誤、空狀態、正在進行的步驟該怎麼做。同一句兩種都有就拆成兩個 key，後果那一句照舊寫在標題下面；狀態改成標籤（例如全域情境列的「可編輯」用 `.set-badge`），不要跟著說明一起藏。拿不準時問：「沒點開 ⓘ 的人會不會因此做錯事？」會就留著。
 
 - ⓘ 是 InstantHint 的 span（`role="img"`、名稱「關於 標題」），不是 button：可以放進列按鈕或 `<label>` 裡，點擊不冒泡、在 label 裡不會聚焦欄位，Esc 走 `useEscapeLayer`，所以對話框裡的 Esc 只收提示。
-- 放進列按鈕時，按鈕用 `aria-labelledby` 指向標題（與狀態標籤），否則列的讀名會變成「標題 關於 標題」；放進 `<h2>` 時同理給標題自己的名字。`<label>` 裡的 ⓘ 要求欄位自己帶 `aria-label`。
+- 放進列按鈕時，按鈕用 `aria-labelledby` 指向標題（與狀態標籤），否則列的讀名會變成「標題 關於 標題」；並傳 `descriptionId`、按鈕用 `aria-describedby` 指向它：按鈕裡不能有可聚焦元素（與 presence-and-badges.md 的圓點同一條），所以列裡的 ⓘ 不進 Tab 順序、`aria-hidden`，說明改成按鈕的 description（隱藏的 span），滑鼠 hover 與手機點一下照舊。代價是看得見畫面的鍵盤使用者 focus 列時看不到泡泡。放進 `<h2>` 時同理給標題自己的名字。`<label>` 裡的 ⓘ 要求欄位自己帶 `aria-label`。
 - 不換行的黏合是 `TitleWithInfo` 把最後一個字（中文是最後一個字元）和 ⓘ 包進 `white-space: nowrap`。不要改回 word joiner 或尾端 padding：Chromium 在 inline-block 前面一定給斷行點，兩種都擋不住 ⓘ 單獨掉到下一行。守衛在 `visual-guards/info-hint.ct.spec.tsx`（含逐寬度掃描），jsdom 看不出來。
 - 會被硬擠窄、而最後一個字很長的地方（磁碟用量分項），容器可以把 `.info-hint__glue` 放回 `white-space: normal`，寧可 ⓘ 換行也不要壓到右邊的數值。

@@ -449,6 +449,7 @@ export function ProfileDropdown({
             type="button"
             className="profile-dd__row"
             aria-labelledby={`${rowsId}-prefs`}
+            aria-describedby={`${rowsId}-prefs-hint`}
             onClick={openPreferences}
           >
             <span className="profile-dd__row-icon">
@@ -458,13 +459,13 @@ export function ProfileDropdown({
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
           </button>
 
-          <button type="button" className="profile-dd__row" aria-labelledby={`${rowsId}-push`} aria-describedby={`${rowsId}-push-sub`} onClick={openNotifications}>
+          <button type="button" className="profile-dd__row" aria-labelledby={`${rowsId}-push`} aria-describedby={`${rowsId}-push-sub ${rowsId}-push-hint`} onClick={openNotifications}>
             <span className="profile-dd__row-icon"><BellIcon size={16} /></span>
             <RowText id={`${rowsId}-push`} title={t.profile.pushContactEmail} hint={t.profile.pushContactEmailPrivacy} sub={t.profile.pushContactEmailUnsetWarning} />
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
           </button>
 
-          <button type="button" className="profile-dd__row" aria-labelledby={`${rowsId}-security`} onClick={() => setView("security")}>
+          <button type="button" className="profile-dd__row" aria-labelledby={`${rowsId}-security`} aria-describedby={`${rowsId}-security-hint`} onClick={() => setView("security")}>
             <span className="profile-dd__row-icon"><KeyIcon size={16} /></span>
             <RowText id={`${rowsId}-security`} title={t.profile.accountSecurity} hint={t.profile.accountSecuritySub} />
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
@@ -493,7 +494,7 @@ export function ProfileDropdown({
             <span>{t.profile.accountSecurity}</span>
           </button>
 
-          <button type="button" className="profile-dd__row" aria-labelledby={`${rowsId}-password`} onClick={openPasswordView}>
+          <button type="button" className="profile-dd__row" aria-labelledby={`${rowsId}-password`} aria-describedby={`${rowsId}-password-hint`} onClick={openPasswordView}>
             <span className="profile-dd__row-icon"><GearIcon size={16} /></span>
             <RowText id={`${rowsId}-password`} title={t.profile.changePassword} hint={t.profile.changePasswordSub} />
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
@@ -505,7 +506,7 @@ export function ProfileDropdown({
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
           </button>
 
-          <button type="button" className="profile-dd__row" aria-labelledby={`${rowsId}-passkeys`} onClick={() => setView("passkeys")}>
+          <button type="button" className="profile-dd__row" aria-labelledby={`${rowsId}-passkeys`} aria-describedby={`${rowsId}-passkeys-hint`} onClick={() => setView("passkeys")}>
             <span className="profile-dd__row-icon"><GearIcon size={16} /></span>
             <RowText id={`${rowsId}-passkeys`} title={t.profile.passkeys} hint={t.profile.passkeysSub} />
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
@@ -940,14 +941,14 @@ export function ProfileDropdown({
 }
 
 /** A menu row's title with its explanation behind ⓘ; `sub` is a line that
- * must stay visible (a warning). The row button names itself from `${id}`
- * only, so the ⓘ's own name is not read as part of the row's. */
+ * must stay visible (a warning). The row button names itself from `${id}` and
+ * is described by `${id}-hint` (and `${id}-sub`). */
 function RowText({ id, title, hint, sub }: { id: string; title: string; hint: string; sub?: string }) {
   return (
     <span className="profile-dd__row-body">
       <span className="profile-dd__row-title">
         <span id={id}>{title}</span>
-        <InfoHint about={title} hint={hint} />
+        <InfoHint about={title} hint={hint} descriptionId={`${id}-hint`} />
       </span>
       {sub && (
         <span id={`${id}-sub`} className="profile-dd__row-sub">

@@ -405,6 +405,7 @@ export function TaskManualHub({
           className="set-entry manual-entry"
           data-testid="manual-entry-definition"
           aria-labelledby={`${defEntryId}-name`}
+          aria-describedby={`${defEntryId}-hint`}
           onClick={onOpenDefinition}
         >
           <span className="set-entry__icon set-entry__icon--blue">
@@ -413,7 +414,11 @@ export function TaskManualHub({
           <span className="set-entry__body">
             <span className="set-entry__name">
               <span id={`${defEntryId}-name`}>{t.settings.manualTabDefinition}</span>
-              <InfoHint about={t.settings.manualTabDefinition} hint={t.settings.manualDefEntrySub} />
+              <InfoHint
+                about={t.settings.manualTabDefinition}
+                hint={t.settings.manualDefEntrySub}
+                descriptionId={`${defEntryId}-hint`}
+              />
             </span>
           </span>
           <ChevronRightIcon size={18} className="set-entry__chev" />

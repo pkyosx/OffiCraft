@@ -80,7 +80,9 @@ describe("SettingsPage · global-context 4 blocks", () => {
     expect(copy("boot-doc-entry-task_closeout")).toEqual(["任務被判定結束時給 agent 的收尾指示", null]);
     expect(copy("boot-doc-entry-user_language")).toEqual(["成員跟你說話用的語言 · 沒改過時跟著顯示語言", "可編輯"]);
     expect(copy("boot-doc-entry-term_glossary")).toEqual(["功能的英文與中文名稱對照 · 隨版本更新", "不能編輯"]);
-    expect(utils.getByRole("button", { name: `${s.userLanguageName} 可編輯` })).toBe(
+    expect(
+      utils.getByRole("button", { name: `${s.userLanguageName} 可編輯`, description: "成員跟你說話用的語言 · 沒改過時跟著顯示語言" }),
+    ).toBe(
       utils.getByTestId("boot-doc-entry-user_language")
     );
   });

@@ -73,7 +73,7 @@ describe("SettingsPage · 啟動步驟 index", () => {
       s.bootCodexSub,
       s.bootDocEditableTag,
     ]);
-    expect(getByRole("button", { name: `${s.bootClaudeName} ${s.bootDocEditableTag}` })).toBe(
+    expect(getByRole("button", { name: `${s.bootClaudeName} ${s.bootDocEditableTag}`, description: s.bootClaudeSub })).toBe(
       getByTestId("boot-entry-claude")
     );
 

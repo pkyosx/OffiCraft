@@ -444,6 +444,7 @@ function BootDocEntry({
       className="set-entry"
       data-testid={`boot-doc-entry-${kind}`}
       aria-labelledby={setEntryLabelledBy(id, tag)}
+      aria-describedby={`${id}-hint`}
       onClick={onOpen}
     >
       <span className={`set-entry__icon set-entry__icon--${row.tone}`}>
@@ -456,8 +457,8 @@ function BootDocEntry({
 }
 
 /** A settings-list row's title with its explanation behind ⓘ and its state as
- * a visible tag. The row button names itself from the title and the tag only
- * (`setEntryLabelledBy`), so the ⓘ's own name is not read as part of it. */
+ * a visible tag. The row button names itself from the title and the tag
+ * (`setEntryLabelledBy`) and is described by `${id}-hint`. */
 function SetEntryText({
   id,
   name,
@@ -473,7 +474,7 @@ function SetEntryText({
     <span className="set-entry__body">
       <span className="set-entry__name">
         <span id={`${id}-name`}>{name}</span>
-        <InfoHint about={name} hint={hint} />
+        <InfoHint about={name} hint={hint} descriptionId={`${id}-hint`} />
         {tag && (
           <span id={`${id}-tag`} className="set-badge" data-testid="set-entry-tag">
             {tag}
@@ -974,6 +975,7 @@ export function SettingsPage({
             className="set-entry"
             data-testid="boot-entry-claude"
             aria-labelledby={setEntryLabelledBy(`${bootRowsId}-claude`, bootRuntimeTag)}
+            aria-describedby={`${bootRowsId}-claude-hint`}
             onClick={() => setView({ kind: "bootRuntime", runtime: "claude" })}
           >
             <span className="set-entry__icon set-entry__icon--violet">
@@ -992,6 +994,7 @@ export function SettingsPage({
             className="set-entry"
             data-testid="boot-entry-codex"
             aria-labelledby={setEntryLabelledBy(`${bootRowsId}-codex`, bootRuntimeTag)}
+            aria-describedby={`${bootRowsId}-codex-hint`}
             onClick={() => setView({ kind: "bootRuntime", runtime: "codex" })}
           >
             <span className="set-entry__icon set-entry__icon--blue">
@@ -2986,6 +2989,7 @@ function GlobalContextSection({
             className="set-entry"
             data-testid="boot-doc-entry-custom"
             aria-labelledby={setEntryLabelledBy(customRowId, t.settings.bootDocEditableTag)}
+            aria-describedby={`${customRowId}-hint`}
             onClick={onOpenCustom}
           >
             <span className="set-entry__icon set-entry__icon--violet">

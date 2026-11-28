@@ -323,9 +323,14 @@ describe("ProfileDropdown · menu levels", () => {
   }
   const rowTexts = (root: HTMLElement) =>
     Array.from(root.querySelectorAll<HTMLElement>(".profile-dd__row")).map((r) => [
-      r.textContent,
+      visibleText(r),
       r.querySelector('[data-testid="info-hint"]') ? infoHintText(r) : "",
     ]);
+  const visibleText = (el: HTMLElement) => {
+    const copy = el.cloneNode(true) as HTMLElement;
+    copy.querySelectorAll("[hidden]").forEach((h) => h.remove());
+    return copy.textContent;
+  };
   const backText = (root: HTMLElement) => root.querySelector(".profile-dd__back")?.textContent;
 
   it("the first level holds preferences, notification email and account security", () => {
@@ -336,15 +341,20 @@ describe("ProfileDropdown · menu levels", () => {
       ["帳號安全", "修改密碼、兩步驟驗證、通行密鑰"],
       ["登出", ""],
     ]);
-    expect(utils.getByRole("button", { name: "偏好設定" })).toBeTruthy();
+    expect(utils.getByRole("button", { name: "偏好設定", description: "外觀、語言、版面" })).toBeTruthy();
     expect(
-      utils.getByRole("button", { name: "通知信箱" }).getAttribute("aria-describedby"),
+      utils.getByRole("button", {
+        name: "通知信箱",
+        description: "填寫後才會送出通知。 這個信箱會提供給瀏覽器的推播服務，請用可公開的信箱。",
+      }),
     ).toBeTruthy();
+    expect(utils.getByRole("button", { name: "帳號安全", description: "修改密碼、兩步驟驗證、通行密鑰" })).toBeTruthy();
+    expect(utils.queryByRole("img", { name: "關於 偏好設定" })).toBeNull();
   });
 
   it("tapping a row's ⓘ pins its explanation and does not open the row", () => {
     const utils = renderMenu();
-    const icon = utils.getByRole("img", { name: "關於 偏好設定" });
+    const icon = within(utils.getByRole("button", { name: "偏好設定" })).getByTestId("info-hint");
     fireEvent.click(icon);
     expect(utils.getByRole("tooltip").textContent).toBe("外觀、語言、版面");
     expect(backText(utils.container)).toBeUndefined();

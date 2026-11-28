@@ -7,22 +7,42 @@ import "./info-hint.css";
  * click or tap pins it (the only way to read it on a phone), and the click
  * never reaches the row or label around it. Warnings, consequences and state
  * stay visible on the page; only explanation goes in here. `about` is the title
- * it explains, for the accessible name. */
+ * it explains, for the accessible name.
+ *
+ * Inside a button, pass `descriptionId` and point the button's
+ * `aria-describedby` at it: a button may not hold a focusable element, so there
+ * the ⓘ leaves the tab order and the accessibility tree, and the hint text is
+ * kept as a hidden element the button is described by. */
 export function InfoHint({
   about,
   hint,
   className,
+  descriptionId,
 }: {
   about: string;
   hint: string;
   className?: string;
+  descriptionId?: string;
 }) {
   const { t } = useI18n();
+  const cls = className ? `info-hint ${className}` : "info-hint";
+  if (descriptionId) {
+    return (
+      <>
+        <InstantHint hint={hint} className={cls} data-testid="info-hint" focusable={false} aria-hidden="true">
+          <InfoIcon size={14} />
+        </InstantHint>
+        <span id={descriptionId} hidden>
+          {hint}
+        </span>
+      </>
+    );
+  }
   const name = `${t.common.infoAboutLead}${about}${t.common.infoAboutTail}`;
   return (
     <InstantHint
       hint={hint}
-      className={className ? `info-hint ${className}` : "info-hint"}
+      className={cls}
       data-testid="info-hint"
       role="img"
       aria-label={name}
