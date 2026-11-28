@@ -148,13 +148,19 @@ const DIR_COLLAPSED_KEY = "oc_lore_dir_collapsed";
 /** 生效期: the start, and for a retired entry whose retire time is known, the
  * end as well. A retired entry bumped after it was retired starts after it
  * ended, so it shows the start alone. */
-function loreEffectiveText(entry: LoreEntryView): string {
+/** A retired entry's range may break only after its dash, never inside a time. */
+function LoreEffective({ entry }: { entry: LoreEntryView }) {
   const now = Date.now() / 1000;
   const start = formatAbsolute(entry.effectiveTs, now);
   if (entry.state !== "retired" || entry.retiredTs === undefined || entry.retiredTs < entry.effectiveTs) {
-    return start;
+    return <span className="lore-row__effective-part">{start}</span>;
   }
-  return `${start} – ${formatAbsolute(entry.retiredTs, now)}`;
+  return (
+    <>
+      <span className="lore-row__effective-part">{start} –</span>{" "}
+      <span className="lore-row__effective-part">{formatAbsolute(entry.retiredTs, now)}</span>
+    </>
+  );
 }
 
 /** The folded directory groups, kept in this browser as the list of folded
@@ -2330,7 +2336,7 @@ function LoreRow({
         <LoreAuthorChip authorId={entry.authorId} author={author} avatar={avatar} />
         <span className="card-meta__label">{t.lore.effectiveLabel}</span>
         <span className="lore-row__effective-ts" data-testid="lore-effective">
-          {loreEffectiveText(entry)}
+          <LoreEffective entry={entry} />
         </span>
         {/* No reason, no row: an empty one would teach that retirements come unexplained. */}
         {entry.retireReason !== "" && (

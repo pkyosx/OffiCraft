@@ -1,8 +1,9 @@
 // The label/value rows of the five card types (task, reply — on the 請示 page
 // and inside a task's step —, secret, file, lore) are one style: on every card
 // each label starts at the rows' left edge in the task card's colour, opacity
-// and size, the values start one task-card gap after the card's widest label,
-// and a one-line value is centred on its label. The copy id chip on each
+// and size, the values start at the same x on every card of one language (the
+// label column is one width, at least the longest label of any card), and a
+// one-line value is centred on its label. The copy id chip on each
 // card's first line is drawn the same way too, and so are the first line's
 // icon buttons and status icon (the task card's size). Measured against the task card's
 // own rows and id chip in the same test, at phone and desktop width in zh and en.
@@ -92,13 +93,14 @@ function expectSameRows(metas: Meta[], ref: Row, gap: number, tag: string) {
   expect(metas.length, `${tag}: some rows measured`).toBeGreaterThan(0);
   for (const meta of metas) {
     const column = Math.max(...meta.rows.map((r) => r.labelWidth));
+    expect.soft(ref.valueX - gap, `${tag} ${meta.card}: the label column holds its widest label`).toBeGreaterThanOrEqual(column - 0.5);
     for (const r of meta.rows) {
       const what = `${tag} ${meta.card} 「${r.label}」`;
       expect.soft(r.color, `${what}: label colour`).toBe(ref.color);
       expect.soft(r.opacity, `${what}: label opacity`).toBe(ref.opacity);
       expect.soft(r.fontSize, `${what}: label size`).toBe(ref.fontSize);
       expect.soft(Math.abs(r.labelX), `${what}: label at the rows' left edge`).toBeLessThanOrEqual(0.5);
-      expect.soft(Math.abs(r.valueX - column - gap), `${what}: value one task-card gap after the widest label`).toBeLessThanOrEqual(0.5);
+      expect.soft(Math.abs(r.valueX - ref.valueX), `${what}: value at the task card's value x`).toBeLessThanOrEqual(0.5);
       if (r.valueHeight <= 32) {
         expect.soft(Math.abs(r.labelMid - r.valueMid), `${what}: label centred on its value`).toBeLessThanOrEqual(0.5);
       }
@@ -121,9 +123,8 @@ for (const width of [320, 390, 1440]) {
       const embedded = all.filter((m) => m.card === "task-reply-card");
       expect(task.length, `${tag} the task card's rows`).toBe(1);
       const ref = task[0].rows[0];
-      const taskColumn = Math.max(...task[0].rows.map((r) => r.labelWidth));
-      const gap = ref.valueX - taskColumn;
-      expect(gap, `${tag} the task card's gap`).toBeCloseTo(12, 0);
+      const gap = await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector(".task-card .card-meta")!).columnGap));
+      expect(gap, `${tag} the task card's gap`).toBe(12);
       expectSameRows(task, ref, gap, `${tag} task card`);
       const idChip = await idChipLook(page);
       expect(idChip, `${tag} the task card's id chip`).not.toBe("no id chip");

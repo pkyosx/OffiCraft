@@ -4,16 +4,22 @@
  * colour, centred on its value, on every card. Each component that draws these
  * rows imports this file itself.
  *
- * The label column is as wide as the card's widest label (max-content), never
- * a hard-coded width, so it holds in every language. */
+ * The label column is one width on every card (owner): at least the longest
+ * label any card shows in that language — zh 「處理時間」 (4 characters), en
+ * "Handed over from" — so values start at the same x on every card. A longer
+ * label (a theme's wording) still widens its own card rather than wrapping. */
 .card-meta {
+  --card-meta-label-width: 8.5em;
   display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
+  grid-template-columns: minmax(var(--card-meta-label-width), max-content) minmax(0, 1fr);
   align-items: center;
   gap: 7px 12px;
   min-width: 0;
   font-size: 12.5px;
   color: var(--color-text);
+}
+.card-meta:lang(zh) {
+  --card-meta-label-width: 4em;
 }
 .card-meta__label {
   font-size: 12.5px;

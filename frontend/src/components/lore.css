@@ -820,8 +820,10 @@ button.lore-row__status-icon--staged {
   gap: 6px;
 }
 .lore-row__effective-ts {
-  white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+.lore-row__effective-part {
+  white-space: nowrap;
 }
 button.lore-row__action {
   flex: none;
