@@ -149,7 +149,7 @@ const LORE_CAP_FIELDS: Record<
       | "loreCapManualSub"
       | "loreCapTitleSub"
       | "loreCapBodySub";
-    warnKey?: "loreCapRoleWarning";
+    warnKey?: "loreCapRoleWarning" | "loreCapEntryWarning";
   }
 > = {
   loreCapCharsRole: {
@@ -173,6 +173,7 @@ const LORE_CAP_FIELDS: Record<
     inputId: "param-lore-cap-title",
     labelKey: "loreCapTitle",
     subKey: "loreCapTitleSub",
+    warnKey: "loreCapEntryWarning",
   },
   loreCapCharsBody: {
     min: LORE_ENTRY_CAP_CHARS_MIN,
@@ -180,6 +181,7 @@ const LORE_CAP_FIELDS: Record<
     inputId: "param-lore-cap-body",
     labelKey: "loreCapBody",
     subKey: "loreCapBodySub",
+    warnKey: "loreCapEntryWarning",
   },
 };
 
@@ -1897,6 +1899,7 @@ function ServerParams({
               <div className="param-row__name">
                 <TitleWithInfo title={t.settings.reassignHandoverTimeout} hint={t.settings.reassignHandoverTimeoutSub} />
               </div>
+              <div className="param-row__sub">{t.settings.reassignHandoverTimeoutWarning}</div>
             </div>
             <div className="param-pct">
               <input id="param-reassign-handover-timeout" className="param-input" type="number" min={60} max={86400}
@@ -2061,6 +2064,7 @@ function ServerParams({
                 id="param-secret-card-ttl"
                 label={t.settings.secretCardUnretrievedTtl}
                 sub={t.settings.secretCardUnretrievedTtlSub}
+                warning={t.settings.secretCardUnretrievedTtlWarning}
                 unitLabel={t.settings.secretCardDurationUnit}
                 unitText={durationUnitText}
                 secs={settings.secretCardUnretrievedTtlSecs}
@@ -2073,6 +2077,7 @@ function ServerParams({
                 id="param-secret-card-retention"
                 label={t.settings.secretCardRetention}
                 sub={t.settings.secretCardRetentionSub}
+                warning={t.settings.secretCardRetentionWarning}
                 unitLabel={t.settings.secretCardDurationUnit}
                 unitText={durationUnitText}
                 secs={settings.secretCardRetrievedRetentionSecs}
@@ -2238,6 +2243,7 @@ function SecretDurationRow({
   id,
   label,
   sub,
+  warning,
   unitLabel,
   unitText,
   secs,
@@ -2247,6 +2253,7 @@ function SecretDurationRow({
   id: string;
   label: string;
   sub: string;
+  warning: string;
   unitLabel: string;
   unitText: Record<DurationUnit, string>;
   secs: number;
@@ -2272,6 +2279,7 @@ function SecretDurationRow({
         <div className="param-row__name">
           <TitleWithInfo title={label} hint={sub} />
         </div>
+        <div className="param-row__sub">{warning}</div>
       </div>
       <div className="param-pct" ref={pairRef}>
         <input id={id} className="param-input" type="number" min={0}
@@ -2709,6 +2717,7 @@ function SoftwareUpdate({
               <span className="param-row__name">
                 <TitleWithInfo title={t.settings.autoUpdate} hint={t.settings.autoUpdateSub} />
               </span>
+              <div className="param-row__sub">{t.settings.autoUpdateWarning}</div>
             </div>
             <button
               type="button"

@@ -301,6 +301,23 @@ describe("SettingsPage · 參數調整", () => {
     patch.mockRestore();
   });
 
+  it.each([
+    [s.reassignHandoverTimeout, "會被回收", "每次更新任務都會重新計時"],
+    [s.wardenCredentialLifetime, "要重新安裝", "會在到期前自動換新"],
+    [s.secretCardUnretrievedTtl, "內容就會刪除，這張卡失效", "等成員取得的時間"],
+    [s.secretCardRetention, "填 0 是第一次取得當下就刪除", "這段時間內成員可以再取得"],
+    [s.loreCapRole, "不會被讀到", "開機時最多讀多少字"],
+    [s.loreCapTitle, "超過的寫入會被拒絕", "調低只擋接下來的寫入"],
+    [s.loreCapBody, "超過的寫入會被拒絕", "已經存好的條目不受影響"],
+  ])("「%s」keeps its consequence under the title and only the explanation behind ⓘ", async (label, consequence, explanation) => {
+    const utils = await openParams();
+    const row = utils.getByLabelText(label).closest(".param-row") as HTMLElement;
+    expect(row.querySelector(".param-row__sub")?.textContent).toContain(consequence);
+    const info = infoHintText(row);
+    expect(info).toContain(explanation);
+    expect(info).not.toContain(consequence);
+  });
+
   it("ends the General card with 開發者模式, carrying its label and help text, off by default", async () => {
     const utils = await openParams();
     const toggle = utils.getByRole("switch", { name: s.developerMode });

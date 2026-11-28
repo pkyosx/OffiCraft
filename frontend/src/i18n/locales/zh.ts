@@ -2561,7 +2561,8 @@ export const zh = {
     receiveBeta: "接收 Beta 版本",
     receiveBetaSub: "更新檢查也納入 GitHub 預發佈(prerelease)· 關閉 = 只看正式 release",
     autoUpdate: "自動更新",
-    autoUpdateSub: "偵測到新版本時於背景自動升級並重啟",
+    autoUpdateSub: "偵測到新版本時於背景自動升級",
+    autoUpdateWarning: "升級完伺服器會自己重啟。",
     updateCheckInterval: "更新檢查間隔",
     updateCheckIntervalSub:
       "背景多久向 GitHub 確認一次有沒有新版本；按「檢查更新」與升級一律即時查詢，不受這個間隔影響（1–60 分鐘）",
@@ -2813,7 +2814,8 @@ export const zh = {
       "按下加速停止之後，成員還有多少秒可以收尾。這個時刻會原文告訴成員（10–3600）",
     reassignHandoverTimeout: "轉派交接逾時秒數",
     reassignHandoverTimeoutSub:
-      "轉派後，外包前任多久沒有更新任務就會被回收；每次更新任務都會重新計時，正職前任不受影響（60–86400）",
+      "轉派後，外包前任可以多久不更新任務；每次更新任務都會重新計時，正職前任不受影響（60–86400）",
+    reassignHandoverTimeoutWarning: "逾時沒更新任務的外包前任會被回收。",
     wardenCredentialLifetime: "機器憑證壽命",
     wardenCredentialLifetimeSub:
       "機器登入憑證的有效期。機器會在到期前自動換新。調小不影響已經發出的憑證。（86400–34560000 秒）",
@@ -2902,18 +2904,21 @@ export const zh = {
       "讀任務手冊時最多附帶多少字的任務傳承。與成員傳承各自計算，可以調低。",
     loreCapTitle: "傳承標題字數上限",
     loreCapTitleSub:
-      "一筆傳承的標題最多幾個字。超過的寫入會被拒絕,一個字都不會寫進去。可以調低,調低只擋接下來的寫入,已經存好的條目不受影響。",
+      "一筆傳承的標題最多幾個字。可以調低,調低只擋接下來的寫入,已經存好的條目不受影響。",
     loreCapBody: "傳承內容字數上限",
     loreCapBodySub:
-      "一筆傳承的內容最多幾個字。超過的寫入會被拒絕,一個字都不會寫進去。可以調低,已經存好的條目不受影響。",
+      "一筆傳承的內容最多幾個字。可以調低,已經存好的條目不受影響。",
+    loreCapEntryWarning: "超過的寫入會被拒絕,一個字都不會寫進去。",
     secretCardDurationUnit: "單位",
     secretCardUnretrievedTtl: "Secret 請示卡的等待取得時間",
     secretCardUnretrievedTtlSub:
-      "你提供內容後，成員多久沒取得就刪除內容、這張卡失效（1 分鐘到 30 天）。只影響之後提供的內容。",
+      "你提供內容後，等成員取得的時間（1 分鐘到 30 天）。只影響之後提供的內容。",
+    secretCardUnretrievedTtlWarning: "時間到還沒取得，內容就會刪除，這張卡失效。",
     secretCardUnretrievedTtlRange: "等待取得時間請填 1 分鐘到 30 天之間的整數",
     secretCardRetention: "Secret 請示卡的取得後保留時間",
     secretCardRetentionSub:
-      "成員第一次取得後，內容還保留多久（0 秒到 1 天）；這段時間內成員可以再取得，時間一到就刪除，填 0 是取得當下就刪除。只影響之後的取得。",
+      "成員第一次取得後，內容還保留多久（0 秒到 1 天）；這段時間內成員可以再取得。只影響之後的取得。",
+    secretCardRetentionWarning: "時間一到就刪除；填 0 是第一次取得當下就刪除。",
     secretCardRetentionRange: "取得後保留時間請填 0 秒到 1 天之間的整數",
     stepNoteCap: "任務步驟備註字數上限",
     stepNoteCapSub:

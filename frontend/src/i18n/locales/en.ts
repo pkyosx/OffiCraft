@@ -2522,7 +2522,8 @@ export const en: Dict = {
     receiveBeta: "Receive beta versions",
     receiveBetaSub: "Update checks also follow GitHub prereleases · off = official releases only",
     autoUpdate: "Automatic updates",
-    autoUpdateSub: "Upgrade and restart in the background when a newer version appears",
+    autoUpdateSub: "Upgrade in the background when a newer version appears",
+    autoUpdateWarning: "The server restarts itself after the upgrade.",
     updateCheckInterval: "Update check interval",
     updateCheckIntervalSub:
       "How often the server asks GitHub in the background whether a newer version exists; Check for updates and upgrading always ask right away (1–60 minutes)",
@@ -2750,7 +2751,8 @@ export const en: Dict = {
       "How long a member has to wrap up once Accelerated stop is pressed. The member is told this exact instant (10–3600)",
     reassignHandoverTimeout: "Reassign handover timeout",
     reassignHandoverTimeoutSub:
-      "How long an outsource predecessor may go without updating the task after a reassign before it is reclaimed; every task update restarts the clock. Staff predecessors are not affected (60–86400)",
+      "How long an outsource predecessor may go without updating the task after a reassign; every task update restarts the clock. Staff predecessors are not affected (60–86400)",
+    reassignHandoverTimeoutWarning: "An outsource predecessor that times out is reclaimed.",
     wardenCredentialLifetime: "Machine credential lifetime",
     wardenCredentialLifetimeSub:
       "How long a machine's login credential lasts. Machines renew it automatically before it expires. Lowering it does not affect credentials already issued. (86400–34560000 seconds)",
@@ -2836,18 +2838,21 @@ export const en: Dict = {
       "How many characters of task lore come with a task manual when it is read. Counted separately from member lore. May be lowered.",
     loreCapTitle: "Lore title size cap",
     loreCapTitleSub:
-      "The longest title one lore entry may carry. An over-cap write is refused and stores nothing. May be lowered; it binds the next write only and leaves stored entries untouched.",
+      "The longest title one lore entry may carry. May be lowered; it binds the next write only and leaves stored entries untouched.",
     loreCapBody: "Lore body size cap",
     loreCapBodySub:
-      "The longest body one lore entry may carry. An over-cap write is refused and stores nothing. May be lowered; stored entries are untouched.",
+      "The longest body one lore entry may carry. May be lowered; stored entries are untouched.",
+    loreCapEntryWarning: "An over-cap write is refused and stores nothing.",
     secretCardDurationUnit: "unit",
     secretCardUnretrievedTtl: "Secret card: time to retrieve",
     secretCardUnretrievedTtlSub:
-      "How long after you provide a value it waits for the member to retrieve it before it is deleted and the card lapses (1 minute to 30 days). Only affects values provided later.",
+      "How long after you provide a value it waits for the member to retrieve it (1 minute to 30 days). Only affects values provided later.",
+    secretCardUnretrievedTtlWarning: "A value not retrieved in time is deleted and the card lapses.",
     secretCardUnretrievedTtlRange: "Time to retrieve must be a whole number between 1 minute and 30 days",
     secretCardRetention: "Secret card: kept after retrieval",
     secretCardRetentionSub:
-      "How long a value stays after the member first retrieves it (0 seconds to 1 day). The member may retrieve it again until then; 0 deletes it at the first retrieval. Only affects later retrievals.",
+      "How long a value stays after the member first retrieves it (0 seconds to 1 day). The member may retrieve it again until then. Only affects later retrievals.",
+    secretCardRetentionWarning: "It is deleted when this runs out; 0 deletes it at the first retrieval.",
     secretCardRetentionRange: "Kept after retrieval must be a whole number between 0 seconds and 1 day",
     stepNoteCap: "Task step note size cap",
     stepNoteCapSub:

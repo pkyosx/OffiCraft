@@ -212,6 +212,13 @@ describe("SettingsPage · 系統更新與備份 · 自動更新存檔回讀 (存
     expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
 
+  it("says on the row that the server restarts, with only the explanation behind ⓘ", async () => {
+    const utils = await openSoftware();
+    const row = utils.getByTestId("settings-auto-update").closest(".param-row") as HTMLElement;
+    expect(row.querySelector(".param-row__sub")?.textContent).toBe("升級完伺服器會自己重啟。");
+    expect(infoHintText(row)).toBe("偵測到新版本時於背景自動升級");
+  });
+
   // ── the read-back verification's FAILURE paths ──
   // These two pin that success is decided by the RE-GET + compare, not by the
   // PATCH resolving: strip commitVerified's read-back (report success
