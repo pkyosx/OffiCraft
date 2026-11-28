@@ -6,8 +6,9 @@
 // one-line value is centred on its label. The copy id chip on each
 // card's first line is drawn the same way too, and so are the first line's
 // icon buttons and status icon (the task card's size). Measured against the task card's
-// own rows and id chip in the same test, at phone and desktop width in zh and en.
-// jsdom lays nothing out.
+// own rows and id chip in the same test, at phone and desktop width in zh and en,
+// and once with every character 0.5px wider (a wider font must not let the card
+// with the longest label grow its own column). jsdom lays nothing out.
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { TaskCardReplyCardStory } from "./stories/TaskCardReplyCardStory";
@@ -111,12 +112,13 @@ function expectSameRows(metas: Meta[], ref: Row, gap: number, tag: string, seen:
   }
 }
 
-for (const width of [320, 390, 1440]) {
+for (const [width, wider] of [[320, false], [390, false], [390, true], [1440, false]] as const) {
   for (const language of ["zh", "en"] as const) {
-    test(`width ${width} ${language}: every card's label/value rows and id chip are the task card's`, async ({ mount, page }) => {
+    test(`width ${width} ${language}${wider ? ", every character 0.5px wider" : ""}: every card's label/value rows and id chip are the task card's`, async ({ mount, page }) => {
       await page.setViewportSize({ width, height: 1400 });
       await page.evaluate((l) => localStorage.setItem("oc.language", l), language);
-      const tag = `[${width}px ${language}]`;
+      if (wider) await page.addStyleTag({ content: "* { letter-spacing: 0.5px !important; }" });
+      const tag = `[${width}px ${language}${wider ? " wider" : ""}]`;
       const seen: Meta[] = [];
 
       let cmp = await mount(<TaskCardReplyCardStory language={language} reassignedFrom="mira" />);
@@ -174,9 +176,9 @@ for (const width of [320, 390, 1440]) {
         await cmp.unmount();
       }
 
-      // The column is a fixed em width set to fit the longest label, so it
-      // overshoots that label by up to a font's rounding; one em more is a
-      // column sized for some other label.
+      // The column is a fixed em width: the longest label plus room for a
+      // wider font. One em more than the widest label is a column sized for
+      // some other label.
       const widest = seen.flatMap((m) => m.rows).reduce((a, r) => (r.labelWidth > a.labelWidth ? r : a));
       expect(
         ref.valueX - gap,

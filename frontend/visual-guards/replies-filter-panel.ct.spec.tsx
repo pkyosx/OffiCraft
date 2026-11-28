@@ -24,9 +24,11 @@
 //       shows only while something is filtered;
 //   (5) the shell adds no spacing of its own below the row;
 //   (6) on 請示頁 the three list label chips and the funnel / 顯示方式 hold one
-//       row inside the column at 320, 326, 327, 345, 346, 347, 360, 375, 390,
-//       393 and 1440 in both languages with 4/1/3 and 99/18/23 cards — short labels below zh 347 /
-//       en 327, no number on any chip — and the selected label's count
+//       row inside the column at 320, either side of each language's
+//       full-label threshold, 375, 390, 393 and 1440 in both languages with
+//       4/1/3 and 99/18/23 cards — short labels below the threshold, no number
+//       on any chip; at the threshold the full labels still fit with every
+//       character 0.5px wider (a wider font) — and the selected label's count
 //       (「N 張請示卡」, 近期已回覆's with 「· 近 24 小時」) on one muted line under
 //       the row at every width, its height held before the count is known, and
 //       no sort wording in the row;
@@ -362,7 +364,7 @@ test("the 篩選 shell adds no spacing of its own: the gap below the label row i
 
 /** Below these widths the labels are the short ones (待回覆／稍後／已回覆,
  * Waiting / Later / Done). */
-const FULL_LABELS_FROM = { zh: 347, en: 327 };
+const FULL_LABELS_FROM = { zh: 360, en: 340 };
 const LABELS = {
   zh: { full: ["等待回覆", "稍後再看", "近期已回覆"], short: ["待回覆", "稍後", "已回覆"] },
   en: { full: ["Awaiting", "Later", "Answered"], short: ["Waiting", "Later", "Done"] },
@@ -374,7 +376,17 @@ const COUNT_LINE = {
 type Box = { left: number; right: number; top: number; bottom: number; width: number; height: number };
 
 for (const cards of [[4, 1, 3], [99, 18, 23]] as const) {
-  for (const width of [320, 326, 327, 345, 346, 347, 360, 375, 390, 393, 1440]) {
+  for (const width of [
+    320,
+    FULL_LABELS_FROM.en - 1,
+    FULL_LABELS_FROM.en,
+    FULL_LABELS_FROM.zh - 1,
+    FULL_LABELS_FROM.zh,
+    375,
+    390,
+    393,
+    1440,
+  ]) {
     for (const language of ["zh", "en"] as const) {
       const full = width >= FULL_LABELS_FROM[language];
       test(`width ${width}, ${language}, ${cards.join("/")} cards: the three list label chips, the 篩選 and 顯示方式 buttons hold one row inside the column, ${full ? "full" : "short"} labels whole with no number, separate chips with a gap, and each label's count on one line under the row (近期已回覆's with its 24h note), and the row names no sort`, async ({
@@ -512,6 +524,42 @@ for (const cards of [[4, 1, 3], [99, 18, 23]] as const) {
         }
       });
     }
+  }
+}
+
+for (const cards of [[4, 1, 3], [99, 18, 23]] as const) {
+  for (const language of ["zh", "en"] as const) {
+    test(`width ${FULL_LABELS_FROM[language]}, ${language}, ${cards.join("/")} cards, every character 0.5px wider: the full labels are still whole on the buttons' row`, async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize({ width: FULL_LABELS_FROM[language], height: 900 });
+      await page.evaluate((lang) => localStorage.setItem("oc.language", lang), language);
+      const cmp = await mount(<RepliesPageStory theme="office" cards={cards} />);
+      await expect(cmp.getByRole("tab")).toHaveCount(3);
+      await page.addStyleTag({ content: "* { letter-spacing: 0.5px !important; }" });
+      const m = await cmp.evaluate((root: HTMLElement) => {
+        const mid = (el: Element) => {
+          const b = el.getBoundingClientRect();
+          return (b.top + b.bottom) / 2;
+        };
+        const column = root.querySelector(".replies") as HTMLElement;
+        const funnel = root.querySelector('[data-testid="replies-filter-toggle"]')!;
+        return {
+          tabs: Array.from(root.querySelectorAll<HTMLElement>('[role="tab"]')).map((tab) => {
+            const l = tab.querySelector<HTMLElement>(".replies__tab-label")!;
+            return { text: l.innerText, cut: l.scrollWidth > l.clientWidth + 0.5, offRow: Math.abs(mid(tab) - mid(funnel)) };
+          }),
+          columnOverflow: column.scrollWidth - column.clientWidth,
+        };
+      });
+      expect(m.tabs.map((t) => t.text)).toEqual(LABELS[language].full);
+      for (const t of m.tabs) {
+        expect(t.cut, `${t.text} whole`).toBe(false);
+        expect(t.offRow, `${t.text} on the buttons' row`).toBeLessThanOrEqual(2);
+      }
+      expect(m.columnOverflow, "column horizontal overflow").toBeLessThanOrEqual(0);
+    });
   }
 }
 

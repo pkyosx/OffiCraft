@@ -139,8 +139,11 @@
   }
 }
 /* Short labels below the width where the full ones stop fitting beside the
- * buttons (measured in CT: zh full from 347, en from 327). */
-@media (max-width: 346px) {
+ * buttons. ⚠️ The thresholds sit well above where the full labels just fit
+ * (CT locally: zh 347, en 327): the CI runner's fonts are wider, so a
+ * threshold at the local fit overflows there. The guard checks the margin by
+ * widening every character 0.5px. */
+@media (max-width: 359px) {
   .replies__tabs[data-locale="zh"] .replies__tab-label-full {
     display: none;
   }
@@ -148,7 +151,7 @@
     display: inline;
   }
 }
-@media (max-width: 326px) {
+@media (max-width: 339px) {
   .replies__tabs[data-locale="en"] .replies__tab-label-full {
     display: none;
   }
