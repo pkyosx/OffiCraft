@@ -83,7 +83,7 @@ for (const theme of BUILTIN_THEME_IDS) {
 }
 
 for (const width of [1280, 390, 360, 320]) {
-  test(`width ${width}: 顯示方式 holds the filter row's right edge beside the last filter (from 360 up), and its panel stays on screen`, async ({
+  test(`width ${width}: 顯示方式 holds the filter row's right edge with the funnel right beside it, its badge unclipped, and its panel stays on screen`, async ({
     mount,
     page,
   }) => {
@@ -100,19 +100,22 @@ for (const width of [1280, 390, 360, 320]) {
     const row = (await cmp.getByTestId("tasks-filter").boundingBox())!;
     const button = (await trigger.boundingBox())!;
     expect(Math.abs(row.x + row.width - (button.x + button.width))).toBeLessThanOrEqual(1);
-    const sharesLine = await cmp.getByTestId("tasks-filter-fields").evaluate((fields, mid) => {
-      return Array.from(fields.children)
-        .filter((c) => !c.classList.contains("filter-panel__actions"))
-        .some((c) => {
-          const r = c.getBoundingClientRect();
-          return r.top <= mid && mid <= r.bottom;
-        });
-    }, button.y + button.height / 2);
-    // At 320 the last line of filters is already full, so the button wrapping
-    // alone there is expected; from 360 up it must share the last line.
-    if (width >= 360) {
-      expect(sharesLine, "顯示方式 sits on a line with a filter, not on a line of its own").toBe(true);
-    }
+
+    const funnel = (await cmp.getByTestId("tasks-filter-toggle").boundingBox())!;
+    expect(Math.abs(funnel.y - button.y), "funnel and 顯示方式 share one line").toBeLessThanOrEqual(1);
+    expect(Math.abs(funnel.height - button.height)).toBeLessThanOrEqual(1);
+    expect(button.x - (funnel.x + funnel.width)).toBeGreaterThan(0);
+    expect(button.x - (funnel.x + funnel.width)).toBeLessThanOrEqual(10);
+
+    // The default 未結案 is one condition. The badge overhangs the funnel's
+    // top-right corner and must not be cut by the page's scroll box above it.
+    const badge = cmp.getByTestId("tasks-filter-count");
+    await expect(badge).toHaveText("1");
+    const b = (await badge.boundingBox())!;
+    const scrollTop = await page.evaluate(() => document.querySelector(".tasks")!.getBoundingClientRect().top);
+    expect(b.y, "badge top inside the scroll box").toBeGreaterThanOrEqual(scrollTop - 0.5);
+    expect(b.y).toBeLessThan(funnel.y);
+    expect(b.x + b.width).toBeGreaterThan(funnel.x + funnel.width);
 
     await trigger.click();
     const panel = (await cmp.getByTestId("display-options-panel").boundingBox())!;

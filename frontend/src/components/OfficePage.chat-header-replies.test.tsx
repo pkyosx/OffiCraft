@@ -12,6 +12,7 @@ import { __resetWorkerCodenameCache } from "../hooks/useWorkerCodenames";
 import { resetAllSharedSnapshots } from "../lib/sharedSnapshot";
 import { __injectMockOutsourceWorker, __injectMockReplyCard, __resetMock } from "../api/mock";
 import type { OutsourceWorkerView, ReplyCard } from "../api/adapter";
+import { openFilters } from "../test/tasksFilter";
 
 const worker = {
   id: "ow-a",
@@ -120,6 +121,8 @@ describe("OfficePage chat header 請示卡 jump", () => {
     expect(cards().map((c) => c.querySelector('[data-testid="reply-status-tag"]')?.textContent)).toEqual(
       Array(count).fill("未回覆"),
     );
+    expect(screen.getByTestId("replies-filter-count").textContent).toBe("2");
+    openFilters();
     expect(screen.getByTestId("filter-status").textContent).toBe("未回覆");
   });
 });

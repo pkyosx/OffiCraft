@@ -108,7 +108,7 @@ import {
   SnoozeActionIcon,
   UnsnoozeActionIcon,
 } from "./replyCardActionIcons";
-import { FilterPanel } from "./FilterPanel";
+import { FilterField, FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
 import {
   MultiSelectFilter,
@@ -252,14 +252,8 @@ export function RepliesPage({
 
   // ── 篩選 (T-93 round 2) ─────────────────────────────────────────────────
   // ── ID 篩選 (T-118) ──────────────────────────────────────────────────────
-  // The field is permanently visible above the list — no funnel, no panel, no
-  // 取消/套用篩選, no 「N 筆 · 已篩選」 strip, and no 「請示卡」 sub-title above it.
-  // owner 2026-09-06 20:07 (c-c3d681fe05da):「不要多filter那一層了,全部拉出來
-  //…也不用再顯示14筆已篩選跟那一行跟案件那個子標了,案件跟請示卡都一樣」, and
-  // again at 20:19 (c-38c7759e6377):「請示卡跟任務都要改成一樣的呈現方式,一樣
-  // 請示卡的子標題拿掉」. The shell is still the shared FilterPanel (read
-  // FilterPanel.tsx's header — that contract is not restated here); it is now a
-  // row rather than an expander, so both pages got the new shape at once.
+  // The field lives in the collapsed FilterPanel's dialog (read FilterPanel.tsx's
+  // header — that contract is not restated here).
   //
   // TWO STATES, STILL. `appliedId` is what the page is actually filtered by;
   // `draftId` is what the field binds to. 🔴 They are still separate, and NOT
@@ -452,6 +446,13 @@ export function RepliesPage({
   // The default 狀態 is what this page showed before the axis existed, so it
   // does not offer 清除篩選; 清除篩選 returns to it.
   const anyFilter = otherAxesNarrowing || !isDefaultStatus(statusFilter);
+  const activeFilterCount = [
+    idQuery !== "",
+    !isDefaultStatus(statusFilter),
+    openerFilter.size > 0,
+    priorityFilter.size > 0,
+    dueFilter.size > 0,
+  ].filter(Boolean).length;
   const passesStatus = (key: StatusKey) =>
     statusFilter.size === 0 || statusFilter.has(key);
   // An applied id is answered by the server, so it never needs these lists.
@@ -1776,16 +1777,11 @@ export function RepliesPage({
         </div>
       )}
 
-      {/* ── 篩選 (T-118) ──────────────────────────────────────────────────
-        * The shell is FilterPanel's; only the FIELD is ours. Nothing here is a
-        * modal and nothing here expands — it is a row above the list, because
-        * owner ruled out the overlay (c-3b5a0aa66550) and then the expander
-        * itself (c-c3d681fe05da). `testId` is namespaced so this panel's
-        * controls never collide with the 任務頁's. */}
       <FilterPanel
         testId="replies-filter"
         clearLabel={t.replies.clearFilters}
         onClear={anyFilter ? clearFilters : undefined}
+        collapse={{ title: t.replies.filterDialogTitle, activeCount: activeFilterCount }}
         actions={
           <DisplayOptions
             label={t.replies.sortLabel}
@@ -1796,59 +1792,61 @@ export function RepliesPage({
           />
         }
       >
-        <IdFilterInput
-          value={draftId}
-          onChange={setDraftId}
-          onCommit={commitId}
-          label={t.replies.filterIdLabel}
-          testId="filter-reply-card-id"
-          // 15 = the length of every 請示卡 id there is: api_replycards.go:283
-          // mints "rc-" + newHexID(12). owner 2026-09-06 spotted that the old
-          // fixed 200px was picked with no reference to that, and it read as
-          // too wide because it is. This number tracks the id's LENGTH, so it
-          // moves if that shape ever does.
-          // ⚠️ Say LENGTH here, not the other word. A prose guard
-          // (TestRetiredTaskNoSentencesDoNotLiveAnywhereInTheTree) retires the
-          // phrasing that says a value comes out of the id, because TaskNo
-          // returns the id UNCHANGED and such wording becomes a second,
-          // contradictory account of that field. It is a literal scan, so it
-          // caught this comment TWICE: once for the original wording, and again
-          // for the note that quoted the banned phrase in order to explain it.
-          widthCh={15}
-        />
-        <MultiSelectFilter
-          noun={t.replies.filterStatusNoun}
-          allLabel={t.replies.filterStatusAll}
-          options={statusOptions}
-          groups={statusGroups}
-          selected={statusFilter}
-          onChange={setStatusFilter}
-          testId="filter-status"
-        />
-        <MultiSelectFilter
-          noun={t.replies.filterOpenerNoun}
-          allLabel={t.replies.filterOpenerAll}
-          options={openerOptions}
-          selected={openerFilter}
-          onChange={setOpenerFilter}
-          testId="filter-opener"
-        />
-        <MultiSelectFilter
-          noun={t.replies.filterPriorityNoun}
-          allLabel={t.replies.filterPriorityAll}
-          options={priorityOptions}
-          selected={priorityFilter}
-          onChange={setPriorityFilter}
-          testId="filter-priority"
-        />
-        <MultiSelectFilter
-          noun={t.replies.filterDueNoun}
-          allLabel={t.replies.filterDueAll}
-          options={dueOptions}
-          selected={dueFilter}
-          onChange={setDueFilter}
-          testId="filter-due"
-        />
+        <FilterField label={t.replies.filterIdLabel} wide>
+          <IdFilterInput
+            value={draftId}
+            onChange={setDraftId}
+            onCommit={commitId}
+            label={t.replies.filterIdLabel}
+            testId="filter-reply-card-id"
+            // 15 = the length of every 請示卡 id there is: api_replycards.go
+            // mints "rc-" + newHexID(12). ⚠️ Say LENGTH here, not the other
+            // word: a literal prose guard
+            // (TestRetiredTaskNoSentencesDoNotLiveAnywhereInTheTree) scans for it.
+            widthCh={15}
+          />
+        </FilterField>
+        <FilterField label={t.replies.filterStatusNoun}>
+          <MultiSelectFilter
+            noun={t.replies.filterStatusNoun}
+            allLabel={t.replies.filterStatusAll}
+            options={statusOptions}
+            groups={statusGroups}
+            selected={statusFilter}
+            onChange={setStatusFilter}
+            testId="filter-status"
+          />
+        </FilterField>
+        <FilterField label={t.replies.filterOpenerNoun}>
+          <MultiSelectFilter
+            noun={t.replies.filterOpenerNoun}
+            allLabel={t.replies.filterOpenerAll}
+            options={openerOptions}
+            selected={openerFilter}
+            onChange={setOpenerFilter}
+            testId="filter-opener"
+          />
+        </FilterField>
+        <FilterField label={t.replies.filterPriorityNoun}>
+          <MultiSelectFilter
+            noun={t.replies.filterPriorityNoun}
+            allLabel={t.replies.filterPriorityAll}
+            options={priorityOptions}
+            selected={priorityFilter}
+            onChange={setPriorityFilter}
+            testId="filter-priority"
+          />
+        </FilterField>
+        <FilterField label={t.replies.filterDueNoun}>
+          <MultiSelectFilter
+            noun={t.replies.filterDueNoun}
+            allLabel={t.replies.filterDueAll}
+            options={dueOptions}
+            selected={dueFilter}
+            onChange={setDueFilter}
+            testId="filter-due"
+          />
+        </FilterField>
       </FilterPanel>
 
       <section className="replies__section">

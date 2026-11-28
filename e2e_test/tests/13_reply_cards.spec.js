@@ -87,12 +87,15 @@ const {
   uniqueName,
 } = require('../lib/fixtures');
 
-/** Tick 已回覆 in the 請示 page's 狀態 field and close its popover. */
+/** Open the 篩選 dialog, tick 已回覆 in its 狀態 field, then close the popover
+ * and the dialog (✕ on desktop, 完成 on a phone sheet). */
 async function showAnswered(page) {
+  await page.getByTestId('replies-filter-toggle').click();
   const trigger = page.getByTestId('filter-status');
   await trigger.click();
   await page.getByTestId('filter-status-opt-answered').locator('input').check();
   await trigger.click();
+  await page.getByTestId('replies-filter-close').or(page.getByTestId('replies-filter-done')).click();
 }
 
 // Build the wire `options` array. `aiPickAt` is the index that carries the

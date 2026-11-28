@@ -25,7 +25,7 @@ import { __resetMock, __injectMockReplyCard } from "../api/mock";
 import { api } from "../api";
 import { ApiError } from "../api/errors";
 import type { ReplyCard } from "../api/adapter";
-import { toggleFilter } from "../test/tasksFilter";
+import { toggleFilter, openFilters, openFiltersWhenReady } from "../test/tasksFilter";
 
 function mkCard(over: Partial<ReplyCard>): ReplyCard {
   return {
@@ -57,6 +57,7 @@ function renderPage(replyCardId?: string) {
 }
 
 function idField(): HTMLInputElement {
+  openFilters();
   return document.querySelector(
     '[data-testid="filter-reply-card-id"]'
   ) as HTMLInputElement;
@@ -92,7 +93,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
+describe("請示 ID 篩選 (T-118)", () => {
   it("a link carrying a card id shows only that card, out of several waiting", async () => {
     __injectMockReplyCard(mkCard({ id: "rc-aaa", summary: "第一張" }));
     __injectMockReplyCard(mkCard({ id: "rc-bbb", summary: "第二張" }));
@@ -103,25 +104,27 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     const cards = await findAllByTestId("waiting-card");
     expect(cards).toHaveLength(1);
     expect(cards[0].textContent).toContain("第二張");
+    await openFiltersWhenReady();
     expect(
       ((await findByTestId("filter-reply-card-id")) as HTMLInputElement).value,
       "the field is the only thing left that says why one card is here"
     ).toBe("rc-bbb");
   });
 
-  it("the 編號 field is on the page from the first render, already holding the applied id", async () => {
-    // The field must not lie about what is applied.
+  it("a card link folds into the funnel's count, and opening 篩選請示卡 shows the applied id in its field", async () => {
     __injectMockReplyCard(mkCard({ id: "rc-bbb", summary: "第二張" }));
 
-    const { findByTestId } = renderPage("rc-bbb");
+    const { findByTestId, getByTestId, getByRole } = renderPage("rc-bbb");
     expect(await findByTestId("waiting-card")).toBeTruthy();
+    expect(getByTestId("replies-filter-toggle").getAttribute("aria-expanded")).toBe("false");
+    expect(getByTestId("replies-filter-count").textContent).toBe("2");
 
+    fireEvent.click(getByTestId("replies-filter-toggle"));
+    expect(getByRole("dialog", { name: "篩選請示卡" })).toBe(getByTestId("replies-filter-dialog"));
     expect(
-      ((await findByTestId("filter-reply-card-id")) as HTMLInputElement).value
-    ).toBe("rc-bbb");
-    // The shell is still there — it is the ROW now, not an expander.
-    expect(await findByTestId("replies-filter")).toBeTruthy();
-    expect(await findByTestId("replies-filter-fields")).toBeTruthy();
+      [...document.querySelectorAll(".filter-panel__label")].map((el) => el.textContent)
+    ).toEqual(["請示卡編號", "狀態", "開卡人", "任務優先序", "任務到期"]);
+    expect(((await findByTestId("filter-reply-card-id")) as HTMLInputElement).value).toBe("rc-bbb");
   });
 
   it("🔴 typing in 請示卡編號 without Enter and without blur applies NOTHING — no request, and the same cards", async () => {
@@ -242,6 +245,7 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     __injectMockReplyCard(mkCard({ id: "rc-bbb", summary: "第二張" }));
     const { findAllByTestId, queryByTestId, getByTestId } = renderPage();
     expect(await findAllByTestId("waiting-card")).toHaveLength(2);
+    await openFiltersWhenReady();
     expect(
       queryByTestId("replies-filter-clear"),
       "nothing is applied yet, so there is nothing to clear"
@@ -287,6 +291,7 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     __injectMockReplyCard(mkCard({ id: "rc-aaa", summary: "第一張" }));
 
     const { findByTestId, queryByTestId } = renderPage();
+    await openFiltersWhenReady();
     await findByTestId("filter-reply-card-id");
     applyId("rc-x");
 
@@ -332,6 +337,7 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
       expect(await findAllByTestId("waiting-card")).toHaveLength(2)
     );
     expect(window.location.hash).toBe("#replies");
+    await openFiltersWhenReady();
     expect(document.querySelector('[data-testid="filter-status"]')!.textContent).toBe("待處理");
     expect(queryByTestId("answered-card")).toBeNull();
     expect(queryByTestId("replies-filter-clear")).toBeNull();
@@ -378,6 +384,7 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     expect(
       listSpy.mock.calls.filter(([status]) => status === "answered")
     ).toHaveLength(0);
+    await openFiltersWhenReady();
     expect(document.querySelector('[data-testid="filter-status"]')!.textContent).toBe("所有狀態");
   });
 
@@ -442,6 +449,7 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
 // 任務頁's 負責人 axis does.
 describe("請示卡 開卡人 篩選 (T-118)", () => {
   function openerTrigger(): HTMLElement {
+    openFilters();
     return document.querySelector('[data-testid="filter-opener"]') as HTMLElement;
   }
   function tickOpener(id: string) {
@@ -459,6 +467,7 @@ describe("請示卡 開卡人 篩選 (T-118)", () => {
     __injectMockReplyCard(mkCard({ id: "rc-b1", from: "kyle", summary: "Kyle 一" }));
 
     const { findByTestId } = renderPage();
+    await openFiltersWhenReady();
     fireEvent.click(await findByTestId("filter-opener"));
 
     await waitFor(() =>
@@ -542,6 +551,7 @@ describe("請示卡 開卡人 篩選 (T-118)", () => {
 
     const { findByText, queryByText, queryByTestId, getByTestId } = renderPage();
     await findByText("銀月的");
+    await openFiltersWhenReady();
     expect(queryByTestId("replies-filter-clear")).toBeNull();
 
     tickOpener("mira");
@@ -652,6 +662,7 @@ describe("請示卡 開卡人 篩選 (T-118)", () => {
     // it holds」), and the height half of it to 「no taller than the pill
     // triggers beside it」.
     const { findByTestId } = renderPage();
+    await openFiltersWhenReady();
     const input = (await findByTestId("filter-reply-card-id")) as HTMLInputElement;
     const field = input.parentElement as HTMLElement;
     expect(field.style.getPropertyValue("--id-filter-ch")).toBe("15");
@@ -665,6 +676,7 @@ describe("請示卡 開卡人 篩選 (T-118)", () => {
 describe("請示卡 任務優先序／任務到期 篩選", () => {
   const H = 3600;
   function tick(axis: string, value: string) {
+    openFilters();
     const trigger = document.querySelector(`[data-testid="${axis}"]`) as HTMLElement;
     if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
     fireEvent.click(document.querySelector(`[data-testid="${axis}-opt-${value}"] input`)!);
@@ -675,6 +687,7 @@ describe("請示卡 任務優先序／任務到期 篩選", () => {
     );
   }
   function optionLabels(axis: string): (string | null)[] {
+    openFilters();
     const trigger = document.querySelector(`[data-testid="${axis}"]`) as HTMLElement;
     fireEvent.click(trigger);
     const out = [...document.querySelectorAll<HTMLElement>(`[data-testid^="${axis}-opt-"]`)].map(
@@ -684,6 +697,7 @@ describe("請示卡 任務優先序／任務到期 篩選", () => {
     return out;
   }
   function optionCounts(axis: string): Record<string, string> {
+    openFilters();
     const trigger = document.querySelector(`[data-testid="${axis}"]`) as HTMLElement;
     if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
     const out: Record<string, string> = {};
@@ -718,6 +732,7 @@ describe("請示卡 任務優先序／任務到期 篩選", () => {
     const { findAllByTestId } = renderPage();
     await waitFor(async () => expect(await findAllByTestId("waiting-card")).toHaveLength(5));
 
+    await openFiltersWhenReady();
     const trigger = document.querySelector('[data-testid="filter-priority"]')!;
     expect(trigger.textContent).toBe("所有任務優先序");
     expect(trigger.getAttribute("aria-label")).toBe("任務優先序");
@@ -749,6 +764,7 @@ describe("請示卡 任務優先序／任務到期 篩選", () => {
     );
     const { findAllByTestId } = renderPage();
     await waitFor(async () => expect(await findAllByTestId("waiting-card")).toHaveLength(7));
+    await openFiltersWhenReady();
     const trigger = document.querySelector('[data-testid="filter-due"]')!;
     expect(trigger.textContent).toBe("所有任務到期");
     expect(trigger.getAttribute("aria-label")).toBe("任務到期");
@@ -863,6 +879,7 @@ describe("請示卡 任務優先序／任務到期 篩選", () => {
     seed();
     const { findAllByTestId, findByTestId } = renderPage();
     await waitFor(async () => expect(await findAllByTestId("waiting-card")).toHaveLength(5));
+    await openFiltersWhenReady();
     expect(document.querySelector('[data-testid="replies-filter-clear"]')).toBeNull();
     tick("filter-priority", "high");
     tick("filter-due", "overdue");
@@ -898,8 +915,14 @@ describe("請示卡 聊天 header 跳轉 (#replies/opener/<id>)", () => {
     );
   }
   const section = (testId: string) => document.querySelector(`[data-testid="${testId}"]`);
-  const openerTrigger = () => document.querySelector('[data-testid="filter-opener"]')!;
-  const statusTrigger = () => document.querySelector('[data-testid="filter-status"]')!;
+  const openerTrigger = () => {
+    openFilters();
+    return document.querySelector('[data-testid="filter-opener"]')!;
+  };
+  const statusTrigger = () => {
+    openFilters();
+    return document.querySelector('[data-testid="filter-status"]')!;
+  };
   function RoutedPage() {
     const [route] = useHashRoute();
     return <RepliesPage replyCardId={route.replyCardId} openerId={route.openerId} />;
@@ -920,6 +943,7 @@ describe("請示卡 聊天 header 跳轉 (#replies/opener/<id>)", () => {
     await waitFor(() =>
       expect(shownIds()).toEqual(["rc-wait-mira", "rc-wait-mira2", "rc-wait-kyle", "rc-later"])
     );
+    expect(section("replies-filter-count")).toBeNull();
     expect(statusTrigger().textContent).toBe("待處理");
     expect(section("replies-filter-clear")).toBeNull();
   });
@@ -929,6 +953,7 @@ describe("請示卡 聊天 header 跳轉 (#replies/opener/<id>)", () => {
     window.location.hash = "#replies/opener/mira";
     renderRouted();
     await waitFor(() => expect(shownIds()).toEqual(["rc-wait-mira", "rc-wait-mira2"]));
+    expect(section("replies-filter-count")!.textContent).toBe("2");
     expect(openerTrigger().textContent).toBe("Mira");
     expect(statusTrigger().textContent).toBe("未回覆");
     expect(section("replies-filter-clear")).not.toBeNull();
@@ -960,6 +985,7 @@ describe("請示卡 聊天 header 跳轉 (#replies/opener/<id>)", () => {
     const { findAllByTestId, getByTestId } = renderRouted();
     await waitFor(() => expect(shownIds()).toEqual(["rc-wait-mira", "rc-wait-mira2"]));
 
+    await openFiltersWhenReady();
     fireEvent.click(getByTestId("replies-filter-clear"));
     expect(window.location.hash).toBe("#replies");
     expect(await findAllByTestId("waiting-card")).toHaveLength(3);
@@ -991,6 +1017,7 @@ describe("請示卡 聊天 header 跳轉 (#replies/opener/<id>)", () => {
     renderRouted();
     if (start === "priority") {
       await waitFor(() => expect(shownIds()).toHaveLength(4));
+      openFilters();
       fireEvent.click(document.querySelector('[data-testid="filter-priority"]')!);
       fireEvent.click(document.querySelector('[data-testid="filter-priority-opt-high"] input')!);
       await waitFor(() => expect(shownIds()).toEqual([]));

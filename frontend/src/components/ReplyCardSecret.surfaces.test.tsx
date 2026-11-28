@@ -17,7 +17,7 @@ import {
 } from "../api/mock";
 import type { ReplyCard } from "../api/adapter";
 import { watchSecretValue } from "../test/secretValueWatch";
-import { toggleFilter } from "../test/tasksFilter";
+import { toggleFilter, openFilters, openFiltersWhenReady } from "../test/tasksFilter";
 
 const SENTINEL = "dummy-aaaaaaaaaaaa";
 const CARD_ID = "rc-aaaaaaaaaaaa";
@@ -103,8 +103,8 @@ const surfaces: {
       fireEvent.click(article);
     },
     focusesOnOpen: true,
-    showSettled: async (u) => {
-      await u.findByTestId("filter-status");
+    showSettled: async () => {
+      await openFiltersWhenReady();
       for (const status of ["answered", "expired"]) {
         const box = document.querySelector<HTMLInputElement>(
           `[data-testid="filter-status-opt-${status}"] input`
@@ -226,7 +226,8 @@ describe.each(surfaces)("$name", ({ mount, open, focusesOnOpen, showSettled }) =
 
 describe("the replies page's handled pane", () => {
   const openById = async (u: Utils) => {
-    const idField = await u.findByTestId("filter-reply-card-id");
+    await openFiltersWhenReady();
+    const idField = u.getByTestId("filter-reply-card-id");
     fireEvent.change(idField, { target: { value: CARD_ID } });
     fireEvent.keyDown(idField, { key: "Enter" });
     const article = await waitFor(() => {
@@ -370,6 +371,7 @@ describe("the replies page's handled pane", () => {
       () => new Promise<ReplyCard>((resolve) => (releaseOlder = resolve)),
     );
     await anyDelta("rc-aaaaaaaaaaa8");
+    openFilters();
     const idField = u.getByTestId("filter-reply-card-id");
     fireEvent.change(idField, { target: { value: "rc-aaaaaaaaaaa7" } });
     fireEvent.keyDown(idField, { key: "Enter" });
@@ -441,7 +443,7 @@ describe("the replies page's handled pane", () => {
         </ReplyCardsProvider>,
       ),
     );
-    await u.findByTestId("filter-status");
+    await openFiltersWhenReady();
     toggleFilter("filter-status", "answered");
     toggleFilter("filter-status", "expired");
     const stamp = async (id: string) =>

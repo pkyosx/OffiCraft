@@ -41,6 +41,7 @@ import { durationParts } from "../lib/duration";
 type Lang = "zh" | "en";
 
 export interface Messages {
+  filterAppliedCount: (n: number) => string;
   // ── tasks ──
   taskProgress: (done: number, total: number) => string;
   taskElapsed: (elapsed: string) => string;
@@ -444,6 +445,15 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // with the digit spaced off the han characters exactly as en writes
     // "Selected 2 options", so this is not one of the joins that differ by
     // language and must not be routed through the variable that says they do.
+    // en has no lead word, so empty fragments drop out instead of leaving a space.
+    filterAppliedCount: (n) =>
+      [
+        t.common.filterAppliedLead,
+        String(n),
+        n === 1 ? t.common.filterAppliedTailOne : t.common.filterAppliedTailMany,
+      ]
+        .filter(Boolean)
+        .join(" "),
     replySelectedCount: (n) =>
       `${replies.selectedCountLead} ${n} ${
         n === 1 ? replies.selectedCountTailOne : replies.selectedCountTailMany

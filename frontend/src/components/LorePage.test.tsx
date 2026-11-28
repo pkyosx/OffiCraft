@@ -729,7 +729,7 @@ describe("LorePage — 篩選器複選", () => {
     ).toBeNull();
   });
 
-  it("has the id box, the type and state filters, and no 撰寫人 filter: the section already names whose entries these are", async () => {
+  it("has the id box, the type and state filters inline in its row, and no 撰寫人 filter: the section already names whose entries these are", async () => {
     const spy = stubList(page([mkEntry({ id: "L-1" })]));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
@@ -738,6 +738,10 @@ describe("LorePage — 篩選器複選", () => {
       .map((el) => el.getAttribute("data-testid")!)
       .filter((id) => !/-opt-|-clear$|-fields$/.test(id) && id !== "lore-filter");
     expect(filters).toEqual(["lore-filter-id", "lore-filter-type", "lore-filter-state"]);
+    const row = container.querySelector('[data-testid="lore-filter-fields"]')!;
+    for (const id of filters) {
+      expect(row.contains(container.querySelector(`[data-testid="${id}"]`))).toBe(true);
+    }
     expect(lastOpts(spy)).not.toHaveProperty("authorIds");
   });
 

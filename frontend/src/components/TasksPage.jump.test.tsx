@@ -30,6 +30,7 @@ import {
   toggleFilter,
   clearAllFilters,
   waitForListedCards,
+  openFiltersWhenReady,
 } from "../test/tasksFilter";
 
 let seq = 0;
@@ -264,6 +265,7 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     // holding the anchored id, so THAT is what says a filter is on and that is
     // where it is cleared. Asserting the field is asserting the surviving
     // property; asserting the button was asserting the vanished mechanism.
+    await openFiltersWhenReady();
     expect(
       ((await findByTestId("filter-task-id")) as HTMLInputElement).value
     ).not.toBe("");
@@ -526,6 +528,7 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     // to be opened before its option rows exist at all, and the roster they are
     // built from arrives asynchronously. Reading too early gives `undefined`,
     // which is neither checked nor unchecked and must not be scored as either.
+    await openFiltersWhenReady();
     fireEvent.click(await findByTestId("filter-executor"));
     const tick = await waitFor(() => {
       const el = document
@@ -562,6 +565,7 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     const { findByTestId } = renderTasks();
     await findByTestId("task-list");
 
+    await openFiltersWhenReady();
     const pill = () =>
       document.querySelector('[data-testid="filter-executor"] .tasks__ms-summary')
         ?.textContent ?? "";

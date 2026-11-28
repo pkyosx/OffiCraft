@@ -15,6 +15,12 @@ export const en: Dict = {
   common: {
     apply: "Apply",
     cancel: "Cancel",
+    filterButton: "Filters",
+    filterClose: "Close",
+    filterDone: "Done",
+    filterAppliedLead: "",
+    filterAppliedTailOne: "filter applied",
+    filterAppliedTailMany: "filters applied",
   },
   diff: {
     ariaLabel: "Line-by-line comparison",
@@ -278,6 +284,7 @@ export const en: Dict = {
     loadingMore: "Loading…",
     filterIdLabel: "Task ID",
     clearFilters: "Clear filters",
+    filterDialogTitle: "Filter tasks",
     filterExecutorAll: "Everyone",
     filterTypeAll: "All types",
     filterStatusAll: "All statuses",
@@ -662,6 +669,7 @@ export const en: Dict = {
     filterOpenerAll: "All openers",
     filterIdLabel: "Reply-card id",
     clearFilters: "Clear filters",
+    filterDialogTitle: "Filter reply cards",
     // ── Filter panel (T-93 round 2) ──
     // 🔴 Three outcomes, three sentences — never merged. Round 1 had one, so
     // "this card does not exist" and "this card was simply never loaded" read

@@ -253,12 +253,15 @@ async function expectTaskRow(card: Locator, cardBox: Box) {
 const LONG_TASK_TITLE = "OffiCraft 入門介紹影片（繁中，4 章＋完整版）的旁白、字幕與封面，另含英文與日文版本的字幕翻譯、章節縮圖、配樂授權確認、各平台上架描述撰寫，以及上線後第一週的觀看數據整理與回報，並把觀眾留言中的常見問題整理成下一版的修改清單、附上每一章的平均觀看秒數與跳出點分析";
 const LONG_TASK_LINE = "T-9021034多語系入門影片的旁白錄製、字幕校對、封面設計、章節切分、配樂授權確認、各平台上架前的最終品質檢查與上線後數據回報流程";
 
-/** Add 已回覆 and 已過期 to the 狀態 field, then close its popover. */
+/** Open the 篩選 dialog, add 已回覆 and 已過期 to the 狀態 field, then close
+ * its popover and the dialog. */
 async function tickHandled(page: Page, gesture: "click" | "tap") {
+  await page.getByTestId("replies-filter-toggle")[gesture]();
   const trigger = page.getByTestId("filter-status");
   await trigger[gesture]();
   await page.getByTestId("filter-status-group-handled").locator("input")[gesture]();
   await trigger[gesture]();
+  await page.getByTestId("replies-filter-close").or(page.getByTestId("replies-filter-done"))[gesture]();
 }
 
 async function noPageOverflow(page: Page) {

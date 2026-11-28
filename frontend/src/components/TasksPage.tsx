@@ -1,10 +1,8 @@
 // TasksPage — the 任務 page (M3, SPEC §2): 篩選列 → 任務清單.
 //
-//   篩選列   — a FilterPanel (T-118). Four axes, ALWAYS VISIBLE, each taking
-//             effect as soon as it is set. owner 2026-09-06 20:07
-//             (c-c3d681fe05da):「不要多filter那一層了,全部拉出來」— so round 3's
-//             funnel button, its 取消/套用篩選 pair, its 已篩選 strip and the
-//             「案件」 sub-title above the list are all gone.
+//   篩選列   — a collapsed FilterPanel: a funnel (badge = fields holding a
+//             condition) opens the five fields in a dialog / phone sheet. Each
+//             takes effect as soon as it is set, with the dialog still open.
 //             🔴 ONE axis still does not commit on keystroke: 任務編號 waits for
 //             Enter or blur, because it changes a SERVER request. That is the
 //             surviving half of 「每次都要全部都撈回來才濾不合理」 and the one
@@ -45,7 +43,7 @@ import {
   type MultiSelectGroup,
   type MultiSelectOption,
 } from "./MultiSelectFilter";
-import { FilterPanel } from "./FilterPanel";
+import { FilterField, FilterPanel } from "./FilterPanel";
 import { DisplayOptions } from "./DisplayOptions";
 import { ChevronRightIcon } from "./icons";
 import "./office.css"; // chat composer classes the embedded ReplyComposer reuses
@@ -215,6 +213,13 @@ export function TasksPage() {
     appliedDue.size > 0 ||
     appliedStatus.size > 0 ||
     appliedId !== "";
+  const activeFilterCount = [
+    appliedExecutor.size > 0,
+    appliedType.size > 0,
+    appliedDue.size > 0,
+    appliedStatus.size > 0,
+    appliedId !== "",
+  ].filter(Boolean).length;
 
   // The grouping is remembered per browser; the lane collapse state, like the
   // filters, lives only in this mount. The default-open lane is picked when
@@ -572,11 +577,11 @@ export function TasksPage() {
         </div>
       )}
 
-      {/* ── 篩選列 (T-118) — 四個軸,常駐可見,選了就生效 ── */}
       <FilterPanel
         testId="tasks-filter"
         clearLabel={t.tasks.clearFilters}
         onClear={anyFilter ? clearFilters : undefined}
+        collapse={{ title: t.tasks.filterDialogTitle, activeCount: activeFilterCount }}
         actions={
           <DisplayOptions
             label={t.tasks.groupByLabel}
@@ -587,64 +592,59 @@ export function TasksPage() {
           />
         }
       >
-        {/* 🔴 A second comment used to sit here saying the count was 10, set by
-          * hand, and that the canonical 任務 id was `t-` + 12 hex. BOTH halves
-          * were false by the time anyone read them: owner replaced the 10 on
-          * 2026-09-07 (`rc-b2beb7b1fd3c` 「任務可先假設到萬位數」 — see the note
-          * on `widthCh` below), and `t-` + 12 hex is the OLD, unmigrated shape
-          * — canonical is `T-` + a sequence number (dal_task_id_seq.go, and
-          * docs/design/SPEC.md agrees). It is DELETED rather than corrected
-          * because the note on `widthCh` already carries the whole record:
-          * two comments on one element is what let them drift apart, and a
-          * stale one here points the next reader at the guard instead of the
-          * bug — 7 would look like someone's slip and the red assertion like
-          * the thing to 「fix」. */}
-        <IdFilterInput
-          value={draftId}
-          onChange={setDraftId}
-          onCommit={commitId}
-          label={t.tasks.filterIdLabel}
-          testId="filter-task-id"
-          // 「T-」 + up to five digits. owner 2026-09-07 `rc-b2beb7b1fd3c`:
-          // 「ID寬度要合理…任務可先假設到萬位數」 — it replaces the 10 he had set
-          // by hand the day before. ⚠️ This is the ID's share only; the field
-          // also has to hold its own label and takes whichever is wider (see
-          // IdFilterInput), so on this page the visible width is the label's.
-          widthCh={7}
-        />
-        <MultiSelectFilter
-          noun={t.tasks.filterExecutorNoun}
-          allLabel={t.tasks.filterExecutorAll}
-          options={executorOptions}
-          selected={appliedExecutor}
-          onChange={setAppliedExecutor}
-          testId="filter-executor"
-        />
-        <MultiSelectFilter
-          noun={t.tasks.filterTypeNoun}
-          allLabel={t.tasks.filterTypeAll}
-          options={typeFilterOptions}
-          selected={appliedType}
-          onChange={setAppliedType}
-          testId="filter-type"
-        />
-        <MultiSelectFilter
-          noun={t.tasks.filterStatusNoun}
-          allLabel={t.tasks.filterStatusAll}
-          options={statusFilterOptions}
-          groups={statusGroups}
-          selected={appliedStatus}
-          onChange={setAppliedStatus}
-          testId="filter-status"
-        />
-        <MultiSelectFilter
-          noun={t.tasks.filterDueNoun}
-          allLabel={t.tasks.filterDueAll}
-          options={dueFilterOptions}
-          selected={appliedDue}
-          onChange={setAppliedDue}
-          testId="filter-due"
-        />
+        <FilterField label={t.tasks.filterIdLabel} wide>
+          <IdFilterInput
+            value={draftId}
+            onChange={setDraftId}
+            onCommit={commitId}
+            label={t.tasks.filterIdLabel}
+            testId="filter-task-id"
+            // 「T-」 + up to five digits (owner `rc-b2beb7b1fd3c`「任務可先假設到
+            // 萬位數」). The field also holds its label and takes the wider.
+            widthCh={7}
+          />
+        </FilterField>
+        <FilterField label={t.tasks.filterExecutorNoun}>
+          <MultiSelectFilter
+            noun={t.tasks.filterExecutorNoun}
+            allLabel={t.tasks.filterExecutorAll}
+            options={executorOptions}
+            selected={appliedExecutor}
+            onChange={setAppliedExecutor}
+            testId="filter-executor"
+          />
+        </FilterField>
+        <FilterField label={t.tasks.filterTypeNoun}>
+          <MultiSelectFilter
+            noun={t.tasks.filterTypeNoun}
+            allLabel={t.tasks.filterTypeAll}
+            options={typeFilterOptions}
+            selected={appliedType}
+            onChange={setAppliedType}
+            testId="filter-type"
+          />
+        </FilterField>
+        <FilterField label={t.tasks.filterStatusNoun}>
+          <MultiSelectFilter
+            noun={t.tasks.filterStatusNoun}
+            allLabel={t.tasks.filterStatusAll}
+            options={statusFilterOptions}
+            groups={statusGroups}
+            selected={appliedStatus}
+            onChange={setAppliedStatus}
+            testId="filter-status"
+          />
+        </FilterField>
+        <FilterField label={t.tasks.filterDueNoun}>
+          <MultiSelectFilter
+            noun={t.tasks.filterDueNoun}
+            allLabel={t.tasks.filterDueAll}
+            options={dueFilterOptions}
+            selected={appliedDue}
+            onChange={setAppliedDue}
+            testId="filter-due"
+          />
+        </FilterField>
       </FilterPanel>
 
       {/* ── empty states ×2 ── */}

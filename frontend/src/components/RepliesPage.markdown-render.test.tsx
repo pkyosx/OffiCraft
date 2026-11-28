@@ -12,7 +12,7 @@ import { AttachmentModalHost } from "./AttachmentModalHost";
 import { api } from "../api";
 import { __resetMock, __injectMockReplyCard } from "../api/mock";
 import type { ReplyCard } from "../api/adapter";
-import { toggleFilter } from "../test/tasksFilter";
+import { toggleFilter, openFiltersWhenReady } from "../test/tasksFilter";
 
 function mkCard(over: Partial<ReplyCard>): ReplyCard {
   return {
@@ -109,7 +109,7 @@ describe("RepliesPage markdown render (T-13af)", () => {
         })
       );
       const { findByTestId } = renderPage();
-      await findByTestId("filter-status");
+      await openFiltersWhenReady();
       toggleFilter("filter-status", status);
       const card = await findByTestId(status + "-card");
       expect(card.querySelector(".reply-card__body")).toBeNull();
@@ -191,7 +191,7 @@ describe("RepliesPage markdown render (T-13af)", () => {
       })
     );
     const { findByTestId } = renderPage();
-    await findByTestId("filter-status");
+    await openFiltersWhenReady();
     toggleFilter("filter-status", "answered");
     toggleFilter("filter-status", "expired");
     const card = await findByTestId("answered-card");

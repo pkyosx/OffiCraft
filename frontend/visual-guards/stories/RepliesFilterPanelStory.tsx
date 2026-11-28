@@ -8,16 +8,10 @@
 // panel here comes from `RepliesPage`, exactly as the owner meets it: delete the
 // `<FilterPanel>` from that page and this guard has nothing to measure.
 //
-// 🔁 WHAT T-118 CHANGED IN THIS FILE. owner 2026-09-06 20:07 (c-c3d681fe05da),
-// restated 20:19 (c-38c7759e6377):「不要多filter那一層了,全部拉出來…也不用再顯示
-// 14筆已篩選跟那一行跟案件那個子標了,案件跟請示卡都一樣」. `FilterPanel` now
-// takes ONLY `testId` + `children` — `title`/`count`/`open`/`onOpenChange`/
-// `chips`/`onClearAll`/`onApply`/`onCancel` are gone, and so is the `FilterChip`
-// type. The second export used to dictate a four-CHIP 已篩選 strip; there is no
-// strip any more, so it dictates the four-FIELD row instead — the same question
-// (does the shared shell WRAP its contents at a phone width, or run them out of
-// the column?) asked about the thing that still exists. `IdFilterInput` also
-// gained a required `onCommit`, so both exports pass one.
+// The second export mounts the shared shell in its INLINE shape (the one 傳承頁
+// wears) with four fields, to ask whether the row WRAPS them at a phone width.
+// 任務頁 and 請示頁 fold their fields behind a funnel; those are measured through
+// the first two exports.
 //
 // What is stand-in is only the DATA: CT builds with the mock api seam
 // (`src/api/index.ts`, USE_MOCK defaults on), so the cards behind the panel are
@@ -101,18 +95,9 @@ export function AppPageStory({
   );
 }
 
-/** The SHARED shell alone, wearing the 任務頁's FOUR-field row.
- *
- * 🔁 REPLACES `FilterChipsStory`, which mounted the same shell with a dictated
- * list of 已篩選 chips. OVERTURNED BY owner 2026-09-06 (c-c3d681fe05da): the
- * strip and its chips no longer exist, so there is nothing left to lay one out
- * from. The QUESTION survives unchanged — several conditions on one shared row,
- * at the narrowest phone width, must WRAP inside the column rather than run out
- * of it — and the thing that now carries several conditions is the FIELDS.
- *
- * Why this exists beside the real page: driving several dropdowns through a
- * real list page would make a wrapping guard depend on that page's data. Both
- * components are the shipped ones; only the option lists are dictated. */
+/** The SHARED shell alone, inline, with four fields. Both components are the
+ * shipped ones; only the option lists are dictated, so a wrapping guard does
+ * not depend on any page's data. */
 export function FilterFieldsStory({ theme }: { theme: BuiltinThemeId }) {
   window.localStorage.setItem(LS_THEME, theme);
   document.documentElement.setAttribute("data-theme", theme);

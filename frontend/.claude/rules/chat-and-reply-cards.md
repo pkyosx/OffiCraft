@@ -129,15 +129,13 @@ ChatReplyCard 的 doReanswer 保留單卡 refetch：終態 delta 可能被刻意
 
 聊天室標頭最左邊那顆（正職、外包、已釋出的對象都有，由 OfficePage 的 `repliesSlots` 接）：徽章是 `useReplyCardWaitingCountFrom`——跟 nav 徽章同一份 waiting 陣列、只數 `from` 是這位的，不另打請求。按下去到 `#replies/opener/<id>`：RepliesPage 把開卡人種成那一位、清掉其他軸與編號（照任務頁 `#tasks/executor/<id>` 的種法），但 hash 留著，重新整理照樣是同一個畫面；狀態同時種成只有「未回覆」，所以畫面上的卡就是徽章數的那幾張。之後改狀態不動 hash；「清除篩選」導回 `#replies` 並回到預設。route 還在時重新整理會再種一次開卡人與狀態，即使 owner 已經改過（已接受）。`#replies/card/<id>` 進來時反過來清掉開卡人、優先序與期限、狀態放寬成全部，那張卡是誰開的、什麼狀態都看得到。狀態只要還含未回覆就不算 `narrowing`：清單空了而只剩它時印 ✓，有開卡人勾著時印「沒有符合篩選條件」。測試在 `RepliesPage.id-filter.test.tsx`、`ChatArea.header-actions.test.tsx`、`OfficePage.chat-header-replies.test.tsx`；窄寬的標頭由 `visual-guards/chat-suggested-replies.ct.spec.tsx` 量。
 
-## 請示卡頁的 ID 篩選（T-118，owner 2026-09-06 20:07／20:19）
+## 請示卡頁的 ID 篩選
 
-編號欄位**常駐在列表上方**，沒有漏斗、沒有展開面板、沒有取消／套用兩顆鈕、沒有「N 筆 已篩選」摘要列，也**沒有「請示卡」子標題那一行**。演進史：第一輪是常駐列但**每敲一個字元就篩一次已載入的那批卡**，owner 兩次否決（「很常我們要找一張任務或票而已，但每次都要全部都撈回來才濾不合理 你可以設計成要給完搜尋條件要再按 search 的版本嗎」、「按搜尋時不要再跳出新modal」）；第二輪改成面板＋Apply；**T-118 又把那一層拿掉**（`c-c3d681fe05da`「不要多filter那一層了，全部拉出來」，`c-38c7759e6377`「請示卡跟任務都要改成一樣的呈現方式，一樣請示卡的子標題拿掉」）。殼仍是共用的 `FilterPanel`（讀 `FilterPanel.tsx` 的檔頭，那份契約不在這裡重述），`testId="replies-filter"` 以免和任務頁的控制項撞名。
+欄位收在篩選列的漏斗後面，點開是「篩選請示卡」dialog（手機是底部 sheet），形狀與規則跟任務頁同一個 `FilterPanel` collapse（見 `tasks-and-outsource.md`「任務頁的篩選與 ID 條件」與 `FilterPanel.tsx` 檔頭）。漏斗徽章數「有值的欄位數」，但**預設狀態（未回覆＋已延後）不算**，跟 `anyFilter` 同一個定義；`#replies/opener/<id>` 種下的開卡人與「未回覆」會讓徽章是 2。`testId="replies-filter"` 以免和任務頁的控制項撞名。第一輪是常駐列但**每敲一個字元就篩一次已載入的那批卡**，owner 兩次否決（「每次都要全部都撈回來才濾不合理」），所以編號欄位一直是 Enter／blur 才提交。
 
 **兩份狀態，不是一份**：`appliedId` 是清單真的被什麼篩，`draftId` 是欄位綁的值。**打字不篩、不發請求；Enter 或 blur 才由 `commitId()` 提交。** ⚠️ 這不是面板時代的殘留——套用 id 會打一支 `api.getReplyCard(id)`，**每按鍵提交＝每按鍵一支請求**，正是被否決兩次的那個形狀（一次獨立審查逐字寫過「一個字元一個請求」）。`commitId` 對相同值是 no-op，所以 Enter 之後再 blur 不會重打。`#replies/card/<id>` 仍然只是把 id 代進 **applied** 那一半（外加捲動 focus）。
 
-**清除有兩個出口**：清空欄位再 Enter，或按欄位列最右邊的 `.filter-panel__clear`（只在 `anyFilter` 為真時才渲染）。
-
-🔁 這一段原本寫「第二輪的『清除全部』鈕隨摘要列一起消失了，**不要單獨把它加回來**」。**那句話已被 owner 本人推翻**：他看到摘要列消失的畫面後問「清除篩選怎麼不見了？」（`c-16e6fa704246`），並裁定「清除篩選還是要留著」（`c-2423dba8b65b`，2026-09-06）。⇒ 鈕加回來了，但**只有那一顆鈕**，沒有跟著把「N 筆 已篩選」那串字或 chip 一起帶回來；它長在欄位那一排上，不是另一條摘要列。要拿掉它得有新的 owner 裁定。
+**清除有兩個出口**：清空欄位再 Enter，或按 dialog 底部的 `.filter-panel__clear`（只在 `anyFilter` 為真時才渲染）。只有那一顆鈕，沒有「N 筆 已篩選」那串字或 chip（owner `c-2423dba8b65b`「清除篩選還是要留著」）。
 
 ## 請示卡頁的「開卡人」軸（T-118 後半，owner `c-782404ee53d8`）
 

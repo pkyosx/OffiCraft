@@ -45,7 +45,7 @@ import { ReplyCardsProvider } from "./useReplyCards";
 import { __resetMock, __injectMockReplyCard } from "../api/mock";
 import { api } from "../api";
 import type { ReplyCard } from "../api/adapter";
-import { toggleFilter } from "../test/tasksFilter";
+import { toggleFilter, openFiltersWhenReady } from "../test/tasksFilter";
 
 /** 🔴 開卡時間必須逐張不同,而且同一個 id 每次都拿到同一個戳記。
  *
@@ -455,11 +455,11 @@ describe("reply-card writes reconcile without any event stream", () => {
     );
 
     const stream = captureEventStream();
-    const { findAllByTestId, findByTestId, queryAllByTestId } = renderPage();
+    const { findAllByTestId, queryAllByTestId } = renderPage();
     expect(await findAllByTestId("waiting-card")).toHaveLength(1);
 
     // Ticking 已回覆 once is what arms the per-delta handled refetch.
-    await findByTestId("filter-status");
+    await openFiltersWhenReady();
     toggleFilter("filter-status", "answered");
     await waitFor(() =>
       expect(queryAllByTestId("answered-card")).toHaveLength(1)
@@ -535,8 +535,8 @@ describe("reply-card writes reconcile without any event stream", () => {
     __injectMockReplyCard(answeredFixture());
 
     const stream = captureEventStream();
-    const { findByTestId, findAllByTestId } = renderPage();
-    await findByTestId("filter-status");
+    const { findAllByTestId } = renderPage();
+    await openFiltersWhenReady();
     toggleFilter("filter-status", "answered");
     const cards = await findAllByTestId("answered-card");
     expect(cards).toHaveLength(1);

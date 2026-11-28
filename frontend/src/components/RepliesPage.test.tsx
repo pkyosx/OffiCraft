@@ -30,7 +30,7 @@
 // 若日後有人在聊天面單獨加條件（例如聊天面不顯示標題），不會有任何東西變紅。
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, fireEvent, waitFor, act, within, screen } from "@testing-library/react";
+import { render, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { RepliesPage } from "./RepliesPage";
@@ -46,7 +46,7 @@ import {
   mockApi,
 } from "../api/mock";
 import { WithSuggestedReplies } from "../test/suggestedReplies";
-import { toggleFilter } from "../test/tasksFilter";
+import { toggleFilter, openFilters, openFiltersWhenReady } from "../test/tasksFilter";
 import { api } from "../api";
 import type { ReplyCard } from "../api/adapter";
 import { ApiError } from "../api/errors";
@@ -76,7 +76,7 @@ vi.mock("../hooks/useWorkerCodenames", () => ({
 
 /** Add 已回覆 and 已過期 to the default 狀態 selection. */
 async function showHandled() {
-  await screen.findByTestId("filter-status");
+  await openFiltersWhenReady();
   toggleFilter("filter-status", "answered");
   toggleFilter("filter-status", "expired");
 }
@@ -343,6 +343,7 @@ describe("RepliesPage", () => {
     expect(nameOf("離職正職的請示")).toBe("阿哲");
     expect(nameOf("查無正職的請示")).toBe("m-unknown");
 
+    await openFiltersWhenReady();
     fireEvent.click(await findByTestId("filter-opener"));
     expect(
       document.querySelector('[data-testid="filter-opener-opt-m-left"]')
@@ -759,6 +760,7 @@ describe("RepliesPage", () => {
       ["rc-wait", "未回覆"],
       ["rc-later", "已延後"],
     ]);
+    openFilters();
     expect(getByTestId("filter-status").textContent).toBe("待處理");
     expect(listSpy.mock.calls.map(([status]) => status)).not.toContain("answered");
 

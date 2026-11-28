@@ -22,6 +22,7 @@ import {
   type MultiSelectGroup,
   type MultiSelectOption,
 } from "./MultiSelectFilter";
+import { FilterLayerContext } from "./FilterPanel";
 
 const OPTIONS: MultiSelectOption[] = [
   { value: "mira", label: "Mira" },
@@ -214,5 +215,42 @@ describe("MultiSelectFilter 的群組列", () => {
     fireEvent.click(f.trigger());
     expect(f.queryByTestId("ms-group-staff")).toBeNull();
     expect(f.queryByRole("separator")).toBeNull();
+  });
+});
+
+describe("MultiSelectFilter", () => {
+  function renderIn(inLayer: boolean) {
+    return render(
+      <FilterLayerContext.Provider value={inLayer}>
+        <MultiSelectFilter
+          noun="負責人"
+          allLabel="所有負責人"
+          options={OPTIONS}
+          selected={new Set()}
+          onChange={() => {}}
+          testId="ms"
+        />
+      </FilterLayerContext.Provider>
+    );
+  }
+
+  it("Esc closes an open popover and returns focus to its trigger", () => {
+    const { getByTestId, queryByRole } = renderIn(false);
+    fireEvent.click(getByTestId("ms"));
+    expect(queryByRole("group", { name: "負責人" })).not.toBeNull();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(queryByRole("group", { name: "負責人" })).toBeNull();
+    expect(document.activeElement).toBe(getByTestId("ms"));
+  });
+
+  it("floats its popover fixed against the viewport inside the filter dialog, and leaves it to the stylesheet elsewhere", () => {
+    const inside = renderIn(true);
+    fireEvent.click(inside.getByTestId("ms"));
+    expect(inside.getByRole("group", { name: "負責人" }).style.position).toBe("fixed");
+    inside.unmount();
+
+    const outside = renderIn(false);
+    fireEvent.click(outside.getByTestId("ms"));
+    expect(outside.getByRole("group", { name: "負責人" }).getAttribute("style")).toBeNull();
   });
 });

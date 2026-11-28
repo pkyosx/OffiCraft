@@ -26,6 +26,7 @@ import {
   blurIdFilter,
   toggleFilter,
   clearAllFilters,
+  openFiltersWhenReady,
 } from "../test/tasksFilter";
 
 let seq = 0;
@@ -77,26 +78,19 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("任務頁 篩選列 (T-118)", () => {
-  it("all four fields are on the page from the first render — there is nothing to open", async () => {
-    __injectMockTask(mkTask({ id: "t-aaa1" }));
-    const { findByTestId } = renderPage();
-    expect(await findByTestId("filter-task-id")).toBeTruthy();
-    expect(await findByTestId("filter-executor")).toBeTruthy();
-    expect(await findByTestId("filter-type")).toBeTruthy();
-    expect(await findByTestId("filter-status")).toBeTruthy();
-  });
+describe("任務頁 篩選 (T-118)", () => {
+  it("an id typed but not committed is applied when the dialog closes", async () => {
+    __injectMockTask(mkTask({ id: "t-aaa1", title: "第一張" }));
+    __injectMockTask(mkTask({ id: "t-bbb2", title: "第二張" }));
+    const { queryByText, getByTestId, queryByTestId } = renderPage();
+    await waitFor(() => expect(queryByText("第二張")).toBeTruthy());
 
-  it("🔴 the filter row is NOT a modal: it is page content, with no scrim over the list", async () => {
-    // owner c-3b5a0aa66550:「按搜尋時不要再跳出新modal」.
-    __injectMockTask(mkTask({ id: "t-aaa1", title: "還看得見我" }));
-    const { findByText, findByTestId, queryByRole } = renderPage();
-    await findByText("還看得見我");
-    expect(queryByRole("dialog")).toBeNull();
-    const row = await findByTestId("tasks-filter");
-    // Asserted on the RULE, not on geometry (jsdom lays nothing out): the shell
-    // must not have grown a fixed box or a stacking context.
-    expect(getComputedStyle(row).position).not.toBe("fixed");
+    typeIdFilter("t-aaa1");
+    getByTestId("filter-task-id").focus();
+    fireEvent.click(getByTestId("tasks-filter-close"));
+    expect(queryByTestId("tasks-filter-dialog")).toBeNull();
+    await waitFor(() => expect(queryByText("第二張")).toBeNull());
+    expect(queryByText("第一張")).toBeTruthy();
   });
 
   it("🔴 typing in 任務編號 without Enter or blur applies NOTHING — the list does not move", async () => {
@@ -163,11 +157,12 @@ describe("任務頁 篩選列 (T-118)", () => {
     expect(queryByText("第二張"), "only the unticked axis narrows").toBeTruthy();
   });
 
-  it("清除篩選 is in the field row from the first render, and the id field shows the applied id", async () => {
+  it("清除篩選 is offered from the first open, and the id field shows the applied id", async () => {
     // owner 2026-09-06 c-2423dba8b65b:「清除篩選還是要留著」. The default status
     // set already narrows, so it is present from the first render.
     __injectMockTask(mkTask({ id: "t-aaa1" }));
     const { findByTestId, queryByTestId } = renderPage();
+    await openFiltersWhenReady();
     await findByTestId("filter-task-id");
     expect(queryByTestId("tasks-filter-clear")).not.toBeNull();
 
@@ -291,6 +286,7 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
     __injectMockTask(mkTask({ id: "t-abcdef" }));
     const { findByTestId } = renderPage();
 
+    await openFiltersWhenReady();
     const field = await findByTestId("filter-task-id");
     await findByTestId("task-list");
     const spy = vi.spyOn(api, "listTasks");
@@ -339,6 +335,7 @@ describe("任務頁 ID 篩選 — 清除與 hash", () => {
 
     // The hash seeds the APPLIED id, and the always-visible field is where that
     // is readable.
+    await openFiltersWhenReady();
     await waitFor(() =>
       expect(
         (document.querySelector(
@@ -370,6 +367,7 @@ describe("任務頁 ID 篩選 — 清除與 hash", () => {
     //     count rides the WRAPPER, which hands it to a hidden copy of the label
     //     (the placeholder) as a `min-width`; the browser takes the max.
     const { findByTestId } = renderPage();
+    await openFiltersWhenReady();
     const input = (await findByTestId("filter-task-id")) as HTMLInputElement;
     const field = input.parentElement as HTMLElement;
     expect(field.style.getPropertyValue("--id-filter-ch")).toBe("7");

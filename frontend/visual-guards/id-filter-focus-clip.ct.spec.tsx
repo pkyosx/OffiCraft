@@ -1,11 +1,12 @@
-// T-3 — the shared ID field's keyboard ring must survive the list scrollport.
+// T-3 — the shared ID field's keyboard ring must survive its scrollport.
 //
-// This mounts the complete App shell (topbar, nav and the selected list page),
-// rather than a field-only story. The first field is flush with `.tasks` /
-// `.replies`; an outward outline is clipped at that scrollport's top/left edge.
-// The screenshot diff below is the pixel-level witness: focused pixels must
-// exist on both the upper and left field edges, while no focus pixels may be
-// outside the field/scrollport bounds.
+// This mounts the complete App shell (topbar, nav and the selected list page)
+// and opens the page's 篩選 dialog (a bottom sheet at 320). The ID field is the
+// first field in the dialog box / sheet body, both of which scroll; an outward
+// outline would be clipped at that scrollport's edge. The screenshot diff below
+// is the pixel-level witness: focused pixels must exist on both the upper and
+// left field edges, while no focus pixels may be outside the field/scrollport
+// bounds.
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Locator, Page } from "@playwright/test";
 import { AppPageStory } from "./stories/RepliesFilterPanelStory";
@@ -119,8 +120,10 @@ async function fieldLayout(field: Locator) {
   return await field.evaluate((node) => {
     const input = node as HTMLInputElement;
     const fieldBox = input.getBoundingClientRect();
-    const scrollport = input.closest(".tasks, .replies") as HTMLElement | null;
-    if (!scrollport) throw new Error("ID field has no list scrollport ancestor");
+    const scrollport = input.closest(
+      ".confirm-modal__box, .filter-panel__sheet-body"
+    ) as HTMLElement | null;
+    if (!scrollport) throw new Error("ID field has no filter-dialog scrollport ancestor");
     const portBox = scrollport.getBoundingClientRect();
     const style = getComputedStyle(input);
     return {
@@ -159,7 +162,7 @@ async function pageOverflow(page: Page) {
 
 for (const pageName of ["tasks", "replies"] as const) {
   for (const width of [1040, 320]) {
-    test(`T-3 ${pageName} width ${width}: focused ring stays inside scrollport`, async ({
+    test(`T-3 ${pageName} width ${width}: focused ring stays inside the filter dialog's scrollport`, async ({
       mount,
       page,
     }) => {
@@ -171,7 +174,8 @@ for (const pageName of ["tasks", "replies"] as const) {
           wide={width >= 1040}
         />
       );
-      const field = cmp.getByTestId(
+      await cmp.getByTestId(`${pageName}-filter-toggle`).click();
+      const field = page.getByTestId(
         pageName === "tasks" ? "filter-task-id" : "filter-reply-card-id"
       );
       await expect(field).toBeVisible();

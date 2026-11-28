@@ -50,6 +50,7 @@ import {
   clearAllFilters,
   openDisplayOptions,
   toggleLane,
+  openFiltersWhenReady,
 } from "../test/tasksFilter";
 import { useEnglishLocale } from "../test/effortOptions";
 import type { TaskView, TaskStepView, ReplyCard } from "../api/adapter";
@@ -536,6 +537,7 @@ describe("TasksPage", () => {
     // asked for the button back (c-2423dba8b65b) and it is back in the field
     // row, so the original assertion stands unchanged.
     expect((await findAllByTestId("task-card")).length).toBe(3);
+    await openFiltersWhenReady();
     expect(queryByTestId("tasks-filter-clear")).not.toBeNull();
 
     // 執行者 = 外包 (assigned outsource only — 未指派 is its own option).
@@ -606,6 +608,7 @@ describe("TasksPage", () => {
 
     const { findAllByTestId, getByTestId } = renderPage();
     await findAllByTestId("task-card");
+    await openFiltersWhenReady();
     fireEvent.click(getByTestId("filter-type"));
     // The option row shows the human label, never the tm- key…
     const named = getByTestId("filter-type-opt-tm-aaaabbbbcccc");
@@ -1581,18 +1584,128 @@ describe("TasksPage", () => {
     expect(laneTitles("done")).toEqual(["結掉的"]);
   });
 
-  it("opens 顯示方式 at the end of the filter row, after 清除篩選, and closes it once a choice is made, on an outside click or Esc", async () => {
+  it("starts folded behind a funnel whose badge counts the default 狀態 as one condition", async () => {
+    __injectMockTask(mkTask({ title: "跑著的" }));
+    const { findByText, getByTestId, queryByTestId } = renderPage();
+    await findByText("跑著的");
+    const funnel = getByTestId("tasks-filter-toggle");
+    expect(funnel.getAttribute("aria-expanded")).toBe("false");
+    expect(funnel.getAttribute("aria-label")).toBe("篩選 · 1");
+    expect(getByTestId("tasks-filter-count").textContent).toBe("1");
+    expect(queryByTestId("tasks-filter-dialog")).toBeNull();
+    expect(queryByTestId("filter-status")).toBeNull();
+  });
+
+  it("opens 篩選任務 with each field under its label, and a tick narrows the list behind it while it stays open", async () => {
+    const now = Date.now() / 1000;
+    __injectMockTask(mkTask({ title: "跑著的", status: "in_progress" }));
+    __injectMockTask(mkTask({ title: "收工的", status: "done", closedTs: now - 10 }));
+    const { findByText, getByTestId, getByRole } = renderPage();
+    await findByText("跑著的");
+    fireEvent.click(getByTestId("tasks-filter-toggle"));
+
+    const dialog = getByRole("dialog", { name: "篩選任務" });
+    expect(dialog).toBe(getByTestId("tasks-filter-dialog"));
+    const fields = [...dialog.querySelectorAll(".filter-panel__field")];
+    expect(fields.map((f) => f.querySelector(".filter-panel__label")!.textContent)).toEqual([
+      "任務編號",
+      "負責人",
+      "類型",
+      "狀態",
+      "到期",
+    ]);
+    expect(fields[0].classList.contains("filter-panel__field--wide")).toBe(true);
+    expect(fields[0].contains(getByTestId("filter-task-id"))).toBe(true);
+    expect(fields[3].contains(getByTestId("filter-status"))).toBe(true);
+    expect(getByTestId("tasks-filter-applied").textContent).toBe("已套用 1 個條件");
+
+    toggleFilter("filter-status", "done");
+    await findByText("收工的");
+    toggleFilter("filter-type", "adhoc");
+    await waitFor(() => expect(getByTestId("tasks-filter-count").textContent).toBe("2"));
+    expect(getByTestId("tasks-filter-applied").textContent).toBe("已套用 2 個條件");
+    expect(getByTestId("tasks-filter-dialog")).toBe(dialog);
+  });
+
+  it("清除篩選 in the dialog empties every axis and takes the badge and the applied line with it", async () => {
+    __injectMockTask(mkTask({ title: "跑著的" }));
+    const { findByText, getByTestId, queryByTestId } = renderPage();
+    await findByText("跑著的");
+    toggleFilter("filter-type", "adhoc");
+    await waitFor(() => expect(getByTestId("tasks-filter-count").textContent).toBe("2"));
+
+    fireEvent.click(getByTestId("tasks-filter-clear"));
+    await waitFor(() => expect(queryByTestId("tasks-filter-count")).toBeNull());
+    expect(getByTestId("tasks-filter-toggle").getAttribute("aria-label")).toBe("篩選");
+    expect(queryByTestId("tasks-filter-applied")).toBeNull();
+    expect(getByTestId("filter-status").textContent).toBe("所有狀態");
+  });
+
+  it("closes the dialog on ✕, Esc and a backdrop click, handing focus back to the funnel; Esc in an open dropdown closes only the dropdown", async () => {
+    __injectMockTask(mkTask({ title: "跑著的" }));
+    const { findByText, getByTestId, queryByTestId } = renderPage();
+    await findByText("跑著的");
+    const funnel = getByTestId("tasks-filter-toggle");
+
+    fireEvent.click(funnel);
+    expect(document.activeElement).toBe(getByTestId("tasks-filter-dialog"));
+    fireEvent.click(getByTestId("tasks-filter-close"));
+    expect(queryByTestId("tasks-filter-dialog")).toBeNull();
+    expect(document.activeElement).toBe(funnel);
+
+    fireEvent.click(funnel);
+    fireEvent.click(getByTestId("filter-status"));
+    expect(getByTestId("filter-status").getAttribute("aria-expanded")).toBe("true");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(getByTestId("filter-status").getAttribute("aria-expanded")).toBe("false");
+    expect(queryByTestId("tasks-filter-dialog")).not.toBeNull();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(queryByTestId("tasks-filter-dialog")).toBeNull();
+    expect(funnel.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(funnel);
+    fireEvent.click(getByTestId("tasks-filter-dialog"));
+    expect(queryByTestId("tasks-filter-dialog")).not.toBeNull();
+    fireEvent.click(getByTestId("tasks-filter-backdrop"));
+    expect(queryByTestId("tasks-filter-dialog")).toBeNull();
+  });
+
+  it("on a phone the funnel opens a bottom sheet with 完成, and tapping the dim area closes it", async () => {
+    const saved = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes("max-width"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia;
+    try {
+      __injectMockTask(mkTask({ title: "跑著的" }));
+      const { findByText, getByTestId, queryByTestId, getByRole } = renderPage();
+      await findByText("跑著的");
+      fireEvent.click(getByTestId("tasks-filter-toggle"));
+      expect(getByRole("dialog", { name: "篩選任務" })).toBe(getByTestId("tasks-filter-sheet"));
+      expect(queryByTestId("tasks-filter-dialog")).toBeNull();
+      expect(getByTestId("tasks-filter-sheet").contains(getByTestId("filter-due"))).toBe(true);
+      expect(getByTestId("tasks-filter-done").textContent).toBe("完成");
+      fireEvent.click(getByTestId("tasks-filter-done"));
+      expect(queryByTestId("tasks-filter-sheet")).toBeNull();
+
+      fireEvent.click(getByTestId("tasks-filter-toggle"));
+      fireEvent.click(getByTestId("tasks-filter-backdrop"));
+      expect(queryByTestId("tasks-filter-sheet")).toBeNull();
+    } finally {
+      window.matchMedia = saved;
+    }
+  });
+
+  it("opens 顯示方式 at the end of the filter row, right after the funnel, and closes it once a choice is made, on an outside click or Esc", async () => {
     seedDueTasks(Date.now() / 1000);
     const { findByText, getByTestId, queryByTestId } = renderPage();
     await findByText("逾期的手冊任務");
-    const fields = getByTestId("tasks-filter-fields");
     const trigger = getByTestId("display-options");
     expect(trigger.textContent).toBe("顯示方式");
-    expect(fields.lastElementChild!.contains(trigger)).toBe(true);
-    expect(
-      getByTestId("tasks-filter-clear").compareDocumentPosition(trigger) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
+    expect(getByTestId("tasks-filter-toggle").nextElementSibling).toBe(trigger.parentElement);
+    expect(trigger.parentElement!.nextElementSibling).toBeNull();
     expect(queryByTestId("group-by")).toBeNull();
     expect(queryByTestId("display-options-panel")).toBeNull();
 
@@ -1612,7 +1725,7 @@ describe("TasksPage", () => {
       "狀態",
     ]);
     expect(panel.contains(select)).toBe(true);
-    expect(select.closest(".filter-panel__actions")).not.toBeNull();
+    expect(select.closest(".filter-panel__bar")).not.toBeNull();
     expect(document.activeElement).toBe(panel);
 
     await chooseGroupBy("executor");
@@ -1973,6 +2086,7 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     expect(queryByText("完成的")).toBeNull();
     expect(queryByText("終止的")).toBeNull();
     await waitForListedCards(1);
+    await openFiltersWhenReady();
     expect((await findByTestId("filter-status")).textContent?.trim()).toBe("未結案");
 
     // The exclusion is expressed IN the filter UI: 已完成/終止 start unchecked
@@ -2014,6 +2128,7 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     );
 
     const { findByTestId } = renderPage();
+    await openFiltersWhenReady();
     fireEvent.click(await findByTestId("filter-executor"));
     const countOf = (v: string) =>
       document.querySelector(`[data-testid="filter-executor-count-${v}"]`)
@@ -2041,6 +2156,7 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     );
 
     const { findByTestId } = renderPage();
+    await openFiltersWhenReady();
     fireEvent.click(await findByTestId("filter-executor"));
     const optOf = (v: string) =>
       document.querySelector(`[data-testid="filter-executor-opt-${v}"]`);
@@ -2063,6 +2179,7 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     );
 
     const { findByTestId } = renderPage();
+    await openFiltersWhenReady();
     fireEvent.click(await findByTestId("filter-executor"));
     await waitFor(() =>
       expect(document.querySelector('[data-testid="filter-executor-opt-mira"]')).not.toBeNull()
@@ -2086,6 +2203,7 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     );
 
     const { findByText, findByTestId } = renderPage();
+    await openFiltersWhenReady();
     const optOf = (v: string) =>
       document.querySelector(`[data-testid="filter-executor-opt-${v}"]`);
     const checkOf = (v: string) =>

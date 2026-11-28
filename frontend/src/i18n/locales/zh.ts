@@ -6,6 +6,12 @@ export const zh = {
   common: {
     apply: "套用",
     cancel: "取消",
+    filterButton: "篩選",
+    filterClose: "關閉",
+    filterDone: "完成",
+    filterAppliedLead: "已套用",
+    filterAppliedTailOne: "個條件",
+    filterAppliedTailMany: "個條件",
   },
   // ── 逐行比對（components/DiffView）——版本紀錄的差異呈現 ──
   diff: {
@@ -291,6 +297,7 @@ export const zh = {
     // 篩選列(任一生效顯「清除篩選」)
     filterIdLabel: "任務編號",
     clearFilters: "清除篩選",
+    filterDialogTitle: "篩選任務",
     // 「所有人」→「所有負責人」(T-17be): 這顆篩的是 executor,但「所有人」在中文
     // 有兩讀 ——「所有的人」與「所有權人(owner)」——「所有」本身就是所有權的
     // 意思,而這個座艙裡真的有 owner 這個角色,兩讀都講得通。補上被篩的名詞就
@@ -699,6 +706,7 @@ export const zh = {
     filterOpenerAll: "所有開卡人",
     filterIdLabel: "請示卡編號",
     clearFilters: "清除篩選",
+    filterDialogTitle: "篩選請示卡",
     // ── 篩選面板（T-93 第二輪）──
     // 🔴 三種結局三句話，不可合併成一句。第一輪只有「沒有符合篩選條件的請示」，
     // 於是「這張卡不存在」與「這張卡只是沒被載進來」在畫面上長得一模一樣——
