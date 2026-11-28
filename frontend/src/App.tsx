@@ -12,6 +12,7 @@ import {
   BookIcon,
   LayersIcon,
   KeyIcon,
+  LinkIcon,
   MonitorIcon,
   AlertTriangleIcon,
 } from "./components/icons";
@@ -25,6 +26,7 @@ import { RepliesPage } from "./components/RepliesPage";
 import { TasksPage } from "./components/TasksPage";
 import { LorePage } from "./components/LorePage";
 import { SecretsPage } from "./components/SecretsPage";
+import { ShareLinksPage } from "./components/ShareLinksPage";
 import { SharedDocsPage } from "./components/SharedDocsPage";
 import { MonitorPage } from "./components/MonitorPage";
 import { SettingsPage } from "./components/SettingsPage";
@@ -112,7 +114,9 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               ? "shared_docs"
               : route.page === "secrets"
                 ? "secrets"
-                : "office";
+                : route.page === "share_links"
+                  ? "share_links"
+                  : "office";
   // The 等我回覆 nav badge: how many reply cards are WAITING (answered never
   // counts). Live via the count endpoint + "reply_card" SSE deltas. A separate
   // signal from the per-member chat unread red dot (different clearing rules —
@@ -454,6 +458,16 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           <button
             type="button"
             className={`nav-tab${
+              !settingsOpen && tab === "share_links" ? " nav-tab--active" : ""
+            }`}
+            onClick={() => selectTab("share_links")}
+          >
+            <NavIcon tabKey="share_links" fallback={<LinkIcon size={15} />} />
+            <span>{t.nav.shareLinks}</span>
+          </button>
+          <button
+            type="button"
+            className={`nav-tab${
               !settingsOpen && tab === "shared_docs" ? " nav-tab--active" : ""
             }`}
             onClick={() => selectTab("shared_docs")}
@@ -516,6 +530,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           <SharedDocsPage docId={route.sharedDocId} />
         ) : tab === "secrets" ? (
           <SecretsPage />
+        ) : tab === "share_links" ? (
+          <ShareLinksPage />
         ) : (
           <MonitorPage />
         )}

@@ -14,7 +14,7 @@
 //   - `url`      — a stored blob, fetched as text (or rendered as an image when
 //                  its mime says so, or as a page in a sandboxed iframe when it
 //                  is HTML). It carries a REQUIRED `attachmentId`, so
-//                  the header keeps both blob actions: the copyable share link
+//                  the header keeps both blob actions: the share-link menu
 //                  and the 下載 link.
 //   - `source`   — text the caller ALREADY holds (a chat message body). Nothing
 //                  to fetch, nothing to download and nothing to share: the bytes
@@ -30,9 +30,8 @@
 //   - `diffParams` — a COMPARISON, named by the two addresses a /diff url spells
 //                  (T-59). No blob, so no 下載 and no FILE-level share link —
 //                  there is no blob for one to point at. What it does carry is
-//                  the comparison's OWN external link, minted by
-//                  `GET /api/diff/share-link` and copied by the same icon
-//                  control the file uses (DiffShareLinkButton). The body is
+//                  the comparison's OWN share-link menu, the same control the
+//                  file uses (DiffShareLinkButton → ShareLinkMenu). The body is
 //                  `DiffScreen` — the same compare screen the standalone /diff
 //                  page draws.
 //
@@ -66,12 +65,12 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { authedAttachmentUrl } from "../api/http";
-import { copyAttachmentShareLink } from "../lib/shareLink";
-import { useShareHref } from "../hooks/useShareHref";
+import { usePreviewHref } from "../hooks/usePreviewHref";
 import type { DiffParams } from "../lib/diffLink";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { DiffScreen } from "./DiffScreen";
 import { DiffShareLinkButton } from "./DiffShareLinkButton";
+import { ShareLinkMenu } from "./ShareLinkMenu";
 import { DocCommentPanel } from "./DocComments";
 import type { DocCommentTarget } from "../lib/docComments";
 import { useFrameMessages } from "../lib/docCommentFrame";
@@ -80,13 +79,10 @@ import { contentKindOf, isTextKind } from "../lib/contentKind";
 import "./md-preview.css";
 import "./replies.css";
 import {
-  AlertTriangleIcon,
   ChatBubbleIcon,
-  CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   CloseIcon,
-  CopyIcon,
   DownloadIcon,
   ExternalLinkIcon,
   FileTextIcon,
@@ -250,8 +246,6 @@ export function MarkdownPreviewOverlay({
   const { t } = useI18n();
   const [fetched, setFetched] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [copyFailed, setCopyFailed] = useState(false);
   // WHAT THE TYPE DETECTION ASKS, and it is deliberately not `title`: it reads
   // a file EXTENSION whenever the mime cannot answer, and `title` is a display
   // name that need not carry one. `filename` when the caller separated the two,
@@ -282,12 +276,10 @@ export function MarkdownPreviewOverlay({
   const inlineInBrowser =
     attachmentId !== undefined && isInlineDisplayableMime(mime ?? "text/markdown");
   const plainText = previewableText && kind !== "markdown";
-  // The share link for the tab anchor and an HTML or PDF body's frame — only
+  // The preview link for the tab anchor and an HTML or PDF body's frame — only
   // for an attachment the browser would actually DISPLAY; a downloadable one
-  // gets no anchor, so it needs no link either. It is the ?sig= credential, never the
-  // ?token= one: a whole owner session token has no business in another tab's
-  // address bar or in a frame running agent-written script.
-  const { href: shareHref, failed: shareFailed } = useShareHref(
+  // gets no anchor, so it needs no link either.
+  const { href: shareHref, failed: shareFailed } = usePreviewHref(
     attachmentId,
     inlineInBrowser,
     "MarkdownPreviewOverlay",
@@ -649,22 +641,6 @@ export function MarkdownPreviewOverlay({
     wrap.addEventListener("pointercancel", onUp);
   }
 
-  async function onCopyShareLink() {
-    // Only a stored blob has an id to share; the button below is not rendered
-    // for an inline source, so this guard is the type-level echo of that.
-    if (attachmentId === undefined) return;
-    setCopyFailed(false);
-    try {
-      await copyAttachmentShareLink(attachmentId);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch (e) {
-      console.warn("MarkdownPreviewOverlay: copy share link failed", e);
-      setCopyFailed(true);
-      window.setTimeout(() => setCopyFailed(false), 2000);
-    }
-  }
-
   const body = (
     <div className={"md-preview__body" + (framed ? " md-preview__body--frame" : "")} ref={bodyRef}>
       {image && imageBytes !== undefined ? (
@@ -775,21 +751,16 @@ export function MarkdownPreviewOverlay({
       }
       actions={
         <>
-          {/* T-59 — the EXTERNAL link to this comparison, in the same slot
-           * and the same skin as the file-level share control below. The
-           * owner is looking at the comparison here and wants to hand it to
-           * someone outside the studio; until now that was a CLI action only.
+          {/* The comparison's share menu, in the same slot and skin as the
+           * file-level one below.
            *
            * 🔴 A SESSION IS STRUCTURAL HERE. This overlay is only ever
            * mounted with `diffParams` by DiffModalHost, and DiffModalHost is
            * only mounted inside the studio, behind AuthGate. The standalone
            * page (DiffPage) never mounts this overlay at all, so the
-           * unauthenticated reader of a ?sig= link cannot reach this button
-           * — no runtime gate can regress into offering it to them.
-           *
-           * The `sig` the clicked link may have carried rides along in
-           * `diffParams` and is dropped by the mint; the server signs the
-           * addresses and labels, never a signature. */}
+           * unauthenticated reader of an external link cannot reach this
+           * button — no runtime gate can regress into offering it to them.
+           * A credential the clicked link carried is never sent to the mint. */}
           {diffParams !== undefined && (
             <DiffShareLinkButton
               params={diffParams}
@@ -835,43 +806,15 @@ export function MarkdownPreviewOverlay({
            * also serves a staged `imageSrc`. An inline text source has
            * neither — nothing is fabricated for it. */}
           {attachmentId !== undefined && (
-            <button
-              type="button"
+            <ShareLinkMenu
+              target={{ kind: "attachment", attachmentId }}
+              targetName={typeName}
               className="md-preview__download md-preview__share"
-              aria-label={
-                copyFailed
-                  ? t.chat.shareLinkCopyFailed
-                  : copied
-                    ? t.chat.shareLinkCopied
-                    : t.chat.copyShareLink
-              }
-              title={
-                copyFailed
-                  ? t.chat.shareLinkCopyFailed
-                  : copied
-                    ? t.chat.shareLinkCopied
-                    : t.chat.copyShareLink
-              }
-              onClick={() => void onCopyShareLink()}
-            >
-              {/* ⚠️ THREE STATES, THREE ICONS. While the button carried its
-                * label, a failed copy said so in words; icon-only, a failure
-                * drawn as the idle icon is indistinguishable from "nothing
-                * happened yet" — and a copy that silently did not happen is
-                * the one outcome the reader must not have to guess at. The
-                * accessible name says the same thing (it already switched on
-                * these three states); this is the half a sighted reader gets. */}
-              {copied ? (
-                <CheckIcon size={14} />
-              ) : copyFailed ? (
-                <AlertTriangleIcon size={14} />
-              ) : (
-                <CopyIcon size={14} />
-              )}
-            </button>
+              testId="md-preview-share"
+            />
           )}
-          {/* 「在新頁面顯示」 opens the SHARE link (the ?sig= credential), not
-           * the ?token= authed URL the download uses — a whole owner session
+          {/* 「在新頁面顯示」 opens the one-hour PREVIEW link, not the ?token=
+           * authed URL the download uses — a whole owner session
            * token has no business sitting in another tab's address bar.
            * Present only when the browser would show the file rather than
            * download it (see `inlineInBrowser`). */}

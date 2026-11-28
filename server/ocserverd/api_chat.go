@@ -1043,9 +1043,10 @@ func isPreviewableAttachment(mime string) bool {
 
 // Every response carries CSP sandbox: an inline HTML or SVG blob must never
 // script on this origin, and on an image the header does not affect <img>.
-// The one exception is HTML opened by its share sig alone, which may script —
-// still in an opaque origin, and its URL holds nothing but a grant to itself.
-func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w http.ResponseWriter, r *http.Request, attachmentId string) {
+// The one exception is HTML opened by a share link or preview sig alone, which
+// may script — still in an opaque origin, and its URL holds nothing but a grant
+// to itself.
+func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w http.ResponseWriter, r *http.Request, attachmentId string, _ HandleGetChatAttachmentApiChatAttachmentAttachmentIdGetParams) {
 	att, err := s.dal.GetChatAttachment(attachmentId)
 	if err != nil {
 		internalError(w, err)
@@ -1066,17 +1067,18 @@ func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w ht
 	csp := "sandbox"
 	if attachmentMimeBase(mediaType) == "text/html" {
 		// A page that may script can read its own address: a ?token= there is
-		// the opener's whole login. Trade it for the sig before any byte loads.
-		// Any token key counts, empty or repeated — only the first is ever read.
+		// the opener's whole login. Trade it for a preview sig before any byte
+		// loads. Any token key counts, empty or repeated — only the first is
+		// ever read.
 		q := r.URL.Query()
 		if _, carriesToken := q[authTokenQueryParam]; carriesToken {
-			if sig := shareSigForRing(s.keys, attachmentId); sig != "" {
+			if query := previewLinkQuery(s.keys, attachmentId, int64(nowSecs())+previewLinkTTLSecs); query != "" {
 				w.Header().Set("Cache-Control", "no-store")
 				w.Header().Set("Referrer-Policy", "no-referrer")
-				http.Redirect(w, r, "/api/chat/attachment/"+url.PathEscape(attachmentId)+"?sig="+sig, http.StatusFound)
+				http.Redirect(w, r, "/api/chat/attachment/"+url.PathEscape(attachmentId)+"?"+query, http.StatusFound)
 				return
 			}
-		} else if extractToken(r) == "" && len(q) == 1 && len(q["sig"]) == 1 {
+		} else if extractToken(r) == "" && queryIsOnlySelfGrant(q) {
 			// Popups so the page's links can open a tab; that tab loads under its
 			// own origin, and the page that opened it still has no reach here.
 			csp = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox"
@@ -1114,21 +1116,17 @@ func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w ht
 	http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(att.Data))
 }
 
-// The URL is server-relative; the client prefixes its own origin.
-func (s *apiServer) HandleGetChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkGet(w http.ResponseWriter, r *http.Request, attachmentId string) {
-	att, err := s.dal.GetChatAttachment(attachmentId)
-	if err != nil {
-		internalError(w, err)
-		return
+// Only the credential that opened the blob may be in the query: anything else
+// there would be readable by the page's own script.
+func queryIsOnlySelfGrant(q url.Values) bool {
+	single := func(key string) bool { return len(q[key]) == 1 }
+	switch len(q) {
+	case 1:
+		return single(shareLinkParam) || single("sig")
+	case 2:
+		return single("sig") && single(previewExpParam)
 	}
-	if att == nil {
-		writeError(w, http.StatusNotFound, "attachment '"+attachmentId+"' not found")
-		return
-	}
-	writeJSON(w, http.StatusOK, ChatAttachmentShareLinkDTO{
-		Url: "/api/chat/attachment/" + attachmentId +
-			"?sig=" + shareSigForRing(s.keys, attachmentId),
-	})
+	return false
 }
 
 func (s *apiServer) HandleListChatAttachmentsApiChatAttachmentsGet(w http.ResponseWriter, r *http.Request, params HandleListChatAttachmentsApiChatAttachmentsGetParams) {

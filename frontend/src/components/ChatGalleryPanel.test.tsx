@@ -23,7 +23,7 @@ let galleryRows: GalleryAttachment[] = [];
 const listChatAttachments = vi.fn(
   async (_withId: string): Promise<GalleryAttachment[]> => galleryRows,
 );
-const getChatAttachmentShareLink = vi.fn(
+const getChatAttachmentPreviewLink = vi.fn(
   async (id: string): Promise<string> =>
     `/api/chat/attachment/${id}?sig=test-sig`,
 );
@@ -33,7 +33,7 @@ let handlers: ((topic: string, delta?: unknown) => void)[] = [];
 vi.mock("../api", () => ({
   api: {
     listChatAttachments: (withId: string) => listChatAttachments(withId),
-    getChatAttachmentShareLink: (id: string) => getChatAttachmentShareLink(id),
+    getChatAttachmentPreviewLink: (id: string) => getChatAttachmentPreviewLink(id),
     subscribeEvents: (cb: (topic: string, delta?: unknown) => void) => {
       handlers.push(cb);
       return () => {

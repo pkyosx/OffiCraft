@@ -21,9 +21,10 @@ import { formatAbsolute } from "../lib/dateFormat";
  *  - 產生新金鑰 is safe and reversible-in-effect. It adds a key and moves the
  *    signing mark; nobody is logged out, so it needs no confirmation.
  *  - 移除 is a REVOCATION with no undo. Everything the key signed dies at once
- *    — credentials AND the file share links derived from it (owner ruling,
- *    card rc-cf9c27c07442) — with no grace period and no notice to whoever
- *    holds them. So it goes through a confirmation that spells out both, plus
+ *    — credentials, one-hour preview links and `?sig=` share links handed out
+ *    before share links were stored — with no grace period and no notice to
+ *    whoever holds them. Stored share links (`?link=`) do not depend on the
+ *    ring. So it goes through a confirmation that spells out both, plus
  *    the thing nobody would guess: warden credentials are long-lived (months,
  *    and the ones predating T-fc53 第二段 have no expiry at all), so
  *    "wait a few days and the old tokens will have lapsed" is FALSE for them.

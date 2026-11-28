@@ -1,14 +1,14 @@
 // One retained version's content, for the version readers (task artifacts and
 // the 檔案庫). The bytes go through ContentView like everywhere else a file is
 // shown: markdown rendered, JSON / XML indented, CSV a table, HTML its page in
-// the sandboxed frame at its minted share link, a PDF in a frame at its link.
+// the sandboxed frame at its minted preview link, a PDF in a frame at its link.
 // Each reader keeps its own wording for the states that are about the version
 // rather than the bytes.
 
 import type { ReactNode } from "react";
 import { useI18n } from "../i18n";
 import { authedAttachmentUrl } from "../api/http";
-import { useShareHref } from "../hooks/useShareHref";
+import { usePreviewHref } from "../hooks/usePreviewHref";
 import type { ArtifactPayload } from "../hooks/useVersionPayload";
 import { attachmentLinkFromHref } from "../lib/attachmentLink";
 import { contentKindOf } from "../lib/contentKind";
@@ -44,7 +44,7 @@ export function VersionContent({
 }) {
   const { t } = useI18n();
   const shareUrl = shareableUrl(payload);
-  const share = useShareHref(
+  const share = usePreviewHref(
     shareUrl === undefined ? undefined : attachmentLinkFromHref(shareUrl)?.attachmentId,
     shareUrl !== undefined,
     "VersionContent",

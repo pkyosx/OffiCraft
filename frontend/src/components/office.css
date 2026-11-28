@@ -2365,45 +2365,11 @@ button.chat__msg-file {
   white-space: nowrap;
 }
 
-/* ONE attachment inside a bubble: the thumbnail/chip plus its hover-revealed
- * 「複製分享連結」 button (top-right overlay). */
+/* ONE attachment inside a bubble: the thumbnail/chip and any per-item extra. */
 .chat__msg-attachment {
   position: relative;
   display: inline-block;
   max-width: 100%;
-}
-.chat__share-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--color-surface-sunken) 55%, transparent);
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition:
-    color 0.15s,
-    border-color 0.15s,
-    opacity 0.15s;
-}
-.chat__share-btn:hover {
-  color: var(--color-accent);
-  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
-}
-/* In the thread the button floats over the attachment's top-right corner and
- * only shows while hovering (or focused — keyboard reachable). */
-.chat__msg-attachment .chat__share-btn {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  opacity: 0;
-}
-.chat__msg-attachment:hover .chat__share-btn,
-.chat__msg-attachment .chat__share-btn:focus-visible {
-  opacity: 1;
 }
 /* Gallery row variant: pinned to the row's right edge, revealed on row hover
  * (or focus), never overlapping the name/sender meta. */

@@ -1371,9 +1371,9 @@
         "title": "ChatAttachmentInputDTO",
         "type": "object"
       },
-      "ChatAttachmentShareLinkDTO": {
+      "ChatAttachmentPreviewLinkDTO": {
         "additionalProperties": false,
-        "description": "Response of ``GET /api/chat/attachments/{attachment_id}/share-link``: the\nserver-relative serve URL for ONE attachment carrying its ``?sig=``\nfile-level HMAC credential (see the attachment GET's SHARE-SIG\nparagraph). The client prefixes its own origin to form the absolute link.\n\nThe signature has NO expiry and no single link can be withdrawn — but it\nis not unrevocable (T-62): it is derived from whichever signing key minted\nit, so removing that key from the ring voids every link that key signed.",
+        "description": "Response of `GET /api/chat/attachments/{attachment_id}/preview-link`: a server-relative serve URL carrying `?sig=&exp=`, valid for one hour. It is not recorded, not listed and cannot be revoked.",
         "properties": {
           "url": {
             "title": "Url",
@@ -1383,7 +1383,27 @@
         "required": [
           "url"
         ],
-        "title": "ChatAttachmentShareLinkDTO",
+        "title": "ChatAttachmentPreviewLinkDTO",
+        "type": "object"
+      },
+      "ChatAttachmentShareLinkCreateDTO": {
+        "additionalProperties": false,
+        "description": "Body of `POST /api/chat/attachments/{attachment_id}/share-link`. The body may be omitted entirely (the link then expires 7 days from now). The page turns its presets and a custom date into the absolute ``expires_ts``.",
+        "properties": {
+          "expires_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Epoch seconds from which the link stops opening, later than now and at most 365 days (31536000 seconds) ahead. ``null``: it never expires and stays valid until revoked. Omitted: 7 days from now.",
+            "title": "Expires Ts"
+          }
+        },
+        "title": "ChatAttachmentShareLinkCreateDTO",
         "type": "object"
       },
       "ChatAttachmentUploadDTO": {
@@ -2131,17 +2151,48 @@
         ],
         "type": "object"
       },
-      "DiffShareLinkDTO": {
+      "DiffShareLinkCreateDTO": {
         "additionalProperties": false,
-        "description": "Response of ``GET /api/diff/share-link``: the server-relative page URL for ONE comparison carrying its ``?sig=`` credential. The client prefixes its own origin to form the absolute link, exactly as it does for ChatAttachmentShareLinkDTO.\n\nThe signature has NO expiry and no single link can be withdrawn — but it is not unrevocable (T-62): it is derived from whichever signing key minted it, so removing that key from the ring voids every link that key signed, at the same instant it voids that key's tokens and file links. Coarse, and a person's decision rather than a timer's.",
+        "description": "Body of `POST /api/diff/share-link`.",
         "properties": {
-          "url": {
+          "after": {
+            "description": "The after side's address. Same two spellings as `before`.",
+            "title": "After",
+            "type": "string"
+          },
+          "before": {
+            "description": "The before side's address: a stored attachment id (`att-` + 12 hex) or `doc:<kind>/<key>/<at>/<field>`, `<at>` = current|seed|revision id. Judged for shape only.",
+            "title": "Before",
+            "type": "string"
+          },
+          "expires_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Epoch seconds from which the link stops opening, later than now and at most 365 days (31536000 seconds) ahead. ``null``: it never expires and stays valid until revoked. Omitted: 7 days from now.",
+            "title": "Expires Ts"
+          },
+          "label_after": {
+            "default": "",
+            "title": "Label After",
+            "type": "string"
+          },
+          "label_before": {
+            "default": "",
+            "title": "Label Before",
             "type": "string"
           }
         },
         "required": [
-          "url"
+          "before",
+          "after"
         ],
+        "title": "DiffShareLinkCreateDTO",
         "type": "object"
       },
       "DiffSideDTO": {
@@ -9107,6 +9158,172 @@
         "title": "SettingsUpdateDTO",
         "type": "object"
       },
+      "ShareLinkCreatedDTO": {
+        "additionalProperties": false,
+        "description": "Response of both share-link mint routes.",
+        "properties": {
+          "share_link": {
+            "$ref": "#/components/schemas/ShareLinkDTO"
+          },
+          "url": {
+            "description": "Server-relative; prefix the origin you reach this server on. Returned only in this response: it cannot be listed or fetched again.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "share_link"
+        ],
+        "title": "ShareLinkCreatedDTO",
+        "type": "object"
+      },
+      "ShareLinkDTO": {
+        "additionalProperties": false,
+        "description": "One share link, without its URL or credential: the URL is returned once, when it is minted, and the server keeps only a hash of the credential.",
+        "properties": {
+          "after": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The comparison's after-side address; null for an attachment link.",
+            "title": "After"
+          },
+          "attachment_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The attachment's filename; null for a diff link.",
+            "title": "Attachment Filename"
+          },
+          "attachment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The attachment the link opens; null for a diff link.",
+            "title": "Attachment Id"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The comparison's before-side address; null for an attachment link.",
+            "title": "Before"
+          },
+          "created_by": {
+            "description": "Who minted it: `owner`, or the member id of the AI member that called the tool.",
+            "title": "Created By",
+            "type": "string"
+          },
+          "created_ts": {
+            "default": 0.0,
+            "title": "Created Ts",
+            "type": "number"
+          },
+          "expires_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Epoch seconds from which the link answers 410, as fixed when it was minted; ``null`` = it never expires and stays valid until revoked.",
+            "title": "Expires Ts"
+          },
+          "id": {
+            "description": "Server-minted (`sl-` + 12 hex), immutable; the key the revoke route takes. Not the credential in the URL.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "attachment",
+              "diff"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label_after": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The after column's heading as minted (`\"\"` when none was given); null for an attachment link.",
+            "title": "Label After"
+          },
+          "label_before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The before column's heading as minted (`\"\"` when none was given); null for an attachment link.",
+            "title": "Label Before"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "attachment_id",
+          "attachment_filename",
+          "before",
+          "after",
+          "label_before",
+          "label_after",
+          "created_by",
+          "created_ts",
+          "expires_ts"
+        ],
+        "title": "ShareLinkDTO",
+        "type": "object"
+      },
+      "ShareLinksDTO": {
+        "additionalProperties": false,
+        "description": "Share links still in force, ordered by `created_ts`: all of them, or only one target's when `GET /api/share-links` was filtered. Expired and revoked links are not listed.",
+        "properties": {
+          "share_links": {
+            "items": {
+              "$ref": "#/components/schemas/ShareLinkDTO"
+            },
+            "title": "Share Links",
+            "type": "array"
+          }
+        },
+        "required": [
+          "share_links"
+        ],
+        "title": "ShareLinksDTO",
+        "type": "object"
+      },
       "SigningKeyDTO": {
         "description": "ONE signing key, as the outside is allowed to see it: which key it is, when it was made, and whether it is the one signing. There is deliberately no field that could carry key material — not the key, not a fingerprint, not a hash prefix — so \"did this leak the key\" is answered by the shape of the type rather than by remembering to strip a field at each call site.",
         "properties": {
@@ -12001,7 +12218,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Optional per-tab navigation icon images (T-ea81). Keys are the closed set of the seven nav tabs `office` (辦公室) / `replies` (請示) / `tasks` (任務) / `secrets` (密鑰) / `shared_docs` (檔案庫) / `lore` (傳承) / `monitor` (監控), plus `guide`, which is still accepted so packs made while 使用說明 was a nav tab keep importing; no tab displays it and the cockpit's theme editor drops it on save. Each value is an EMBEDDED image encoded as a base64 `data:` URI that replaces that tab's built-in icon. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = that tab falls back to its built-in icon (office never degrades). The server 422s any navIcons that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.",
+            "description": "Optional per-tab navigation icon images (T-ea81). Keys are the closed set of the eight nav tabs `office` (辦公室) / `replies` (請示) / `tasks` (任務) / `secrets` (密鑰) / `share_links` (分享) / `shared_docs` (檔案庫) / `lore` (傳承) / `monitor` (監控), plus `guide`, which is still accepted so packs made while 使用說明 was a nav tab keep importing; no tab displays it and the cockpit's theme editor drops it on save. Each value is an EMBEDDED image encoded as a base64 `data:` URI that replaces that tab's built-in icon. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = that tab falls back to its built-in icon (office never degrades). The server 422s any navIcons that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.",
             "title": "Nav Icons",
             "type": "object"
           },
@@ -14852,7 +15069,7 @@
     },
     "/api/auth/signing-keys/rotate": {
       "post": {
-        "description": "- Hands signing over to a NEW key; the outgoing key stays in the ring and keeps verifying.\n- Tokens already in circulation and existing share links keep working; new ones carry the new key.\n- Takes effect on the NEXT request — no restart. A second server on the same database keeps its old ring until it restarts.\n- Nothing is revoked here; revocation is the separate remove route.\n- Owner only.",
+        "description": "- Hands signing over to a NEW key; the outgoing key stays in the ring and keeps verifying.\n- Tokens and preview links already in circulation keep working; new ones carry the new key. Share links do not depend on the key ring.\n- Takes effect on the NEXT request — no restart. A second server on the same database keeps its old ring until it restarts.\n- Nothing is revoked here; revocation is the separate remove route.\n- Owner only.",
         "operationId": "handle_signing_key_rotate_api_auth_signing_keys_rotate_post",
         "responses": {
           "200": {
@@ -14904,7 +15121,7 @@
     },
     "/api/auth/signing-keys/{key_id}/remove": {
       "post": {
-        "description": "Remove a retired signing key — THIS is the revocation, and it has no undo (owner-gated).\n\nThe moment this returns, every token signed by that key is refused, and every attachment share link produced under it stops working: a share `?sig=` is an HMAC under a key derived from the signing key, so it is governed by the ring too (owner ruling, card rc-cf9c27c07442). There is no grace period and holders are not notified — which is why the timing is a person's decision and never a timer's.\n\n⚠️ Warden credentials expire again since T-fc53, but \"wait for the old tokens to expire\" is still not the strategy: a credential lives up to the full `auth.warden_credential_lifetime_secs` (30 days by default) and machines installed before that change carry no `exp` at all. The question to answer before calling this is whether every machine has come back ON THE CURRENT KEY (`token_key_current` on GET /api/machines), not how many days have passed and not merely whether it reconnected: a machine that reconnected while still holding a credential this key signed drops off the moment this returns.\n\nThe key that is currently SIGNING cannot be removed (409) — rotate first, then remove the one that stepped down. An unknown `key_id` is a 404.",
+        "description": "Remove a retired signing key — THIS is the revocation, and it has no undo (owner-gated).\n\nThe moment this returns, every token signed by that key is refused, and every one-hour attachment preview link signed under it stops working. Share links (`GET /api/share-links`) are NOT affected: they are stored credentials, not signatures, and are withdrawn one at a time with `DELETE /api/share-links/{share_link_id}`. There is no grace period and holders are not notified — which is why the timing is a person's decision and never a timer's.\n\n⚠️ Warden credentials expire again since T-fc53, but \"wait for the old tokens to expire\" is still not the strategy: a credential lives up to the full `auth.warden_credential_lifetime_secs` (30 days by default) and machines installed before that change carry no `exp` at all. The question to answer before calling this is whether every machine has come back ON THE CURRENT KEY (`token_key_current` on GET /api/machines), not how many days have passed and not merely whether it reconnected: a machine that reconnected while still holding a credential this key signed drops off the moment this returns.\n\nThe key that is currently SIGNING cannot be removed (409) — rotate first, then remove the one that stepped down. An unknown `key_id` is a 404.",
         "operationId": "handle_signing_key_remove_api_auth_signing_keys_key_id_remove_post",
         "parameters": [
           {
@@ -15957,7 +16174,7 @@
     },
     "/api/chat/attachment/{attachment_id}": {
       "get": {
-        "description": "Serve a chat attachment blob (``GET /api/chat/attachment/<id>``). GATED and\nowner-scoped exactly like ``handle_list_chat``: the ``owner`` dep re-verifies\nthe token (deny-by-default) and fixes the single data scope, and the lookup is\nscoped to that owner — a blob outside the owner's scope (or nonexistent) is a\n404, so a caller can not fetch another owner's attachment. Returns the raw\nbytes. The media type is the stored ``mime``, except that a blob stored as\n``application/octet-stream`` (or with no mime) takes the type its filename's\nextension names, in the same table the upload routes type a new blob by\n(``server/ocserverd/attachment_mime_types.json``, case-insensitive, the suffix\nafter the last dot); any other extension, or none, stays\n``application/octet-stream``. A blob stored with any other mime keeps it.\n\nDISPOSITION SPLIT (M2-3 gallery「開新分頁預覽」 vs 「下載」): a PREVIEWABLE\ntype (image/*, text/*, video/*, application/pdf, application/json) is served\n``inline; filename=\"<name>\"`` so a new tab RENDERS it instead of\nforce-downloading, while a downloader such as ``ocagent download`` still\nsaves it under its name and extension (``<img src>`` ignores the header); everything else keeps ``attachment; filename=\"<name>\"``\nand downloads under its original name (the attachment id when it has none).\n\nBYTE RANGES: a ``200`` or ``206`` answer carries ``Accept-Ranges: bytes``. One\n``Range`` is answered ``206`` with exactly those bytes and ``Content-Range``;\nseveral ranges are one ``206`` ``multipart/byteranges`` body, or the whole blob\nat ``200`` when together they cover more than the blob; a range past the\nend, or one that does not parse, is ``416`` with ``Content-Range: bytes */<size>``.\nA blob carries no ``ETag`` or ``Last-Modified``, so ``If-Range`` never matches\nand is answered with the whole blob. A ``<video>`` seeks through ranges, and\nSafari will not play one without them.\n\nSECURITY: every response carries ``Content-Security-Policy: sandbox`` and\n``X-Content-Type-Options: nosniff``. An inline ``text/html`` blob, or an\n``image/svg+xml`` opened in a tab of its own, would otherwise execute\nattacker-supplied script ON THIS ORIGIN (an agent-uploaded page could read\nthe owner JWT out of localStorage); under the sandbox the document still\nrenders visually, but script execution and same-origin reach are disabled.\nThe header has no effect on an image embedded through ``<img>``.\n\nHTML BY SIG MAY SCRIPT: a ``text/html`` blob requested with ``?token=`` is\nanswered ``302`` to the same path carrying only its ``?sig=`` (``Cache-Control:\nno-store``, ``Referrer-Policy: no-referrer``) — a page that may script can read\nits own address, and a ``?token=`` there is the opener's whole login. The same\nblob requested by ``?sig=`` alone is served ``Content-Security-Policy: sandbox\nallow-scripts allow-popups allow-popups-to-escape-sandbox`` with\n``Referrer-Policy: no-referrer``: its script runs in an opaque origin with no\nreach into this one, and its links and ``window.open`` may open a new tab\n(still no same-origin, top navigation or forms). Requested with an Authorization\nheader it keeps plain ``sandbox``. Every other type keeps plain ``sandbox``\nunder every credential.\n\nSHARE-SIG (third credential, this route ONLY — precedence Authorization\nheader → ``?token=`` → ``?sig=``): when the request carries NO bearer\ncredential at all, a ``?sig=`` query param is accepted instead — an\nHMAC-SHA256 over exactly this ``attachment_id`` under a domain-separated\nkey derived from the server signing secret (minted by\n``GET /api/chat/attachments/{attachment_id}/share-link``). A valid sig\nauthorizes reading THIS ONE blob and nothing else; a bad/foreign sig is\n401; ``?sig=`` on any other route is ignored (401 missing credentials).\nLike ``?token=``, the param is an auth credential OUTSIDE the OpenAPI\nparameter schema.\n\nA sig carries NO EXPIRY and cannot be revoked one link at a time. It is not\nunconditionally permanent, though, and since T-62 it never was: the derivation\nkey follows the SIGNING-KEY RING, so a sig keeps verifying while the key that\nproduced it is still in the ring, and every sig made under a key dies together\nthe moment an owner REMOVES that key (`POST\n/api/auth/signing-keys/{key_id}/remove`). That is the whole revocation story —\ncoarse, deliberate, and a person's decision rather than a timer's.",
+        "description": "Serve a chat attachment blob (``GET /api/chat/attachment/<id>``). GATED and\nowner-scoped exactly like ``handle_list_chat``: the ``owner`` dep re-verifies\nthe token (deny-by-default) and fixes the single data scope, and the lookup is\nscoped to that owner — a blob outside the owner's scope (or nonexistent) is a\n404, so a caller can not fetch another owner's attachment. Returns the raw\nbytes. The media type is the stored ``mime``, except that a blob stored as\n``application/octet-stream`` (or with no mime) takes the type its filename's\nextension names, in the same table the upload routes type a new blob by\n(``server/ocserverd/attachment_mime_types.json``, case-insensitive, the suffix\nafter the last dot); any other extension, or none, stays\n``application/octet-stream``. A blob stored with any other mime keeps it.\n\nDISPOSITION SPLIT (M2-3 gallery「開新分頁預覽」 vs 「下載」): a PREVIEWABLE\ntype (image/*, text/*, video/*, application/pdf, application/json) is served\n``inline; filename=\"<name>\"`` so a new tab RENDERS it instead of\nforce-downloading, while a downloader such as ``ocagent download`` still\nsaves it under its name and extension (``<img src>`` ignores the header); everything else keeps ``attachment; filename=\"<name>\"``\nand downloads under its original name (the attachment id when it has none).\n\nBYTE RANGES: a ``200`` or ``206`` answer carries ``Accept-Ranges: bytes``. One\n``Range`` is answered ``206`` with exactly those bytes and ``Content-Range``;\nseveral ranges are one ``206`` ``multipart/byteranges`` body, or the whole blob\nat ``200`` when together they cover more than the blob; a range past the\nend, or one that does not parse, is ``416`` with ``Content-Range: bytes */<size>``.\nA blob carries no ``ETag`` or ``Last-Modified``, so ``If-Range`` never matches\nand is answered with the whole blob. A ``<video>`` seeks through ranges, and\nSafari will not play one without them.\n\nSECURITY: every response carries ``Content-Security-Policy: sandbox`` and\n``X-Content-Type-Options: nosniff``. An inline ``text/html`` blob, or an\n``image/svg+xml`` opened in a tab of its own, would otherwise execute\nattacker-supplied script ON THIS ORIGIN (an agent-uploaded page could read\nthe owner JWT out of localStorage); under the sandbox the document still\nrenders visually, but script execution and same-origin reach are disabled.\nThe header has no effect on an image embedded through ``<img>``.\n\nHTML BY LINK OR SIG MAY SCRIPT: a ``text/html`` blob requested with ``?token=`` is\nanswered ``302`` to the same path carrying only a fresh preview ``?sig=&exp=``\n(``Cache-Control: no-store``, ``Referrer-Policy: no-referrer``) — a page that may\nscript can read its own address, and a ``?token=`` there is the opener's whole\nlogin. The same blob requested by ``?link=`` or by ``?sig=&exp=`` alone is served\n``Content-Security-Policy: sandbox allow-scripts allow-popups\nallow-popups-to-escape-sandbox`` with ``Referrer-Policy: no-referrer``: its script\nruns in an opaque origin with no reach into this one, and its links and\n``window.open`` may open a new tab (still no same-origin, top navigation or\nforms). Requested with an Authorization header it keeps plain ``sandbox``. Every\nother type keeps plain ``sandbox`` under every credential.\n\nSHARE LINK AND PREVIEW SIG (this route ONLY — precedence Authorization header →\n``?token=`` → ``?link=`` → ``?sig=``): when the request carries NO bearer\ncredential, either of two others is accepted, and each authorizes reading THIS\nONE blob and nothing else:\n\n- ``?link=`` — a share link, minted by\n  ``POST /api/chat/attachments/{attachment_id}/share-link``. It opens the blob\n  until its ``expires_ts`` passes or it is revoked\n  (``DELETE /api/share-links/{share_link_id}``); after that, and for an unknown\n  credential or one minted for another attachment or for a comparison, the\n  answer is ``410``. It does not depend on the signing-key ring: removing a\n  signing key leaves every share link working.\n- ``?sig=`` with ``?exp=`` — a preview signature, minted by\n  ``GET /api/chat/attachments/{attachment_id}/preview-link`` for the cockpit's own\n  preview frames: an HMAC-SHA256 over this ``attachment_id`` and ``exp`` under a\n  domain-separated key derived from the signing-key ring, valid until ``exp``\n  (one hour after minting). A bad, foreign or past-``exp`` sig, or one without\n  ``exp``, is ``401``; it also dies early when the key that made it is removed.\n  It is not recorded, not listed and cannot be revoked on its own.\n\n``?link=`` and ``?sig=`` on any other route are ignored (401 missing credentials).\nLike ``?token=``, ``?sig=`` and ``?exp=`` are auth credentials OUTSIDE the OpenAPI\nparameter schema.",
         "operationId": "handle_get_chat_attachment_api_chat_attachment__attachment_id__get",
         "parameters": [
           {
@@ -15966,6 +16183,17 @@
             "required": true,
             "schema": {
               "title": "Attachment Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A share link's credential, as it appears in the URL the mint route returned.",
+            "in": "query",
+            "name": "link",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Link",
               "type": "string"
             }
           }
@@ -15994,6 +16222,21 @@
               }
             },
             "description": "Validation error (unified error envelope)."
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Gone: the ``?link=`` share link has expired, has been revoked, or never existed. A request whose Accept prefers text/html (a browser opening the link) gets a page saying the link is no longer valid; any other gets the unified error envelope."
           },
           "4XX": {
             "content": {
@@ -16193,10 +16436,10 @@
         }
       }
     },
-    "/api/chat/attachments/{attachment_id}/share-link": {
+    "/api/chat/attachments/{attachment_id}/preview-link": {
       "get": {
-        "description": "- Mints a signed link that lets anyone holding it read that ONE blob and nothing else.\n- No expiry and no per-link revocation: the only way to kill one is retiring the signing key, which kills every link made under it at the same instant.\n- Returns a server-relative {url}; prefix your own origin.\n- 404 for an unknown blob id.",
-        "operationId": "handle_get_chat_attachment_share_link_api_chat_attachments__attachment_id__share_link_get",
+        "description": "- For the cockpit's own previews (the frame behind an HTML, PDF or video preview): a server-relative serve URL carrying `?sig=&exp=`, valid one hour.\n- Not recorded, not listed by `GET /api/share-links`, and cannot be revoked; it lapses on its own.\n- 404 for an unknown blob id.\n- Off the MCP surface: to hand a file to someone, mint a share link.",
+        "operationId": "handle_get_chat_attachment_preview_link_api_chat_attachments__attachment_id__preview_link_get",
         "parameters": [
           {
             "in": "path",
@@ -16213,7 +16456,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ChatAttachmentShareLinkDTO"
+                  "$ref": "#/components/schemas/ChatAttachmentPreviewLinkDTO"
                 }
               }
             },
@@ -16250,12 +16493,85 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Mint a single-file share link (?sig= HMAC; grants read of this one attachment only). Returns {url} as a SERVER-RELATIVE path — prefix it with the origin you reach this server on to get a link you can paste to someone. The sig carries NO identity and NO expiry: whoever holds the link reads that one blob without signing in, for as long as the key that signed it is still in the server's signing-key ring. No single link can be withdrawn; the only way to void one is to remove that key (POST /api/auth/signing-keys/{key_id}/remove), which voids every link it signed at once. Mint it for deliverables you meant to hand over; do not paste it anywhere the blob itself would not belong.",
+        "summary": "Mint a one-hour preview URL for one attachment (cockpit preview frames).",
         "x-mcp": {
-          "description": "Mint a single-file share link (?sig= HMAC; grants read of this one attachment only). Returns {url} as a SERVER-RELATIVE path — prefix it with the origin you reach this server on to get a link you can paste to someone. The sig carries NO identity and NO expiry: whoever holds the link reads that one blob without signing in, for as long as the key that signed it is still in the server's signing-key ring. No single link can be withdrawn; the only way to void one is to remove that key (POST /api/auth/signing-keys/{key_id}/remove), which voids every link it signed at once. Mint it for deliverables you meant to hand over; do not paste it anywhere the blob itself would not belong.",
+          "include": false
+        }
+      }
+    },
+    "/api/chat/attachments/{attachment_id}/share-link": {
+      "post": {
+        "description": "- Each call mints a NEW link with its own expiry; earlier links to the same blob are untouched.\n- Whoever holds the link reads that ONE blob without signing in, until it expires or is revoked.\n- `expires_ts` omitted (or no body) means 7 days from now; null means it never expires.\n- Returns a server-relative `url`, shown only here: the server keeps a hash of its credential, never the URL.\n- 404 for an unknown blob id.\n- 422 when `expires_ts` is not later than now or is more than 365 days ahead, or the body is malformed.",
+        "operationId": "handle_create_chat_attachment_share_link_api_chat_attachments__attachment_id__share_link_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attachment_id",
+            "required": true,
+            "schema": {
+              "title": "Attachment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatAttachmentShareLinkCreateDTO"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareLinkCreatedDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Mint a share link to one attachment, valid until a chosen time or until revoked.",
+        "x-mcp": {
+          "description": "Mint a link that lets anyone holding it read this ONE attachment without signing in. Returns {url, share_link}. `url` is a SERVER-RELATIVE path — prefix it with the origin you reach this server on — and is shown only in this response: it cannot be listed or fetched again, so keep it before passing it on. Without `expires_ts` the link lasts 7 days; null makes it permanent until revoked. Every call mints a separate link with its own expiry; list_share_links and revoke_share_link manage them. Mint it for deliverables you meant to hand over; do not paste it anywhere the blob itself would not belong.",
           "include": true,
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Mint a single-file share link (?sig= HMAC; grants read of this one attachment only). Returns {url} as a SERVER-RELATIVE path \\u2014 prefix it with the origin you reach this server on to get a link you can paste to someone. The sig carries NO identity and NO expiry: whoever holds the link reads that one blob without signing in, for as long as the key that signed it is still in the server's signing-key ring. No single link can be withdrawn; the only way to void one is to remove that key (POST /api/auth/signing-keys/{key_id}/remove), which voids every link it signed at once. Mint it for deliverables you meant to hand over; do not paste it anywhere the blob itself would not belong.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"attachment_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"attachment_id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_chat_attachment_share_link\"\n    }"
+            "descriptor": "{\n      \"description\": \"Mint a link that lets anyone holding it read this ONE attachment without signing in. Returns {url, share_link}. `url` is a SERVER-RELATIVE path \\u2014 prefix it with the origin you reach this server on \\u2014 and is shown only in this response: it cannot be listed or fetched again, so keep it before passing it on. Without `expires_ts` the link lasts 7 days; null makes it permanent until revoked. Every call mints a separate link with its own expiry; list_share_links and revoke_share_link manage them. Mint it for deliverables you meant to hand over; do not paste it anywhere the blob itself would not belong.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"attachment_id\": {\n            \"type\": \"string\"\n          },\n          \"expires_ts\": {\n            \"anyOf\": [\n              {\n                \"type\": \"number\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"description\": \"Epoch seconds when the link stops opening. null = never expires (until someone revokes it). Omit for 7 days from now.\"\n          }\n        },\n        \"required\": [\n          \"attachment_id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_chat_attachment_share_link\"\n    }"
           },
           "name": "get_chat_attachment_share_link",
           "order": 27
@@ -16734,7 +17050,7 @@
     },
     "/api/diff": {
       "get": {
-        "description": "- Resolves both sides in one request, so a `sig` cannot be replayed with a swapped side.\n- A side is an attachment id or `doc:<kind>/<key>/<at>/<field>`, `<at>` = current|seed|revision id.\n- An address resolving to nothing is not an error (`gone: true` on that side); only an unsayable one is a 422.\n- An authenticated caller needs no `sig`; one with none may present one that dies with its key.",
+        "description": "- Resolves both sides in one request, so a `link` cannot be replayed with a swapped side.\n- A side is an attachment id or `doc:<kind>/<key>/<at>/<field>`, `<at>` = current|seed|revision id.\n- An address resolving to nothing is not an error (`gone: true` on that side); only an unsayable one is a 422.\n- An authenticated caller needs no `link`. A caller with no login presents a share link's `link`, valid only with the sides and labels it was minted for; otherwise, or once it has expired or been revoked, the answer is 410.",
         "operationId": "handle_get_diff_api_diff_get",
         "parameters": [
           {
@@ -16776,12 +17092,13 @@
             }
           },
           {
+            "description": "A share link's credential, as it appears in the URL `POST /api/diff/share-link` returned.",
             "in": "query",
-            "name": "sig",
+            "name": "link",
             "required": false,
             "schema": {
               "default": "",
-              "title": "Sig",
+              "title": "Link",
               "type": "string"
             }
           }
@@ -16807,6 +17124,16 @@
             },
             "description": "Validation error (unified error envelope)."
           },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Gone: the `link` share link has expired, has been revoked, never existed, or was minted for other sides or labels (unified error envelope). The /diff page shows it as a link that is no longer valid."
+          },
           "4XX": {
             "content": {
               "application/json": {
@@ -16828,62 +17155,32 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Resolve both sides of one comparison (?before=&after=; optional labels and ?sig=). Each side carries its text, its column heading, and an honest gone marker when the address resolves to nothing.",
+        "summary": "Resolve both sides of one comparison (?before=&after=; optional labels and ?link=). Each side carries its text, its column heading, and an honest gone marker when the address resolves to nothing.",
         "x-mcp": {
           "include": false
         }
       }
     },
     "/api/diff/share-link": {
-      "get": {
-        "description": "- Mints a permanent link for one before/after comparison: no expiry, no revocation, nothing stored.\n- Each side is an attachment id (`att-...`) or `doc:<kind>/<key>/<at>/<field>`, where `<at>` is current, seed or a revision id.\n- Returns a server-relative {url}.\n- Only shape is checked, not existence: a side may stop resolving later, reported then as `gone`.\n- 422 for an unsayable address.",
-        "operationId": "handle_get_diff_share_link_api_diff_share_link_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "before",
-            "required": true,
-            "schema": {
-              "title": "Before",
-              "type": "string"
+      "post": {
+        "description": "- Each call mints a NEW link for one before/after comparison with its own expiry.\n- `expires_ts` omitted means 7 days from now; null means it never expires.\n- Each side is an attachment id (`att-...`) or `doc:<kind>/<key>/<at>/<field>`, where `<at>` is current, seed or a revision id.\n- Only shape is checked, not existence: a side may stop resolving later, reported then as `gone`.\n- Returns a server-relative `url`, shown only here: the server keeps a hash of its credential, never the URL.\n- 422 for an unsayable address, an `expires_ts` not later than now or more than 365 days ahead, or a malformed body.",
+        "operationId": "handle_create_diff_share_link_api_diff_share_link_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiffShareLinkCreateDTO"
+              }
             }
           },
-          {
-            "in": "query",
-            "name": "after",
-            "required": true,
-            "schema": {
-              "title": "After",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "label_before",
-            "required": false,
-            "schema": {
-              "default": "",
-              "title": "Label Before",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "label_after",
-            "required": false,
-            "schema": {
-              "default": "",
-              "title": "Label After",
-              "type": "string"
-            }
-          }
-        ],
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DiffShareLinkDTO"
+                  "$ref": "#/components/schemas/ShareLinkCreatedDTO"
                 }
               }
             },
@@ -16920,12 +17217,12 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Mint the EXTERNAL link to one before/after comparison (?sig= HMAC over both addresses AND both column labels). Returns {url} as a SERVER-RELATIVE path — prefix it with the origin you reach this server on to get a link you can paste to someone. The sig carries NO identity and NO expiry: whoever holds the link sees that one comparison without signing in, for as long as the key that signed it is still in the server's signing-key ring. No single link can be withdrawn; the only way to void one is to remove that key (POST /api/auth/signing-keys/{key_id}/remove), which voids every comparison link and every file link it signed at once. YOU USUALLY DO NOT NEED THIS: the INTERNAL link is the same /diff?before=…&after=… page with no sig, any signed-in reader opens it, and `ocagent diff` prints it without asking the server anything. Mint this one only for a reader who has no account. A side is a stored attachment id (att-…) or doc:<kind>/<key>/<at>/<field> — `ocagent diff --help` is the authority on the spelling.",
+        "summary": "Mint the external link to one before/after comparison, valid until a chosen time or until revoked.",
         "x-mcp": {
-          "description": "Mint the EXTERNAL link to one before/after comparison (?sig= HMAC over both addresses AND both column labels). Returns {url} as a SERVER-RELATIVE path — prefix it with the origin you reach this server on to get a link you can paste to someone. The sig carries NO identity and NO expiry: whoever holds the link sees that one comparison without signing in, for as long as the key that signed it is still in the server's signing-key ring. No single link can be withdrawn; the only way to void one is to remove that key (POST /api/auth/signing-keys/{key_id}/remove), which voids every comparison link and every file link it signed at once. YOU USUALLY DO NOT NEED THIS: the INTERNAL link is the same /diff?before=…&after=… page with no sig, any signed-in reader opens it, and `ocagent diff` prints it without asking the server anything. Mint this one only for a reader who has no account. A side is a stored attachment id (att-…) or doc:<kind>/<key>/<at>/<field> — `ocagent diff --help` is the authority on the spelling.",
+          "description": "Mint the EXTERNAL link to one before/after comparison, for a reader who has no account. Returns {url, share_link}. `url` is a SERVER-RELATIVE path — prefix it with the origin you reach this server on — and is shown only in this response: it cannot be listed or fetched again. Without `expires_ts` the link lasts 7 days; null makes it permanent until revoked. Every call mints a separate link; list_share_links and revoke_share_link manage them. YOU USUALLY DO NOT NEED THIS: the INTERNAL link is the same /diff?before=…&after=… page with no `link`, any signed-in reader opens it, and `ocagent diff` prints it without asking the server anything. A side is a stored attachment id (att-…) or doc:<kind>/<key>/<at>/<field> — `ocagent diff --help` is the authority on the spelling.",
           "include": true,
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Mint the EXTERNAL link to one before/after comparison (?sig= HMAC over both addresses AND both column labels). Returns {url} as a SERVER-RELATIVE path \\u2014 prefix it with the origin you reach this server on to get a link you can paste to someone. The sig carries NO identity and NO expiry: whoever holds the link sees that one comparison without signing in, for as long as the key that signed it is still in the server's signing-key ring. No single link can be withdrawn; the only way to void one is to remove that key (POST /api/auth/signing-keys/{key_id}/remove), which voids every comparison link and every file link it signed at once. YOU USUALLY DO NOT NEED THIS: the INTERNAL link is the same /diff?before=\\u2026&after=\\u2026 page with no sig, any signed-in reader opens it, and `ocagent diff` prints it without asking the server anything. Mint this one only for a reader who has no account. A side is a stored attachment id (att-\\u2026) or doc:<kind>/<key>/<at>/<field> \\u2014 `ocagent diff --help` is the authority on the spelling.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"after\": {\n            \"description\": \"The AFTER side's address. Same two spellings as `before`.\",\n            \"type\": \"string\"\n          },\n          \"before\": {\n            \"description\": \"The BEFORE side's address: a stored attachment id (att- plus 12 hex digits) or doc:<kind>/<key>/<at>/<field>. Judged for SHAPE only \\u2014 an address that no longer resolves is not refused here, it comes back as that side's `gone` marker when the link is opened.\",\n            \"type\": \"string\"\n          },\n          \"label_after\": {\n            \"description\": \"Column heading for the after side. Omit it for a document side: the screen names that one in the reader's own language, and a label written here overrides it in one language for everyone.\",\n            \"type\": \"string\"\n          },\n          \"label_before\": {\n            \"description\": \"Column heading for the before side. Omit it for a document side, for the same reason as `label_after`.\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"before\",\n          \"after\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_diff_share_link\"\n    }"
+            "descriptor": "{\n      \"description\": \"Mint the EXTERNAL link to one before/after comparison, for a reader who has no account. Returns {url, share_link}. `url` is a SERVER-RELATIVE path \\u2014 prefix it with the origin you reach this server on \\u2014 and is shown only in this response: it cannot be listed or fetched again. Without `expires_ts` the link lasts 7 days; null makes it permanent until revoked. Every call mints a separate link; list_share_links and revoke_share_link manage them. YOU USUALLY DO NOT NEED THIS: the INTERNAL link is the same /diff?before=\\u2026&after=\\u2026 page with no `link`, any signed-in reader opens it, and `ocagent diff` prints it without asking the server anything. A side is a stored attachment id (att-\\u2026) or doc:<kind>/<key>/<at>/<field> \\u2014 `ocagent diff --help` is the authority on the spelling.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"after\": {\n            \"description\": \"The AFTER side's address. Same two spellings as `before`.\",\n            \"type\": \"string\"\n          },\n          \"before\": {\n            \"description\": \"The BEFORE side's address: a stored attachment id (att- plus 12 hex digits) or doc:<kind>/<key>/<at>/<field>. Judged for SHAPE only \\u2014 an address that no longer resolves is not refused here, it comes back as that side's `gone` marker when the link is opened.\",\n            \"type\": \"string\"\n          },\n          \"expires_ts\": {\n            \"anyOf\": [\n              {\n                \"type\": \"number\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"description\": \"Epoch seconds when the link stops opening. null = never expires (until someone revokes it). Omit for 7 days from now.\"\n          },\n          \"label_after\": {\n            \"description\": \"Column heading for the after side. Omit it for a document side: the screen names that one in the reader's own language, and a label written here overrides it in one language for everyone.\",\n            \"type\": \"string\"\n          },\n          \"label_before\": {\n            \"description\": \"Column heading for the before side. Omit it for a document side, for the same reason as `label_after`.\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"before\",\n          \"after\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_diff_share_link\"\n    }"
           },
           "name": "get_diff_share_link",
           "order": 33
@@ -29078,6 +29375,186 @@
         "summary": "Every boot-document target's lore budget in one read: ``everyone``, each member on the roster (staff and outsource; an ``agent`` target counts ``everyone`` merged with the member's own, as the boot document does) and each task manual. Computed by the same selection as ``first_dropped_id``, so it never disagrees with ``first_dropped_id`` or an entry's ``dropped``.",
         "x-mcp": {
           "include": false
+        }
+      }
+    },
+    "/api/share-links": {
+      "get": {
+        "description": "- Share links still in force, ordered by `created_ts`: what each opens, who minted it, when it expires.\n- No query: every link. `attachment_id`: only links to that attachment. `before` + `after`: only links to that comparison, whatever labels they were minted with.\n- A filter is a plain match against the stored target: one that matches nothing answers 200 with an empty list, not 404. An empty value counts as not given.\n- Expired and revoked links are not listed. Neither are preview links.\n- No URL or credential is returned; a lost URL cannot be recovered, only replaced by minting a new link.\n- 422 when only one of `before` / `after` is given, or `attachment_id` is combined with them.\n- Owner or admin agent.",
+        "operationId": "handle_list_share_links_api_share_links_get",
+        "parameters": [
+          {
+            "description": "Only links to this attachment.",
+            "in": "query",
+            "name": "attachment_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Attachment Id"
+            }
+          },
+          {
+            "description": "With `after`: only links to the comparison with exactly these two sides. Labels are not matched.",
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          },
+          {
+            "description": "With `before`; see `before`.",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareLinksDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "List share links still in force, all or one target's (no URLs).",
+        "x-mcp": {
+          "description": "List share links still in force (owner/admin agent): what each opens, who minted it, and when it expires (`expires_ts` null = never). Pass attachment_id for one attachment's links, or before + after for one comparison's links (labels are ignored); pass nothing for all. The URLs themselves are never returned.",
+          "include": true,
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"List share links still in force (owner/admin agent): what each opens, who minted it, and when it expires (`expires_ts` null = never). Pass attachment_id for one attachment's links, or before + after for one comparison's links (labels are ignored); pass nothing for all. The URLs themselves are never returned.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"after\": {\n            \"type\": \"string\"\n          },\n          \"attachment_id\": {\n            \"type\": \"string\"\n          },\n          \"before\": {\n            \"description\": \"With after: one comparison's links, whatever their labels.\",\n            \"type\": \"string\"\n          }\n        },\n        \"type\": \"object\"\n      },\n      \"name\": \"list_share_links\"\n    }"
+          },
+          "name": "list_share_links",
+          "order": 136
+        }
+      }
+    },
+    "/api/share-links/{share_link_id}": {
+      "delete": {
+        "description": "- Irreversible: the link answers 410 the moment this returns. No undo; to share again, mint a new link.\n- Only this link: other links to the same file or comparison, logins and machines are untouched.\n- 404 when the id is not in `GET /api/share-links` (unknown, already revoked or expired).\n- Returns the revoked link.\n- Owner or admin agent.",
+        "operationId": "handle_revoke_share_link_api_share_links__share_link_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "share_link_id",
+            "required": true,
+            "schema": {
+              "title": "Share Link Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareLinkDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Revoke one share link.",
+        "x-mcp": {
+          "description": "Revoke one share link (owner/admin agent). Irreversible: whoever holds its URL gets a 410 from now on, and there is no undo; to share again, mint a new link. Other links to the same file or comparison keep working.",
+          "include": true,
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"Revoke one share link (owner/admin agent). Irreversible: whoever holds its URL gets a 410 from now on, and there is no undo; to share again, mint a new link. Other links to the same file or comparison keep working.\",\n      \"inputSchema\": {\n        \"additionalProperties\": false,\n        \"properties\": {\n          \"share_link_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"share_link_id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"revoke_share_link\"\n    }"
+          },
+          "name": "revoke_share_link",
+          "order": 137
         }
       }
     },

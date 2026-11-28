@@ -10,18 +10,18 @@ import (
 
 func TestDiffPageQuery(t *testing.T) {
 	tests := []struct {
-		name                                        string
-		before, after, labelBefore, labelAfter, sig string
-		want                                        string
+		name                                         string
+		before, after, labelBefore, labelAfter, link string
+		want                                         string
 	}{
 		{
-			name:        "addresses labels and signature are URL encoded",
+			name:        "addresses labels and link are URL encoded",
 			before:      "att-0123456789ab",
 			after:       "doc:global_context/global/current/text",
 			labelBefore: "初始 版本",
 			labelAfter:  "現在",
-			sig:         "sig/+=",
-			want:        "after=doc%3Aglobal_context%2Fglobal%2Fcurrent%2Ftext&before=att-0123456789ab&label_after=%E7%8F%BE%E5%9C%A8&label_before=%E5%88%9D%E5%A7%8B+%E7%89%88%E6%9C%AC&sig=sig%2F%2B%3D",
+			link:        "tok/+=",
+			want:        "after=doc%3Aglobal_context%2Fglobal%2Fcurrent%2Ftext&before=att-0123456789ab&label_after=%E7%8F%BE%E5%9C%A8&label_before=%E5%88%9D%E5%A7%8B+%E7%89%88%E6%9C%AC&link=tok%2F%2B%3D",
 		},
 		{
 			name:   "empty optional values are left out",
@@ -33,7 +33,7 @@ func TestDiffPageQuery(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := diffPageQuery(tc.before, tc.after, tc.labelBefore, tc.labelAfter, tc.sig)
+			got := diffPageQuery(tc.before, tc.after, tc.labelBefore, tc.labelAfter, tc.link)
 			if got != tc.want {
 				t.Fatalf("diffPageQuery() = %q, want %q", got, tc.want)
 			}
@@ -87,184 +87,14 @@ func apiDiffUpload(t *testing.T, h http.Handler, credential, filename, body stri
 
 // apiDiffShareQuery mints an external link through the real route and answers
 // the query half of it — what a credential-less reader would present.
-func apiDiffShareQuery(t *testing.T, h http.Handler, credential, before, after, labelBefore, labelAfter string) string {
+func apiDiffShareQuery(t *testing.T, h http.Handler, credential, before, after string) string {
 	t.Helper()
-	target := "/api/diff/share-link?before=" + url.QueryEscape(before) + "&after=" + url.QueryEscape(after)
-	if labelBefore != "" {
-		target += "&label_before=" + url.QueryEscape(labelBefore)
-	}
-	if labelAfter != "" {
-		target += "&label_after=" + url.QueryEscape(labelAfter)
-	}
-	status, data := apiJSON(t, h, "GET", target, credential, "")
-	if status != 200 {
-		t.Fatalf("mint a share link: %d %v", status, data)
-	}
-	link, _ := data["url"].(string)
-	parsed, err := url.Parse(link)
+	data := apiMintShareLink(t, h, "/api/diff/share-link", credential, `{"before":"`+before+`","after":"`+after+`"}`)
+	parsed, err := url.Parse(data["url"].(string))
 	if err != nil {
 		t.Fatalf("the minted url does not parse: %v", err)
 	}
 	return parsed.RawQuery
-}
-
-// apiWantDiffLink asserts the whole minted link: the page it points at, every
-// query parameter it carries, and that the signature is the fixed-width one the
-// verifier compares — its value is a function of a server-minted key and cannot
-// be written down.
-func apiWantDiffLink(t *testing.T, link string, wantQuery map[string]string) {
-	t.Helper()
-	parsed, err := url.Parse(link)
-	if err != nil {
-		t.Fatalf("the minted url does not parse: %v", err)
-	}
-	if parsed.Scheme != "" || parsed.Host != "" {
-		t.Fatalf("the minted url must be server-relative, got %q", link)
-	}
-	if parsed.Path != "/diff" {
-		t.Fatalf("want the /diff page, got %q", parsed.Path)
-	}
-	got := map[string]any{}
-	for name, values := range parsed.Query() {
-		if len(values) != 1 {
-			t.Fatalf("%s is repeated in the minted url: %v", name, values)
-		}
-		got[name] = values[0]
-	}
-	want := map[string]any{}
-	for name, value := range wantQuery {
-		want[name] = value
-	}
-	want["sig"] = apiAnyString
-	apiWantValue(t, "link-query", any(got), any(want))
-	if sig, _ := got["sig"].(string); len(sig) != 32 {
-		t.Fatalf("want a 32-character signature, got %q", got["sig"])
-	}
-}
-
-func TestHandleGetDiffShareLinkApiDiffShareLinkGet(t *testing.T) {
-	t.Run("minting answers the server-relative /diff page carrying both addresses and a signature that opens the pair with no credential at all", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		before, after := apiDiffSeededSides(t, h, owner)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "GET",
-			"/api/diff/share-link?before="+before+"&after="+after, owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{"url": apiAnyString})
-		dashboard.wantFrames()
-
-		link, _ := data["url"].(string)
-		apiWantDiffLink(t, link, map[string]string{"before": before, "after": after})
-
-		query, _ := url.Parse(link)
-		status, pair := apiJSON(t, h, "GET", "/api/diff?"+query.RawQuery, "", "")
-		if status != 200 {
-			t.Fatalf("the minted link must open the pair with no credential: %d %v", status, pair)
-		}
-		apiWantBody(t, pair, map[string]any{
-			"before": map[string]any{"address": before, "gone": false, "mime": "text/plain", "text": "the old wording"},
-			"after":  map[string]any{"address": after, "gone": false, "mime": "text/plain", "text": "the new wording"},
-		})
-	})
-
-	t.Run("both column headings ride in the link, and relabelling a column voids the signature", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		before, after := apiDiffSeededSides(t, h, owner)
-		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "GET",
-			"/api/diff/share-link?before="+before+"&after="+after+
-				"&label_before="+url.QueryEscape("預設內容")+"&label_after=now", agent, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{"url": apiAnyString})
-		dashboard.wantFrames()
-
-		link, _ := data["url"].(string)
-		apiWantDiffLink(t, link, map[string]string{
-			"before": before, "after": after, "label_before": "預設內容", "label_after": "now",
-		})
-
-		parsed, _ := url.Parse(link)
-		status, pair := apiJSON(t, h, "GET", "/api/diff?"+parsed.RawQuery, "", "")
-		if status != 200 {
-			t.Fatalf("the minted link must open the pair: %d %v", status, pair)
-		}
-		apiWantBody(t, pair, map[string]any{
-			"before": map[string]any{"address": before, "gone": false, "label": "預設內容", "mime": "text/plain", "text": "the old wording"},
-			"after":  map[string]any{"address": after, "gone": false, "label": "now", "mime": "text/plain", "text": "the new wording"},
-		})
-
-		tampered := parsed.Query()
-		tampered.Set("label_after", "預設內容")
-		status, refused := apiJSON(t, h, "GET", "/api/diff?"+tampered.Encode(), "", "")
-		if status != 401 {
-			t.Fatalf("want 401, got %d (%v)", status, refused)
-		}
-		apiWantError(t, refused, "unauthorized", "invalid signature")
-	})
-
-	t.Run("minting the same comparison twice answers the same link, and a different comparison a different one", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
-		before, after := apiDiffSeededSides(t, h, owner)
-
-		first := apiDiffShareQuery(t, h, owner, before, after, "", "")
-		if again := apiDiffShareQuery(t, h, owner, before, after, "", ""); again != first {
-			t.Fatalf("the same comparison must mint the same link:\n%s\n%s", first, again)
-		}
-		if swapped := apiDiffShareQuery(t, h, owner, after, before, "", ""); swapped == first {
-			t.Fatalf("swapping the two sides must not mint the same link: %s", swapped)
-		}
-		if labelled := apiDiffShareQuery(t, h, owner, before, after, "was", ""); labelled == first {
-			t.Fatalf("adding a column heading must not mint the same link: %s", labelled)
-		}
-	})
-
-	t.Run("a side that is not a sayable address is refused 422 naming which side, and mints nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		before, _ := apiDiffSeededSides(t, h, owner)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "GET", "/api/diff/share-link?before="+before+"&after=att-nope", owner, "")
-		if status != 422 {
-			t.Fatalf("want 422, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error",
-			"the after side: 'att-nope' is neither a stored attachment id (att- plus 12 hex digits) "+
-				"nor a document address (doc:<kind>/<key>/<at>/<field>)")
-		dashboard.wantFrames()
-	})
-
-	t.Run("a request carrying no credentials answers 401", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		before, after := apiDiffSeededSides(t, h, owner)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "GET", "/api/diff/share-link?before="+before+"&after="+after, "", "")
-		if status != 401 {
-			t.Fatalf("want 401, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "unauthorized", "missing credentials")
-		dashboard.wantFrames()
-	})
-
-	t.Run("a GET /api/diff/share-link request the wire layer rejects (a request with no before parameter) answers 422 without reaching the domain", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		_, after := apiDiffSeededSides(t, h, owner)
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "GET", "/api/diff/share-link?after="+after, owner, "")
-		if status != 422 {
-			t.Fatalf("want 422, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error", "Query argument before is required, but not found")
-		dashboard.wantFrames()
-	})
 }
 
 func TestHandleGetDiffApiDiffGet(t *testing.T) {
@@ -452,27 +282,54 @@ func TestHandleGetDiffApiDiffGet(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
-	t.Run("a credential-less request carrying a signature for a different comparison answers 401", func(t *testing.T) {
+	t.Run("a credential-less request carrying a link for a different comparison, or an expired link, answers 410", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		before, after := apiDiffSeededSides(t, h, owner)
+		other := apiDiffUpload(t, h, owner, "third.txt", "a third wording")
+		minted := apiDiffShareQuery(t, h, owner, before, after)
+		dashboard := apiTestListen(t, api, "")
+
+		link := mustParseQuery(t, minted).Get("link")
+		status, data := apiJSON(t, h, "GET",
+			"/api/diff?before="+before+"&after="+other+"&link="+url.QueryEscape(link), "", "")
+		if status != 410 {
+			t.Fatalf("want 410, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "client_error", shareLinkGoneMsg)
+
+		var id string
+		if err := d.rdb.QueryRow(`SELECT id FROM share_link WHERE token_hash = ?`, shareLinkTokenHash(link)).Scan(&id); err != nil {
+			t.Fatalf("read row: %v", err)
+		}
+		apiExpireShareLinkNow(t, d, id)
+		status, data = apiJSON(t, h, "GET", "/api/diff?"+minted, "", "")
+		if status != 410 {
+			t.Fatalf("expired link: want 410, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "client_error", shareLinkGoneMsg)
+		dashboard.wantFrames()
+	})
+
+	t.Run("a sig minted before links were stored still opens its comparison, and a forged or foreign one answers 401", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		before, after := apiDiffSeededSides(t, h, owner)
 		other := apiDiffUpload(t, h, owner, "third.txt", "a third wording")
-		minted := apiDiffShareQuery(t, h, owner, before, after, "", "")
-		dashboard := apiTestListen(t, api, "")
+		legacy := diffSigForRing(api.keys, before, after, "", "")
 
-		signature := mustParseQuery(t, minted).Get("sig")
-		status, data := apiJSON(t, h, "GET",
-			"/api/diff?before="+before+"&after="+other+"&sig="+url.QueryEscape(signature), "", "")
-		if status != 401 {
-			t.Fatalf("want 401, got %d (%v)", status, data)
+		status, data := apiJSON(t, h, "GET", "/api/diff?before="+before+"&after="+after+"&sig="+legacy, "", "")
+		if status != 200 {
+			t.Fatalf("legacy sig: want 200, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "unauthorized", "invalid signature")
-
-		status, data = apiJSON(t, h, "GET", "/api/diff?before="+before+"&after="+after+"&sig=notasignature", "", "")
-		if status != 401 {
-			t.Fatalf("want 401, got %d (%v)", status, data)
+		for _, query := range []string{
+			"before=" + before + "&after=" + other + "&sig=" + legacy,
+			"before=" + before + "&after=" + after + "&sig=notasignature",
+		} {
+			status, data := apiJSON(t, h, "GET", "/api/diff?"+query, "", "")
+			if status != 401 {
+				t.Fatalf("%s: want 401, got %d (%v)", query, status, data)
+			}
+			apiWantError(t, data, "unauthorized", "invalid signature")
 		}
-		apiWantError(t, data, "unauthorized", "invalid signature")
-		dashboard.wantFrames()
 	})
 
 	t.Run("a signed-in reader is answered whether or not the request carries a signature", func(t *testing.T) {

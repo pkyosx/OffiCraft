@@ -26,7 +26,7 @@ const { listTaskArtifacts } = vi.hoisted(() => ({ listTaskArtifacts: vi.fn() }))
 vi.mock("../api", () => ({
   api: {
     subscribeEvents: () => () => {},
-    getChatAttachmentShareLink: vi.fn(),
+    getChatAttachmentPreviewLink: vi.fn(),
     getTaskStep: vi.fn(),
     getOutsourceWorker: () => Promise.reject(new Error("not found")),
     listTaskArtifacts,

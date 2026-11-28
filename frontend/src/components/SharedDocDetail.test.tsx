@@ -199,7 +199,7 @@ describe("SharedDocDetail", () => {
 
   function showDoc(doc: SharedDocDetailView) {
     vi.spyOn(api, "getSharedDoc").mockResolvedValue(doc);
-    vi.spyOn(api, "getChatAttachmentShareLink").mockResolvedValue(
+    vi.spyOn(api, "getChatAttachmentPreviewLink").mockResolvedValue(
       "/api/chat/attachment/att-aaaaaaaaaaaa?sig=s1",
     );
     return renderDetail(doc.id);
@@ -234,7 +234,7 @@ describe("SharedDocDetail", () => {
     vi.restoreAllMocks();
 
     const failed = showDoc(fileDoc("page.html", "text/html", "<p>hi</p>"));
-    vi.spyOn(api, "getChatAttachmentShareLink").mockRejectedValue(new Error("http 500"));
+    vi.spyOn(api, "getChatAttachmentPreviewLink").mockRejectedValue(new Error("http 500"));
     vi.spyOn(console, "warn").mockImplementation(() => {});
     await title(failed.getByTestId);
     await waitFor(() => expect(failed.getByTestId("shared-doc-html").textContent).toBe("這個檔案無法在這裡顯示。"));
@@ -266,7 +266,7 @@ describe("SharedDocDetail", () => {
     vi.restoreAllMocks();
 
     const failed = showDoc(fileDoc("spec.pdf", "application/pdf", null));
-    vi.spyOn(api, "getChatAttachmentShareLink").mockRejectedValue(new Error("http 500"));
+    vi.spyOn(api, "getChatAttachmentPreviewLink").mockRejectedValue(new Error("http 500"));
     vi.spyOn(console, "warn").mockImplementation(() => {});
     await title(failed.getByTestId);
     await waitFor(() => expect(failed.getByTestId("shared-doc-pdf").textContent).toBe("這個檔案無法在這裡顯示。"));

@@ -255,18 +255,18 @@ func TestCmdDiff(t *testing.T) {
 		}
 	})
 
-	t.Run("--external hands the pair to the server and prints the signed link", func(t *testing.T) {
+	t.Run("--external hands the pair to the server and prints the share link", func(t *testing.T) {
 		var out, errOut bytes.Buffer
 		client := canned(200, `{"url":"/diff/s/abc123"}`)
 		rc := cmdDiff(client, configured, "att-0123456789ab", "att-ba9876543210", " Old ", "", true,
 			&out, &errOut)
 		if rc != 0 || out.String() != "https://station.example.com/diff/s/abc123\n" {
-			t.Fatalf("got (%d, %q), want (0, the absolutised signed link)", rc, out.String())
+			t.Fatalf("got (%d, %q), want (0, the absolutised share link)", rc, out.String())
 		}
-		wantURL := "https://station.example.com/api/diff/share-link?" +
-			"after=att-ba9876543210&before=att-0123456789ab&label_before=Old"
-		if len(client.sent) != 1 || client.sent[0].url != wantURL {
-			t.Fatalf("sent %+v, want one GET to %q", client.sent, wantURL)
+		wantBody := `{"after":"att-ba9876543210","before":"att-0123456789ab","label_before":"Old"}`
+		if len(client.sent) != 1 || client.sent[0].url != "https://station.example.com/api/diff/share-link" ||
+			client.sent[0].body != wantBody {
+			t.Fatalf("sent %+v, want one POST carrying %s", client.sent, wantBody)
 		}
 	})
 }
@@ -283,13 +283,16 @@ func TestMintExternalDiffLink(t *testing.T) {
 			t.Fatalf("got (%d, %q, %q), want (0, the absolutised link, \"\")",
 				rc, out.String(), errOut.String())
 		}
+		body := `{"after":"att-ba9876543210","before":"att-0123456789ab","label_after":"New","label_before":"Old"}`
 		want := sentRequest{
-			method: "GET",
-			url: "https://station.example.com/api/diff/share-link?after=att-ba9876543210" +
-				"&before=att-0123456789ab&label_after=New&label_before=Old",
+			method: "POST",
+			url:    "https://station.example.com/api/diff/share-link",
 			ua:     "ocagent/0.1",
 			accept: "application/json",
+			ctype:  "application/json",
 			auth:   "Bearer tok-1",
+			length: int64(len(body)),
+			body:   body,
 		}
 		if len(client.sent) != 1 || client.sent[0] != want {
 			t.Fatalf("sent %+v, want %+v", client.sent, want)

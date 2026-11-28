@@ -124,6 +124,7 @@ type NavIconLabelKey =
   | "themeNavLore"
   | "themeNavSharedDocs"
   | "themeNavSecrets"
+  | "themeNavShareLinks"
   | "themeNavMonitor";
 const NAV_ICON_LABEL_KEYS: Record<NavTabKey, NavIconLabelKey> = {
   office: "themeNavOffice",
@@ -132,6 +133,7 @@ const NAV_ICON_LABEL_KEYS: Record<NavTabKey, NavIconLabelKey> = {
   lore: "themeNavLore",
   shared_docs: "themeNavSharedDocs",
   secrets: "themeNavSecrets",
+  share_links: "themeNavShareLinks",
   monitor: "themeNavMonitor",
 };
 const NAV_ICON_SLOTS = NAV_TAB_KEYS.map((key) => ({
@@ -230,6 +232,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     lore: useRef<HTMLInputElement>(null),
     shared_docs: useRef<HTMLInputElement>(null),
     secrets: useRef<HTMLInputElement>(null),
+    share_links: useRef<HTMLInputElement>(null),
     monitor: useRef<HTMLInputElement>(null),
   } satisfies Record<NavTabKey, RefObject<HTMLInputElement>>;
   const [wordingLang, setWordingLang] = useState<"zh" | "en">("zh");
@@ -889,13 +892,10 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
             </button>
           </div>
           {/* The share links this box is meant to eat are identity-less and
-              never expire. They are no longer beyond recall, though: since
-              T-62 a sig is derived from a key in the signing-key RING, so
-              removing that key voids every link it signed at once — coarse,
-              and never per-link. Whoever pastes one here is also the person
-              who can decide whether the theme should be readable by anyone
-              holding the URL — so the warning belongs on this screen, not only
-              in the docs. */}
+              open for anyone until they expire or are revoked. Whoever pastes
+              one here is also the person who can decide whether the theme
+              should be readable by anyone holding the URL — so the warning
+              belongs on this screen, not only in the docs. */}
           <div className="ts-link-note">{t.profile.themeImportLinkShareNote}</div>
           {importError && <div className="set-error">{importError}</div>}
         </div>

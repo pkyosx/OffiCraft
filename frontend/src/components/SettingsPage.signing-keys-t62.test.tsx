@@ -5,9 +5,9 @@
 //
 //   - rotate is safe and needs no confirmation;
 //   - remove is a revocation with no undo whose blast radius is WIDER than
-//     anyone would guess (it kills file share links too, and warden credentials
-//     never expire on their own), so it must not be reachable in one click and
-//     the confirmation must say both things.
+//     anyone would guess (it kills preview links and pre-update share links
+//     too, and warden credentials never expire on their own), so it must not
+//     be reachable in one click and the confirmation must say both things.
 //
 // It also pins the two ways this card could quietly lie: the key that is
 // SIGNING must have no remove button at all (a button that exists in order to
@@ -145,6 +145,7 @@ describe("簽章金鑰卡 · 兩顆按鈕的不對稱", () => {
     expect(modal.textContent).toContain(k.removeConfirmBody);
     expect(modal.textContent).toContain(k.removeConfirmWarden);
     expect(k.removeConfirmBody).toContain("分享連結");
+    expect(k.removeConfirmBody).toContain("「分享」分頁收回");
     expect(k.removeConfirmWarden).toContain("機器");
 
     fireEvent.click(screen.getByTestId("set-signing-keys-confirm-ok"));
@@ -186,6 +187,7 @@ describe("簽章金鑰卡 · 英文那一份也要是真的字", () => {
     // A half-translated destructive confirmation is a wrong string with legs:
     // the English reader would get the button without the blast radius.
     expect(en.signingKeys.removeConfirmBody).toContain("share links");
+    expect(en.signingKeys.removeConfirmBody).toContain("revoke it on the Sharing tab");
     expect(en.signingKeys.removeConfirmWarden).toContain("machine");
     expect(en.signingKeys.removeConfirmBody).not.toBe(zh.signingKeys.removeConfirmBody);
   });

@@ -1,6 +1,6 @@
 // WHAT THE OWNER SEES in the body of the preview overlay for a file it cannot
 // draw: 請下載 for a file the browser would only download, and for an HTML page
-// or a PDF whose share link could not be made. The header's 「在新頁面顯示」
+// or a PDF whose preview link could not be made. The header's 「在新頁面顯示」
 // button, its href and its gate are pinned by
 // MarkdownPreviewOverlay.new-tab.test.tsx.
 //
@@ -34,7 +34,7 @@ function mountOverlay(mime: string, title: string) {
 
 function mintOk() {
   return vi
-    .spyOn(api, "getChatAttachmentShareLink")
+    .spyOn(api, "getChatAttachmentPreviewLink")
     .mockResolvedValue("/api/chat/attachment/att-36?sig=test-sig");
 }
 
@@ -63,7 +63,7 @@ describe("the body copy of a file shown only in a new tab points at the button, 
     ["application/pdf", "report.pdf"],
     ["text/html", "mock.html"],
   ])("falls back to 請下載 on a %s attachment when the share link could not be minted", async (mime, title) => {
-    vi.spyOn(api, "getChatAttachmentShareLink").mockRejectedValue(new Error("boom"));
+    vi.spyOn(api, "getChatAttachmentPreviewLink").mockRejectedValue(new Error("boom"));
     vi.spyOn(console, "warn").mockImplementation(() => {});
     globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "" })) as unknown as typeof fetch;
 

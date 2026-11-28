@@ -8,7 +8,7 @@
 # (doc:<kind>/<key>/<at>/<field>). THREE places judge that spelling:
 #
 #   server/ocserverd/diffaddr.go   THE AUTHORITY. GET /api/diff and
-#                                  GET /api/diff/share-link refuse an unsayable
+#                                  POST /api/diff/share-link refuse an unsayable
 #                                  address; everything else reads what it says.
 #   cli/ocagent/diff.go            a PRE-FLIGHT copy, so a mistyped side costs
 #                                  one local sentence naming WHICH argument is

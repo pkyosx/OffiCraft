@@ -860,8 +860,6 @@ export function ChatArea({
     chatSearch.reset();
   };
   const searchCurrentId = searchMode ? chatSearch.current?.id : undefined;
-  // The attachment whose share link was just copied (transient 「已複製」
-  // feedback on that one button; null = none).
   // Inter-agent (agent↔agent) groups that the owner has EXPANDED (keyed by the
   // group's first-message id). Collapsed is the default — a group is expanded
   // only once its id lands here, so the owner opts in per block.

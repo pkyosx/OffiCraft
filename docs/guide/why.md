@@ -89,7 +89,7 @@ You (CEO)
 | **Role** | A staff member's position. Each role has its own Duty and Insight (judgement calls). When a different member takes over, this memory stays with the role. |
 | **Task** | A piece of work to track until it is closed, broken into several steps, each with a definition of done. |
 | **Reply card** | A card a member opens when it needs your decision. The member stops at that step and waits for your answer; it does not decide for you. |
-| **Console** | The web page you use to run the studio. Its tabs are Office, Ask, Task, Secrets, Files, Lore, and Monitor. The gear icon in the top right opens Settings, and the User guide is also in Settings. |
+| **Console** | The web page you use to run the studio. Its tabs are Office, Ask, Task, Secrets, Sharing, Files, Lore, and Monitor. The gear icon in the top right opens Settings, and the User guide is also in Settings. |
 
 Right after installation, the studio has only two people: you, and your Assistant, **Mira**.
 

@@ -132,6 +132,7 @@ class HCtx:
     _attachment: tuple[str, bytes] | None = field(default=None, repr=False)
     _put_theme_id: str | None = field(default=None, repr=False)
     _avatar_to_delete_url: str | None = field(default=None, repr=False)
+    _revoked_share_url: str | None = field(default=None, repr=False)
     _reorder_step_ids: list[str] = field(default_factory=list, repr=False)
 
     def token(self, identity: str) -> str | None:
@@ -569,10 +570,53 @@ def _check_bootstrap_role_only(_ctx: HCtx, r: httpx.Response) -> None:
 
 def _check_share_link_shape(ctx: HCtx, r: httpx.Response) -> None:
     att_id, _payload = ctx.attachment()
+    data = r.json()
+    url = data["url"]
+    assert url.startswith(f"/api/chat/attachment/{att_id}?link="), url
+    link = url.split("link=", 1)[1]
+    assert link and "&" not in link, f"malformed link segment: {url}"
+    minted = data["share_link"]
+    assert minted["kind"] == "attachment" and minted["attachment_id"] == att_id, minted
+    assert minted["id"].startswith("sl-"), minted
+    assert minted["expires_ts"] - minted["created_ts"] == 7 * 24 * 3600, minted
+
+
+def _check_preview_link_shape(ctx: HCtx, r: httpx.Response) -> None:
+    att_id, payload = ctx.attachment()
     url = r.json()["url"]
-    assert url.startswith(f"/api/chat/attachment/{att_id}?sig="), url
-    sig = url.split("sig=", 1)[1]
-    assert sig and "&" not in sig, f"malformed sig segment: {url}"
+    assert url.startswith(f"/api/chat/attachment/{att_id}?"), url
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+    assert set(query) == {"sig", "exp"}, f"a preview url carries sig and exp only: {url}"
+    anon = ctx.client.get(url)
+    assert anon.status_code == 200 and anon.content == payload, anon.status_code
+
+
+def _mint_attachment_share_link(ctx: HCtx) -> dict[str, Any]:
+    att_id, _payload = ctx.attachment()
+    r = ctx.client.post(
+        f"/api/chat/attachments/{att_id}/share-link", headers=_auth(ctx.owner_token)
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _happy_share_link_revoke_path(ctx: HCtx) -> str:
+    minted = _mint_attachment_share_link(ctx)
+    ctx._revoked_share_url = minted["url"]
+    return f"/api/share-links/{minted['share_link']['id']}"
+
+
+def _check_share_link_revoked(ctx: HCtx, r: httpx.Response) -> None:
+    assert r.json()["id"].startswith("sl-"), r.text
+    gone = ctx.client.get(ctx._revoked_share_url)
+    assert gone.status_code == 410, f"a revoked link must answer 410: {gone.status_code} {gone.text}"
+
+
+def _check_share_links_listed(ctx: HCtx, r: httpx.Response) -> None:
+    att_id, _payload = ctx.attachment()
+    links = r.json()["share_links"]
+    assert any(link["attachment_id"] == att_id for link in links), links
+    assert all("url" not in link for link in links), "a listed link must not carry its url"
 
 
 def _diff_pair_path(ctx: HCtx) -> str:
@@ -596,31 +640,24 @@ def _check_diff_pair(ctx: HCtx, r: httpx.Response) -> None:
 
 
 def _check_diff_share_link(ctx: HCtx, r: httpx.Response) -> None:
-    """The minted link is SERVER-RELATIVE, carries the same four parameters, and
-    reads the pair with NO credential at all — the whole point of the external
-    flavour."""
+    """The minted link is SERVER-RELATIVE, carries both addresses and a share
+    credential, and reads the pair with NO credential at all — the whole point
+    of the external flavour."""
     att_id, _payload = ctx.attachment()
     url = r.json()["url"]
     assert url.startswith("/diff?"), url
     query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
     assert query["before"] == [att_id] and query["after"] == [att_id], query
-    assert query.get("sig") and query["sig"][0], f"no signature on the external link: {url}"
+    assert query.get("link") and query["link"][0], f"no credential on the external link: {url}"
 
-    signed = "/api/diff?" + urllib.parse.urlparse(url).query
-    anon = ctx.client.get(signed)
+    shared = "/api/diff?" + urllib.parse.urlparse(url).query
+    anon = ctx.client.get(shared)
     assert anon.status_code == 200, f"credential-less read failed: {anon.status_code} {anon.text}"
     assert anon.json()["before"]["address"] == att_id, anon.text
 
-    # Replacing the last base64url character has to CHANGE it: when the
-    # signature already ends in "X" the "tampered" url is the original, the
-    # server answers 200 and a healthy build fails the assertion below about
-    # once in every 64 runs. The Go twin (api_diff_test.go) handles the same
-    # collision; this copy did not.
-    sig = query["sig"][0]
-    tampered_sig = sig[:-1] + ("Y" if sig.endswith("X") else "X")
-    tampered = signed.replace("sig=" + sig, "sig=" + tampered_sig)
-    bad = ctx.client.get(tampered)
-    assert bad.status_code == 401, f"a tampered sig must be 401: {bad.status_code} {bad.text}"
+    relabelled = shared + "&label_after=relabelled"
+    bad = ctx.client.get(relabelled)
+    assert bad.status_code == 410, f"a relabelled link must be 410: {bad.status_code} {bad.text}"
 
 
 def _seeded_chat_path(template: str) -> Callable[[HCtx], str]:
@@ -2676,16 +2713,29 @@ HAPPY: dict[str, Happy] = {
         nonjson="raw attachment bytes, not spec JSON",
         check=_check_attachment_roundtrip,
     ),
-    "GET /api/chat/attachments/{attachment_id}/share-link": Happy(
+    "POST /api/chat/attachments/{attachment_id}/share-link": Happy(
         path=lambda ctx: f"/api/chat/attachments/{ctx.attachment()[0]}/share-link",
         check=_check_share_link_shape,
+    ),
+    "GET /api/chat/attachments/{attachment_id}/preview-link": Happy(
+        path=lambda ctx: f"/api/chat/attachments/{ctx.attachment()[0]}/preview-link",
+        check=_check_preview_link_shape,
+    ),
+    "GET /api/share-links": Happy(
+        path=lambda ctx: (_mint_attachment_share_link(ctx), "/api/share-links")[1],
+        check=_check_share_links_listed,
+    ),
+    "DELETE /api/share-links/{share_link_id}": Happy(
+        path=_happy_share_link_revoke_path,
+        check=_check_share_link_revoked,
     ),
     "GET /api/chat/attachments": Happy(
         path=_seeded_chat_path("/api/chat/attachments"), check=_nonempty_list
     ),
     "GET /api/diff": Happy(path=_diff_pair_path, check=_check_diff_pair),
-    "GET /api/diff/share-link": Happy(
-        path=lambda ctx: _diff_pair_path(ctx).replace("/api/diff?", "/api/diff/share-link?", 1),
+    "POST /api/diff/share-link": Happy(
+        path="/api/diff/share-link",
+        body=lambda ctx: {"before": ctx.attachment()[0], "after": ctx.attachment()[0]},
         check=_check_diff_share_link,
     ),
     "POST /api/chat/attachments": Happy(
@@ -4385,11 +4435,11 @@ def test_outsource_worker_relocate_requires_a_machine_that_resolves(
         "a resolvable machine must let the request reach the worker resolve")
 
 
-# ── share-sig semantics (the ?sig= third auth path on the blob GET) ─────────
+# ── share-link semantics (the ?link= auth path on the blob GET) ─────────────
 
 
 def _share_url(hctx: HCtx, att_id: str) -> str:
-    r = hctx.client.get(
+    r = hctx.client.post(
         f"/api/chat/attachments/{att_id}/share-link",
         headers=_auth(hctx.owner_token),
     )
@@ -4397,14 +4447,18 @@ def _share_url(hctx: HCtx, att_id: str) -> str:
     return r.json()["url"]
 
 
+def _share_link_of(url: str) -> str:
+    return url.split("link=", 1)[1]
+
+
 def _second_attachment(hctx: HCtx) -> str:
     """Seed a SECOND attachment (distinct from ctx.attachment()) so the
-    single-file-grant face has a foreign blob to aim the sig at."""
+    single-file-grant face has a foreign blob to aim the link at."""
     r = hctx.client.post(
         "/api/chat",
         json={
             "to": hctx.agent.member_id,
-            "body": "share-sig foreign blob seed",
+            "body": "share-link foreign blob seed",
             "attachments": [
                 {"data_b64": _PNG_B64, "filename": "conf2.png", "mime": "image/png"}
             ],
@@ -4415,63 +4469,76 @@ def _second_attachment(hctx: HCtx) -> str:
     return r.json()["attachments"][0]["id"]
 
 
-def test_share_sig_serves_blob_without_credentials(hctx: HCtx) -> None:
+def test_share_link_serves_blob_without_credentials(hctx: HCtx) -> None:
     """A share link works BARE — no Authorization header, no ?token= — and
     returns the exact stored bytes."""
     att_id, payload = hctx.attachment()
     r = hctx.client.get(_share_url(hctx, att_id))
     assert r.status_code == 200, r.text
-    assert r.content == payload, "share-sig fetch did not round-trip the bytes"
+    assert r.content == payload, "share-link fetch did not round-trip the bytes"
 
 
-def test_share_sig_rejects_tampered_sig(hctx: HCtx) -> None:
+def test_share_link_unknown_credential_is_gone(hctx: HCtx) -> None:
     att_id, _ = hctx.attachment()
-    url = _share_url(hctx, att_id)
-    good_sig = url.split("sig=", 1)[1]
-    bad_sig = good_sig[:-1] + ("A" if good_sig[-1] != "A" else "B")
-    r = hctx.client.get(f"/api/chat/attachment/{att_id}?sig={bad_sig}")
-    assert r.status_code == 401, f"tampered sig must 401, got {r.status_code}"
-    assert hctx.client.get(f"/api/chat/attachment/{att_id}?sig=").status_code == 401
+    good = _share_link_of(_share_url(hctx, att_id))
+    bad = good[:-1] + ("A" if good[-1] != "A" else "B")
+    r = hctx.client.get(f"/api/chat/attachment/{att_id}?link={bad}")
+    assert r.status_code == 410, f"an unknown link must 410, got {r.status_code}"
+    assert r.json()["error"]["code"] == "client_error", r.text
 
 
-def test_share_sig_grants_exactly_one_attachment(hctx: HCtx) -> None:
-    """The sig is an HMAC over ONE attachment id: replaying it against any
-    other blob id is a 401 — a leaked link never widens into a second file."""
+def test_share_link_revoke_ends_only_that_link(hctx: HCtx) -> None:
+    att_id, payload = hctx.attachment()
+    revoked, kept = _share_url(hctx, att_id), _share_url(hctx, att_id)
+    listed = hctx.client.get(
+        f"/api/share-links?attachment_id={att_id}", headers=_auth(hctx.owner_token)
+    ).json()["share_links"]
+    target = listed[-2]["id"]
+    r = hctx.client.delete(f"/api/share-links/{target}", headers=_auth(hctx.owner_token))
+    assert r.status_code == 200, r.text
+    assert hctx.client.get(revoked).status_code == 410
+    again = hctx.client.get(kept)
+    assert again.status_code == 200 and again.content == payload, again.status_code
+
+
+def test_share_link_grants_exactly_one_attachment(hctx: HCtx) -> None:
+    """A link names ONE attachment: replaying it against any other blob id is a
+    410 — a leaked link never widens into a second file."""
     att_id, _ = hctx.attachment()
     other_id = _second_attachment(hctx)
     assert other_id != att_id
-    sig = _share_url(hctx, att_id).split("sig=", 1)[1]
-    r = hctx.client.get(f"/api/chat/attachment/{other_id}?sig={sig}")
-    assert r.status_code == 401, f"foreign-blob sig must 401, got {r.status_code}"
+    link = _share_link_of(_share_url(hctx, att_id))
+    r = hctx.client.get(f"/api/chat/attachment/{other_id}?link={link}")
+    assert r.status_code == 410, f"foreign-blob link must 410, got {r.status_code}"
 
 
-def test_share_sig_ignored_on_other_routes(hctx: HCtx) -> None:
-    """?sig= is a credential ONLY on the blob GET: every other gated route
-    stays 401 deny-by-default (the sig never becomes a general token)."""
+def test_share_link_ignored_on_other_routes(hctx: HCtx) -> None:
+    """?link= is a credential ONLY on the blob and comparison GETs: every other
+    gated route stays 401 deny-by-default."""
     att_id, _ = hctx.attachment()
-    sig = _share_url(hctx, att_id).split("sig=", 1)[1]
+    link = _share_link_of(_share_url(hctx, att_id))
     for path in (
-        f"/api/chat/attachments/{att_id}/share-link?sig={sig}",
-        f"/api/chat?sig={sig}",
-        f"/api/members?sig={sig}",
+        f"/api/chat/attachments/{att_id}/preview-link?link={link}",
+        f"/api/chat?link={link}",
+        f"/api/members?link={link}",
     ):
         r = hctx.client.get(path)
         assert r.status_code == 401, f"{path}: expected 401, got {r.status_code}"
 
 
-def test_share_sig_never_shadows_a_bad_bearer(hctx: HCtx) -> None:
+def test_share_link_never_shadows_a_bad_bearer(hctx: HCtx) -> None:
     """Precedence pin: a PRESENT bearer credential (header or ?token=) is
     verified as a token and a bad one stays 401 — it never falls through to a
-    valid ?sig= riding the same request."""
+    valid ?link= riding the same request."""
     att_id, _ = hctx.attachment()
-    sig = _share_url(hctx, att_id).split("sig=", 1)[1]
+    link = _share_link_of(_share_url(hctx, att_id))
     r = hctx.client.get(
-        f"/api/chat/attachment/{att_id}?sig={sig}",
+        f"/api/chat/attachment/{att_id}?link={link}",
         headers={"Authorization": "Bearer not-a-jwt"},
     )
-    assert r.status_code == 401, f"bad bearer + good sig must 401, got {r.status_code}"
-    r = hctx.client.get(f"/api/chat/attachment/{att_id}?token=not-a-jwt&sig={sig}")
-    assert r.status_code == 401, f"bad ?token= + good sig must 401, got {r.status_code}"
+    assert r.status_code == 401, f"bad bearer + good link must 401, got {r.status_code}"
+    r = hctx.client.get(f"/api/chat/attachment/{att_id}?token=not-a-jwt&link={link}")
+    assert r.status_code == 401, f"bad ?token= + good link must 401, got {r.status_code}"
 
 
 # ── owner second factor: the whole ceremony, over the real wire ──────────────

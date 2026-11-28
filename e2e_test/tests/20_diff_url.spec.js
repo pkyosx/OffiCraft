@@ -7,7 +7,7 @@
 //      backdrop.
 //   2. opening one from OUTSIDE shows a standalone page. That path needs three
 //      separate things to be true at once — the real server serves the SPA
-//      shell for the path `/diff`, the signed read is answered with NO session,
+//      shell for the path `/diff`, the share-link read is answered with NO session,
 //      and the page mounts ahead of the auth wall — and each of the three is
 //      pinned in a different language's tests. Only a browser against the real
 //      server asks all three in one question.
@@ -32,7 +32,7 @@ const BEFORE_B64 = Buffer.from('alpha\nshared line\n').toString('base64');
 const AFTER_B64 = Buffer.from('beta\nshared line\n').toString('base64');
 
 test.describe('T-59 · a comparison is a URL', () => {
-  test('a link opens in place inside the studio, and stands alone with a signature outside it', async ({
+  test('a link opens in place inside the studio, and stands alone with a share link outside it', async ({
     page,
     browser,
   }) => {
@@ -82,31 +82,34 @@ test.describe('T-59 · a comparison is a URL', () => {
     await expect(screen, 'closing the modal must retire the comparison').toHaveCount(0);
     await expect(link, 'the message the reader was on is still on screen').toBeVisible();
 
-    // ── 2. outside the studio: the SIGNED url is a standalone page ──
-    const minted = await request.get(
-      `${BASE}/api/diff/share-link?before=${before}&after=${after}`,
-      { headers: authHeaders(token) },
-    );
+    // ── 2. outside the studio: the SHARE-LINK url is a standalone page ──
+    const minted = await request.post(`${BASE}/api/diff/share-link`, {
+      headers: authHeaders(token),
+      data: { before, after },
+    });
     expect(minted.status(), 'minting the external link must succeed').toBe(200);
-    const signedPath = (await minted.json()).url;
-    expect(signedPath, 'the mint answers a server-relative /diff path').toMatch(/^\/diff\?/);
-    expect(signedPath, '…carrying the signature that opens it with no login').toContain('sig=');
+    const sharedPath = (await minted.json()).url;
+    expect(sharedPath, 'the mint answers a server-relative /diff path').toMatch(/^\/diff\?/);
+    expect(
+      new URL(sharedPath, BASE).searchParams.get('link'),
+      '…carrying the share link that opens it with no login',
+    ).toBeTruthy();
 
     // A FRESH context: no token in localStorage, no session of any kind — the
     // reader this link exists for.
     const stranger = await browser.newContext();
     try {
       const strangerPage = await stranger.newPage();
-      await strangerPage.goto(`${BASE}${signedPath}`);
+      await strangerPage.goto(`${BASE}${sharedPath}`);
 
       await expect(
         strangerPage.locator('[data-testid="diff-screen"]'),
-        'a signed link must draw the comparison for a reader with no session',
+        'a share link must draw the comparison for a reader with no session',
       ).toBeVisible();
       // The auth wall never appeared, and neither did the studio.
       await expect(
         strangerPage.locator('input[type="password"]'),
-        'a signature is a credential — it must not be met with a login form',
+        'a share link is a credential — it must not be met with a login form',
       ).toHaveCount(0);
       // The one control the page carries is drawn only where a session is
       // certain, and this reader has none.

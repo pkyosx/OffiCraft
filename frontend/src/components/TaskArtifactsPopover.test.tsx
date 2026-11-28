@@ -36,7 +36,10 @@ const { listTaskArtifacts } = vi.hoisted(() => ({ listTaskArtifacts: vi.fn() }))
 vi.mock("../api", () => ({
   api: {
     subscribeEvents: () => () => {},
-    getChatAttachmentShareLink: vi.fn(),
+    getChatAttachmentPreviewLink: vi.fn(),
+    createAttachmentShareLink: vi.fn(),
+    listShareLinks: vi.fn(async () => []),
+    listMembers: vi.fn(async () => []),
     listTaskArtifacts,
     // T-60: the version reader reads its own state from the server (never from
     // these rows), so the popover's tests have to answer its version call too.
@@ -389,9 +392,22 @@ describe("任務產物 markdown 預覽的分享連結", () => {
   });
 
   it("shares a download-only artifact from the popup using its backing att- id", async () => {
-    const mint = vi
-      .mocked(api.getChatAttachmentShareLink)
-      .mockResolvedValue("/api/chat/attachment/att-backing?sig=test");
+    const mint = vi.mocked(api.createAttachmentShareLink).mockResolvedValue({
+        url: "/api/chat/attachment/att-backing?link=tok",
+        link: {
+          id: "sl-0123456789ab",
+          kind: "attachment",
+          attachmentId: "att-backing",
+          attachmentFilename: "x",
+          before: null,
+          after: null,
+          labelBefore: null,
+          labelAfter: null,
+          createdBy: "owner",
+          createdTs: 1792650600,
+          expiresTs: null,
+        },
+      });
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText: vi.fn(async () => {}) }, configurable: true,
     });
@@ -414,8 +430,9 @@ describe("任務產物 markdown 預覽的分享連結", () => {
       return button;
     });
     fireEvent.click(share);
-    await waitFor(() => expect(mint).toHaveBeenCalledWith("att-backing"));
-    expect(mint).not.toHaveBeenCalledWith("ta-binary");
+    fireEvent.click(await screen.findByTestId("share-generate"));
+    await waitFor(() => expect(mint).toHaveBeenCalledWith("att-backing", expect.any(Number)));
+    expect(vi.mocked(api.listShareLinks)).toHaveBeenCalledWith({ attachmentId: "att-backing" });
   });
 
   it("uses the backing att- id while keeping the ta- id for artifact lookup", async () => {
@@ -423,9 +440,22 @@ describe("任務產物 markdown 預覽的分享連結", () => {
       ok: true,
       text: async () => "# task artifact",
     })) as unknown as typeof fetch;
-    const mint = vi
-      .mocked(api.getChatAttachmentShareLink)
-      .mockResolvedValue("/api/chat/attachment/att-backing?sig=test");
+    const mint = vi.mocked(api.createAttachmentShareLink).mockResolvedValue({
+        url: "/api/chat/attachment/att-backing?link=tok",
+        link: {
+          id: "sl-0123456789ab",
+          kind: "attachment",
+          attachmentId: "att-backing",
+          attachmentFilename: "x",
+          before: null,
+          after: null,
+          labelBefore: null,
+          labelAfter: null,
+          createdBy: "owner",
+          createdTs: 1792650600,
+          expiresTs: null,
+        },
+      });
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText: vi.fn(async () => {}) },
       configurable: true,
@@ -455,13 +485,11 @@ describe("任務產物 markdown 預覽的分享連結", () => {
     fireEvent.click(chip);
     await screen.findByRole("heading", { name: "task artifact" });
 
-    // The message bubble also has a same-named hover button. Scope to this
-    // overlay's action row so this test cannot pass by clicking that twin.
     const actions = document.body.querySelector(".md-preview__actions")!;
     const share = actions.querySelector("button.md-preview__share")!;
     fireEvent.click(share);
-    await waitFor(() => expect(mint).toHaveBeenCalledWith("att-backing"));
-    expect(mint).not.toHaveBeenCalledWith("ta-artifact");
+    fireEvent.click(await screen.findByTestId("share-generate"));
+    await waitFor(() => expect(mint).toHaveBeenCalledWith("att-backing", expect.any(Number)));
   });
 });
 

@@ -102,6 +102,9 @@ export interface Messages {
   // ── secrets ──
   secretCopyId: (secretId: string) => string;
   secretDeleteConfirmBody: (name: string) => string;
+  // ── share links ──
+  shareLinkRevokeConfirmBody: (name: string) => string;
+  shareLinkCreatedAt: (when: string) => string;
   sharedDocCopyId: (docId: string) => string;
   sharedDocDeleteConfirmBody: (name: string) => string;
   sharedDocEditHint: () => string;
@@ -502,6 +505,10 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     secretCopyId: (secretId) => `${t.secrets.copyIdLabel} ${secretId}`,
     secretDeleteConfirmBody: (name) =>
       `${t.secrets.deleteConfirmLead}${name}${t.secrets.deleteConfirmTail}`,
+    shareLinkRevokeConfirmBody: (name) =>
+      `${t.shareLinks.revokeConfirmLead}${name}${t.shareLinks.revokeConfirmTail}`,
+    shareLinkCreatedAt: (when) =>
+      `${t.shareLinks.createdLead}${when}${t.shareLinks.createdTail}`,
     sharedDocCopyId: (docId) => `${t.sharedDocs.copyIdLabel} ${docId}`,
     sharedDocDeleteConfirmBody: (name) =>
       `${t.sharedDocs.deleteConfirmLead}${name}${t.sharedDocs.deleteConfirmTail}`,

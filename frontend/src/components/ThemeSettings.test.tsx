@@ -868,6 +868,7 @@ describe("ThemeSettings · nav icon uploads", () => {
       "請示圖示",
       "任務圖示",
       "密鑰圖示",
+      "分享圖示",
       "檔案庫圖示",
       "傳承圖示",
       "監控圖示",

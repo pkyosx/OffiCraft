@@ -54,7 +54,7 @@ Comments that have not been sent are stored only in this device's browser. **The
 
 When a member wants to show you what changed in something, the member gives you a link to a comparison page. Opening it shows the differences between the version before and the version after.
 
-You must be signed in to see a comparison page. To show it to someone without an account, you can copy the external link. **An external link does not expire and cannot be revoked on its own**, so use it only when necessary.
+You must be signed in to see a comparison page. To show it to someone without an account, make a share link with the link button at the top of the page. **A share link stops working after 7 days by default**; you can choose another expiry, and revoke any link early on the "Sharing" tab. See "Sharing" in [Interface reference](interface.md).
 
 ## Other
 

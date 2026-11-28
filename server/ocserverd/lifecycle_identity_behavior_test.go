@@ -1211,6 +1211,14 @@ var identityGateLedger = map[string]string{
 		"vocabulary sharing the field name.",
 	"wire.go :: newReplyCardDTO :: Kind: c.Kind": "" +
 		"NOT an identity gate — the wire twin of the reply-card kind copy above.",
+	"api_share_links.go :: newShareLinkDTO :: Kind: ShareLinkDTOKind(l.Kind)": "" +
+		"NOT an identity gate — SHARE-LINK kind (attachment / diff), copied to the DTO.",
+	"api_share_links.go :: newShareLinkDTO :: l.Kind == shareLinkKindAttachment": "" +
+		"the share link's own kind vocabulary (what it opens), not a member kind.",
+	"routes.go :: attachmentShareLinkOpens :: l.Kind == shareLinkKindAttachment": "" +
+		"the share link's own kind vocabulary: an attachment link opens only the blob route.",
+	"routes.go :: diffShareLinkOpens :: l.Kind == shareLinkKindDiff": "" +
+		"the share link's own kind vocabulary: a comparison link opens only /api/diff.",
 	"wire.go :: newTaskArtifactDTO :: Kind: a.Kind": "" +
 		"NOT an identity gate — ARTIFACT kind (file / image / link), copied to the DTO.",
 	"wire.go :: newTaskArtifactVersionDTO :: Kind: h.Kind": "" +

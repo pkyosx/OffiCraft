@@ -160,7 +160,7 @@ func validateAvatars(avatars *map[string]string, where string) error {
 // "guide" has no nav tab any more but stays allowed: dropping it would 422
 // every existing theme pack that carries a guide icon.
 var navIconKeys = []string{
-	"office", "replies", "tasks", "secrets", "shared_docs", "lore", "monitor", "guide",
+	"office", "replies", "tasks", "secrets", "share_links", "shared_docs", "lore", "monitor", "guide",
 }
 
 var navIconKeyAllowed = func() map[string]bool {

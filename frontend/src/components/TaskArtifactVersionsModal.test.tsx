@@ -30,7 +30,7 @@ vi.mock("../api", () => ({
   api: {
     listTaskArtifacts: vi.fn(),
     listTaskArtifactVersions: vi.fn(),
-    getChatAttachmentShareLink: vi.fn(),
+    getChatAttachmentPreviewLink: vi.fn(),
     listMembers: vi.fn(),
     subscribeEvents: () => () => {},
   },
@@ -39,7 +39,7 @@ vi.mock("../api", () => ({
 const mockedApi = api as unknown as {
   listTaskArtifacts: ReturnType<typeof vi.fn>;
   listTaskArtifactVersions: ReturnType<typeof vi.fn>;
-  getChatAttachmentShareLink: ReturnType<typeof vi.fn>;
+  getChatAttachmentPreviewLink: ReturnType<typeof vi.fn>;
   listMembers: ReturnType<typeof vi.fn>;
 };
 
@@ -408,14 +408,14 @@ describe("TaskArtifactVersionsModal", () => {
       mkVersion({ name: "page.html", filename: "page.html", mime: "text/html", url: "/api/chat/attachment/att-0123456789ab" }),
     ]);
     mockedApi.listTaskArtifacts.mockResolvedValue(mkArtifacts([mkArtifact({ name: "page.html", mime: "text/html" })]));
-    mockedApi.getChatAttachmentShareLink.mockResolvedValue("/api/chat/attachment/att-0123456789ab?sig=s");
+    mockedApi.getChatAttachmentPreviewLink.mockResolvedValue("/api/chat/attachment/att-0123456789ab?sig=s");
     stubFetch({
       "/api/chat/attachment/att-0123456789ab": { mime: "text/html", text: "<p>old</p>" },
       "/api/chat/attachment/att-live": { mime: "text/html", text: "<p>new</p>" },
     });
     const framed = openModal();
     await waitFor(() => expect(screen.getByTestId("ta-versions-content-text").tagName).toBe("IFRAME"));
-    expect(mockedApi.getChatAttachmentShareLink).toHaveBeenCalledWith("att-0123456789ab");
+    expect(mockedApi.getChatAttachmentPreviewLink).toHaveBeenCalledWith("att-0123456789ab");
     expect(screen.getByTestId("ta-versions-content-text").getAttribute("src")).toBe(
       `${window.location.origin}/api/chat/attachment/att-0123456789ab?sig=s`,
     );
@@ -425,7 +425,7 @@ describe("TaskArtifactVersionsModal", () => {
     framed.unmount();
 
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    mockedApi.getChatAttachmentShareLink.mockRejectedValue(new Error("http 500"));
+    mockedApi.getChatAttachmentPreviewLink.mockRejectedValue(new Error("http 500"));
     openModal();
     await waitFor(() =>
       expect(screen.getByTestId("ta-versions-content-text").textContent).toBe("此檔案無法在這裡預覽。"),
@@ -437,7 +437,7 @@ describe("TaskArtifactVersionsModal", () => {
       mkVersion({ name: "spec.pdf", filename: "spec.pdf", mime: "application/pdf", url: "/api/chat/attachment/att-0123456789ab" }),
     ]);
     mockedApi.listTaskArtifacts.mockResolvedValue(mkArtifacts([mkArtifact({ name: "spec.pdf", mime: "application/pdf" })]));
-    mockedApi.getChatAttachmentShareLink.mockResolvedValue("/api/chat/attachment/att-0123456789ab?sig=s");
+    mockedApi.getChatAttachmentPreviewLink.mockResolvedValue("/api/chat/attachment/att-0123456789ab?sig=s");
     const { readText } = stubFetch({
       "/api/chat/attachment/att-0123456789ab": { mime: "application/pdf" },
       "/api/chat/attachment/att-live": { mime: "application/pdf" },

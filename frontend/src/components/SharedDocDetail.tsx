@@ -10,7 +10,7 @@ import { formatAbsolute } from "../lib/dateFormat";
 import type { SharedDocDetailView, SharedDocView } from "../types";
 import { ContentView } from "./ContentView";
 import { isInlineDisplayableMime } from "./MarkdownPreviewOverlay";
-import { useShareHref } from "../hooks/useShareHref";
+import { usePreviewHref } from "../hooks/usePreviewHref";
 import { contentKindOf, isTextKind } from "../lib/contentKind";
 import { SharedDocFormDialog } from "./SharedDocFormDialog";
 import { SharedDocVersionsModal } from "./SharedDocVersionsModal";
@@ -101,7 +101,7 @@ function SharedDocContent({ doc }: { doc: SharedDocDetailView }) {
     doc.kind !== "link" &&
     (kind === "html" || kind === "pdf" || kind === "video" || kind === "binary") &&
     isInlineDisplayableMime(doc.mime);
-  const share = useShareHref(doc.attachmentId, needsShareLink, "SharedDocContent");
+  const share = usePreviewHref(doc.attachmentId, needsShareLink, "SharedDocContent");
   if (doc.kind === "link") {
     return (
       <a

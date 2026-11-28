@@ -54,7 +54,8 @@ This page lists what each term in the console and the user guide means, and whic
 - **Reply / Reply to this part**: in chat, quotes a whole message, or only a passage you selected, in your reply.
 - **Mention (@)**: type `@` in the input box of chat, a task card, or a reply card to pick a member or outsource member. The person mentioned gets no extra notification.
 - **Document comments**: on a document a member sent you, select text, click an image, click a marked spot on a web page, or comment on the whole document, and send it back to the member who sent the document.
-- **Comparison page**: a page that shows the differences between two pieces of content. "Copy external link" lets someone without an account see it.
+- **Comparison page**: a page that shows the differences between two pieces of content. A share link lets someone without an account see it.
+- **Share link**: a link that opens one file or one comparison page without signing in. It stops working when it expires (7 days by default, at most 365 days, or never) or when you revoke it. The "Sharing" tab lists the ones that still work. See "Sharing" in [Interface reference](interface.md).
 
 ## Tasks
 
@@ -105,7 +106,7 @@ This page lists what each term in the console and the user guide means, and whic
 - **Passkeys**: sign in with your device's biometrics or screen lock, without typing a password.
 - **Claim code**: the one-time code needed the first time you set the admin password.
 - **Session length / Member login lifetime**: how long after you sign in to the console you must sign in again; how long before a member must get a new login credential.
-- **Signing keys**: the keys the server uses to issue login credentials and share links, under Settings › System update & backup. Removing an old key immediately invalidates the logins and links it signed. See [Protect your studio](security.md).
+- **Signing keys**: the keys the server uses to issue login credentials, under Settings › System update & backup. Removing an old key immediately invalidates the logins it signed. Share links do not depend on them. See [Protect your studio](security.md).
 - **Machine credential lifetime**: how long each machine's warden login credential is valid. It is renewed automatically before it expires; a machine that misses the renewal has to be reinstalled.
 - **Preferences**: the place in the avatar menu for adjusting theme, language, and layout.
 - **Notification email**: the email address you must enter before turning on push notifications. See [Use it on your phone](mobile.md).

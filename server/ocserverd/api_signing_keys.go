@@ -34,8 +34,9 @@ func (s *apiServer) HandleSigningKeyRotateApiAuthSigningKeysRotatePost(w http.Re
 	writeJSON(w, http.StatusOK, s.signingKeysDTO())
 }
 
-// No undo: every token AND every attachment share link signed by the key stops
-// verifying on return — share links go with it by owner ruling rc-cf9c27c07442.
+// No undo: every token, preview link and pre-stored-link `?sig=` share link
+// signed by the key stops verifying on return. Stored share links (`?link=`)
+// never read the ring and are untouched (api_share_links.go).
 func (s *apiServer) HandleSigningKeyRemoveApiAuthSigningKeysKeyIdRemovePost(w http.ResponseWriter, r *http.Request, keyId string) {
 	err := s.keys.remove(s.dal, keyId)
 	switch {

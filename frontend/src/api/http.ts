@@ -68,6 +68,9 @@ import type {
   MachineView,
   MemberActivateResult,
   MemberRelocateResult,
+  ShareLinkView,
+  ShareLinkCreated,
+  ShareLinkFilter,
 } from "../types";
 import type { ThemeBundle } from "../lib/themeBundle";
 import type {
@@ -161,6 +164,9 @@ import {
   toSigningKeys,
   toSecret,
   toSecrets,
+  toShareLink,
+  toShareLinks,
+  toShareLinkCreated,
   toSharedDoc,
   toSharedDocDetail,
   toSharedDocVersion,
@@ -1660,18 +1666,27 @@ export const httpApi: Api = {
     return wire.map(toGalleryAttachment);
   },
 
-  async getChatAttachmentShareLink(attachmentId: string): Promise<string> {
-    // GET /api/chat/attachments/{attachment_id}/share-link -> {url}: the
-    // blob's serve path + its ?sig= HMAC credential (grants reading exactly
-    // that one blob; no expiry, but voided when the signing key it was made
-    // under leaves the ring — T-62). The caller absolutizes with the page
-    // origin — the server never knows its public host.
+  async getChatAttachmentPreviewLink(attachmentId: string): Promise<string> {
     const wire = unwrap(
-      await client.GET("/api/chat/attachments/{attachment_id}/share-link", {
+      await client.GET("/api/chat/attachments/{attachment_id}/preview-link", {
         params: { path: { attachment_id: attachmentId } },
       }),
     );
     return wire.url;
+  },
+
+  async createAttachmentShareLink(
+    attachmentId: string,
+    expiresTs: number | null,
+  ): Promise<ShareLinkCreated> {
+    return toShareLinkCreated(
+      unwrap(
+        await client.POST("/api/chat/attachments/{attachment_id}/share-link", {
+          params: { path: { attachment_id: attachmentId } },
+          body: { expires_ts: expiresTs },
+        }),
+      ),
+    );
   },
 
   async postChat(msg: {
@@ -3412,29 +3427,43 @@ export const httpApi: Api = {
     return fetchDiffPair(params);
   },
 
-  async getDiffShareLink(params: DiffParams): Promise<string> {
-    // GET /api/diff/share-link?before=&after=[&label_before=][&label_after=]
-    // -> {url}: the /diff page path carrying the server's ?sig= HMAC over all
-    // four values. Unlike getDiff this one DOES ride the typed client — it is
-    // answered only for a session, so a 401 here really is a dead session and
-    // the middleware's reading of it is the right one.
-    //
-    // `params.sig` is deliberately not forwarded: the signature is the OUTPUT.
-    // Sending one back would ask the server to sign a query that includes a
-    // signature, which is not a query this route declares.
-    const wire = unwrap(
-      await client.GET("/api/diff/share-link", {
-        params: {
-          query: {
+  async createDiffShareLink(
+    params: DiffParams,
+    expiresTs: number | null,
+  ): Promise<ShareLinkCreated> {
+    return toShareLinkCreated(
+      unwrap(
+        await client.POST("/api/diff/share-link", {
+          body: {
             before: params.before,
             after: params.after,
-            ...(params.labelBefore ? { label_before: params.labelBefore } : {}),
-            ...(params.labelAfter ? { label_after: params.labelAfter } : {}),
+            label_before: params.labelBefore ?? "",
+            label_after: params.labelAfter ?? "",
+            expires_ts: expiresTs,
           },
-        },
-      }),
+        }),
+      ),
     );
-    return wire.url;
+  },
+
+  async listShareLinks(filter?: ShareLinkFilter): Promise<ShareLinkView[]> {
+    const query =
+      filter === undefined
+        ? {}
+        : "attachmentId" in filter
+          ? { attachment_id: filter.attachmentId }
+          : { before: filter.before, after: filter.after };
+    return toShareLinks(unwrap(await client.GET("/api/share-links", { params: { query } })));
+  },
+
+  async revokeShareLink(id: string): Promise<ShareLinkView> {
+    return toShareLink(
+      unwrap(
+        await client.DELETE("/api/share-links/{share_link_id}", {
+          params: { path: { share_link_id: id } },
+        }),
+      ),
+    );
   },
 
   async restoreDocumentHistory(

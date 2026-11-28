@@ -8,10 +8,10 @@
 // overlay; md-preview.css owns them and this file imports it.
 //
 // An HTML page is never drawn from its text and never loaded from an address
-// carrying the owner's token: the host mints the page's share link (`?sig=`)
+// carrying the owner's token: the host mints the page's one-hour preview link
 // and hands it in as `shareHref`. The frame's sandbox omits allow-same-origin,
 // so agent-written script cannot run on the studio's origin; the server's CSP
-// sandbox for sig-only HTML applies on top, so a flag added here does nothing
+// sandbox for HTML opened by its own credential alone applies on top, so a flag added here does nothing
 // unless api_chat.go carries it too.
 
 import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";

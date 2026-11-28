@@ -375,24 +375,51 @@ func TestRequireAuth(t *testing.T) {
 	})
 }
 
-func TestShareSigGate(t *testing.T) {
+type fakeShareLinkStore struct {
+	links map[string]ShareLink
+	gone  int
+}
+
+func (f *fakeShareLinkStore) liveShareLinkFor(token string) (*ShareLink, error) {
+	if l, ok := f.links[token]; ok {
+		return &l, nil
+	}
+	return nil, nil
+}
+
+func (f *fakeShareLinkStore) writeShareLinkGone(w http.ResponseWriter, _ *http.Request) {
+	f.gone++
+	writeError(w, http.StatusGone, "gone page")
+}
+
+func TestShareGate(t *testing.T) {
+	target := ShareLink{Kind: shareLinkKindAttachment}
+	other := ShareLink{Kind: shareLinkKindDiff}
 	cases := []struct {
 		name       string
 		target     string
 		auth       string
 		keys       *keyring
+		noStore    bool
 		wantStatus int
 		wantBody   string
 		wantRaw    int
 		wantAuthed int
 		wantVerify int
+		wantGone   int
 	}{
 		{name: "valid signature serves raw", target: "/?sig=ok", keys: singleKeyring([]byte("secret")), wantStatus: http.StatusOK, wantBody: `{"route":"raw"}`, wantRaw: 1, wantVerify: 1},
 		{name: "invalid signature is unauthorized", target: "/?sig=bad", keys: singleKeyring([]byte("secret")), wantStatus: http.StatusUnauthorized, wantBody: `{"error":{"code":"unauthorized","message":"invalid signature"}}`, wantVerify: 1},
-		{name: "no signature follows authed chain", target: "/", keys: singleKeyring([]byte("secret")), wantStatus: http.StatusUnauthorized, wantBody: `{"error":{"code":"unauthorized","message":"authed path"}}`, wantAuthed: 1},
+		{name: "no credential follows authed chain", target: "/", keys: singleKeyring([]byte("secret")), wantStatus: http.StatusUnauthorized, wantBody: `{"error":{"code":"unauthorized","message":"authed path"}}`, wantAuthed: 1},
 		{name: "bearer takes precedence over valid signature", target: "/?sig=ok", auth: "Bearer any-token", keys: singleKeyring([]byte("secret")), wantStatus: http.StatusUnauthorized, wantBody: `{"error":{"code":"unauthorized","message":"authed path"}}`, wantAuthed: 1},
 		{name: "query token takes precedence over valid signature", target: "/?token=any-token&sig=ok", keys: singleKeyring([]byte("secret")), wantStatus: http.StatusUnauthorized, wantBody: `{"error":{"code":"unauthorized","message":"authed path"}}`, wantAuthed: 1},
 		{name: "a nil key ring cannot verify a signature", target: "/?sig=ok", keys: nil, wantStatus: http.StatusUnauthorized, wantBody: `{"error":{"code":"unauthorized","message":"invalid signature"}}`, wantVerify: 0},
+		{name: "a live link for this target serves raw", target: "/?link=live", keys: singleKeyring([]byte("secret")), wantStatus: http.StatusOK, wantBody: `{"route":"raw"}`, wantRaw: 1},
+		{name: "an unknown link is gone", target: "/?link=nope", keys: singleKeyring([]byte("secret")), wantStatus: http.StatusGone, wantBody: `{"error":{"code":"client_error","message":"gone page"}}`, wantGone: 1},
+		{name: "a live link for another target is gone", target: "/?link=elsewhere", keys: singleKeyring([]byte("secret")), wantStatus: http.StatusGone, wantBody: `{"error":{"code":"client_error","message":"gone page"}}`, wantGone: 1},
+		{name: "a link takes precedence over a valid signature", target: "/?link=nope&sig=ok", keys: singleKeyring([]byte("secret")), wantStatus: http.StatusGone, wantBody: `{"error":{"code":"client_error","message":"gone page"}}`, wantGone: 1},
+		{name: "bearer takes precedence over a live link", target: "/?link=live", auth: "Bearer any-token", keys: singleKeyring([]byte("secret")), wantStatus: http.StatusUnauthorized, wantBody: `{"error":{"code":"unauthorized","message":"authed path"}}`, wantAuthed: 1},
+		{name: "a row built without a store answers every link gone", target: "/?link=live", keys: singleKeyring([]byte("secret")), noStore: true, wantStatus: http.StatusGone, wantBody: `{"error":{"code":"client_error","message":"` + shareLinkGoneMsg + `"}}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -405,11 +432,19 @@ func TestShareSigGate(t *testing.T) {
 				authedCalls++
 				writeError(w, http.StatusUnauthorized, "authed path")
 			})
-			verify := func(keys *keyring, r *http.Request, sig string) bool {
-				verifyCalls++
-				return sig == "ok"
+			store := &fakeShareLinkStore{links: map[string]ShareLink{"live": target, "elsewhere": other}}
+			share := &shareAccess{
+				Links: store,
+				Opens: func(_ *http.Request, l ShareLink) bool { return l.Kind == shareLinkKindAttachment },
+				Sig: func(keys *keyring, r *http.Request, sig string) bool {
+					verifyCalls++
+					return sig == "ok"
+				},
 			}
-			h := shareSigGate(tc.keys, verify, raw, authed)
+			if tc.noStore {
+				share.Links = nil
+			}
+			h := shareGate(tc.keys, share, raw, authed)
 			req := httptest.NewRequest(http.MethodGet, tc.target, nil)
 			if tc.auth != "" {
 				req.Header.Set("Authorization", tc.auth)
@@ -419,8 +454,8 @@ func TestShareSigGate(t *testing.T) {
 			if rec.Code != tc.wantStatus || rec.Body.String() != tc.wantBody {
 				t.Fatalf("response = %d %q, want %d %q", rec.Code, rec.Body.String(), tc.wantStatus, tc.wantBody)
 			}
-			if rawCalls != tc.wantRaw || authedCalls != tc.wantAuthed || verifyCalls != tc.wantVerify {
-				t.Fatalf("calls raw=%d authed=%d verify=%d, want %d/%d/%d", rawCalls, authedCalls, verifyCalls, tc.wantRaw, tc.wantAuthed, tc.wantVerify)
+			if rawCalls != tc.wantRaw || authedCalls != tc.wantAuthed || verifyCalls != tc.wantVerify || store.gone != tc.wantGone {
+				t.Fatalf("calls raw=%d authed=%d verify=%d gone=%d, want %d/%d/%d/%d", rawCalls, authedCalls, verifyCalls, store.gone, tc.wantRaw, tc.wantAuthed, tc.wantVerify, tc.wantGone)
 			}
 		})
 	}

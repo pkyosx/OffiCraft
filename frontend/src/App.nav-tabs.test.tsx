@@ -83,13 +83,14 @@ describe("主導覽分頁", () => {
     expect(tab?.querySelector("svg")).toBeNull();
   });
 
-  it("the nav row is 辦公室 / 請示 / 任務 / 密鑰 / 檔案庫 / 傳承 / 監控, in that order", () => {
+  it("the nav row is 辦公室 / 請示 / 任務 / 密鑰 / 分享 / 檔案庫 / 傳承 / 監控, in that order", () => {
     renderApp();
     expect(tabLabels()).toEqual([
       "辦公室",
       "請示",
       "任務",
       "密鑰",
+      "分享",
       "檔案庫",
       "傳承",
       "監控",
@@ -115,6 +116,16 @@ describe("主導覽分頁", () => {
     expect((await screen.findByTestId("shared-doc-title")).textContent).toBe("Review Rule");
     const active = document.querySelector(".nav-tabs .nav-tab--active");
     expect(active?.textContent).toBe(zh.nav.sharedDocs);
+  });
+
+  it("selecting 分享 routes to #share-links and mounts the share list, with the default icon on a theme that has none", async () => {
+    renderApp();
+    const tab = screen.getByText(zh.nav.shareLinks).closest(".nav-tab")!;
+    expect(tab.querySelector("svg")).toBeTruthy();
+    fireEvent.click(tab);
+    expect(window.location.hash).toBe("#share-links");
+    expect(await screen.findByTestId("share-links-page")).toBeTruthy();
+    expect(document.querySelector(".nav-tabs .nav-tab--active")?.textContent).toBe(zh.nav.shareLinks);
   });
 
   it("selecting 檔案庫 routes to #shared-docs and mounts the list", async () => {

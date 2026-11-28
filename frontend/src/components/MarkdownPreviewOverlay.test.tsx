@@ -13,7 +13,6 @@ import { render, fireEvent, waitFor, screen, act, cleanup } from "@testing-libra
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
-import { AlertTriangleIcon } from "./icons";
 import { Markdown } from "./Markdown";
 import { zh } from "../i18n/locales/zh";
 import snippet from "../../../cli/ocagent/doc_comments_snippet.html?raw";
@@ -327,7 +326,7 @@ describe("MarkdownPreviewOverlay", () => {
     ["t.csv", "text/csv", "a,b\n1,2\n", ".md-preview__csv table", "ab12"],
   ])("draws a %s attachment in the panel instead of sending it to a tab", async (title, mime, text, selector, shown) => {
     globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => text })) as unknown as typeof fetch;
-    vi.spyOn(api, "getChatAttachmentShareLink").mockResolvedValue("/api/chat/attachment/att-t?sig=s");
+    vi.spyOn(api, "getChatAttachmentPreviewLink").mockResolvedValue("/api/chat/attachment/att-t?sig=s");
     render(
       <I18nProvider>
         <MarkdownPreviewOverlay
@@ -425,9 +424,26 @@ describe("MarkdownPreviewOverlay", () => {
   // id; PR #18 must not quietly drop either).
   it("keeps the share link + download on a blob, with 編輯 first when the caller offers it, and gives an inline source none of them", async () => {
     const onEdit = vi.fn();
-    const mint = vi
-      .spyOn(api, "getChatAttachmentShareLink")
-      .mockResolvedValue("/api/chat/attachment/att-backing?sig=test");
+    vi.spyOn(api, "getChatAttachmentPreviewLink").mockResolvedValue(
+      "/api/chat/attachment/att-backing?sig=test&exp=1",
+    );
+    vi.spyOn(api, "listShareLinks").mockResolvedValue([]);
+    const mint = vi.spyOn(api, "createAttachmentShareLink").mockResolvedValue({
+      url: "/api/chat/attachment/att-backing?link=tok",
+      link: {
+        id: "sl-0123456789ab",
+        kind: "attachment",
+        attachmentId: "att-backing",
+        attachmentFilename: "doc.md",
+        before: null,
+        after: null,
+        labelBefore: null,
+        labelAfter: null,
+        createdBy: "owner",
+        createdTs: 1792650600,
+        expiresTs: null,
+      },
+    });
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText: vi.fn(async () => {}) },
       configurable: true,
@@ -458,14 +474,14 @@ describe("MarkdownPreviewOverlay", () => {
         Array.from(document.body.querySelectorAll(".md-preview__actions > *")).map((el) =>
           el.getAttribute("aria-label"),
         ),
-      ).toEqual(["編輯", "複製分享連結", "在新頁面顯示", "下載", "關閉預覽"]),
+      ).toEqual(["編輯", "分享連結", "在新頁面顯示", "下載", "關閉預覽"]),
     );
     fireEvent.click(screen.getByRole("button", { name: "編輯" }));
     expect(onEdit).toHaveBeenCalledTimes(1);
     fireEvent.click(document.body.querySelector("button.md-preview__share")!);
+    fireEvent.click(await screen.findByTestId("share-generate"));
     // The share link is minted for the ATTACHMENT ID, never the serve path.
-    await waitFor(() => expect(mint).toHaveBeenCalledWith("att-backing"));
-    expect(mint).not.toHaveBeenCalledWith("/api/chat/attachment/att-doc");
+    await waitFor(() => expect(mint).toHaveBeenCalledWith("att-backing", expect.any(Number)));
     expect(document.body.querySelector("a.md-preview__download")).toBeTruthy();
     blob.unmount();
 
@@ -490,7 +506,7 @@ describe("MarkdownPreviewOverlay", () => {
     ["application/pdf", "spec.pdf", null],
   ])("shows a %s attachment as its share-link page in a frame filling the body, loading until the link is minted, without fetching its bytes; with an empty attachment id to mint from it says 請下載", async (mime, title, sandbox) => {
     let mint!: (href: string) => void;
-    vi.spyOn(api, "getChatAttachmentShareLink").mockImplementation(
+    vi.spyOn(api, "getChatAttachmentPreviewLink").mockImplementation(
       () => new Promise((resolve) => (mint = resolve)),
     );
     globalThis.fetch = vi.fn() as unknown as typeof fetch;
@@ -1278,7 +1294,7 @@ describe("MarkdownPreviewOverlay", () => {
       const OC = { oc: "doc-comments", v: 1 } as const;
 
       async function renderPage(props: Parameters<typeof renderDoc>[0] = {}) {
-        vi.spyOn(api, "getChatAttachmentShareLink").mockResolvedValue(
+        vi.spyOn(api, "getChatAttachmentPreviewLink").mockResolvedValue(
           "/api/chat/attachment/att-aaaaaaaaaaaa?sig=s1",
         );
         renderDoc({ title: "pr-702.html", mime: "text/html", ...props });
@@ -1647,7 +1663,7 @@ describe("MarkdownPreviewOverlay", () => {
   });
 });
 
-describe("MarkdownPreviewOverlay 複製分享連結 (T-d10b)", () => {
+describe("MarkdownPreviewOverlay share menu", () => {
   const realFetch = globalThis.fetch;
   afterEach(() => {
     globalThis.fetch = realFetch;
@@ -1677,72 +1693,13 @@ describe("MarkdownPreviewOverlay 複製分享連結 (T-d10b)", () => {
       expect(screen.getByRole("heading", { name: "doc" })).toBeTruthy(),
     );
     const actions = document.body.querySelector(".md-preview__actions")!;
-    const share = screen.getByRole("button", { name: "複製分享連結" });
+    const share = screen.getByRole("button", { name: "分享連結" });
     // Reached by ACCESSIBLE NAME, not by visible text: T-51 ④ made the header
     // controls icon-only (owner: 「又都有字太多了，可以一起改成圖示就好嘛」), so
     // 下載 is now the `aria-label` and nothing in the header prints it.
     const dl = screen.getByRole("link", { name: "下載" }) as HTMLAnchorElement;
     expect(actions.contains(share)).toBe(true);
     expect(share.compareDocumentPosition(dl) & 4).toBe(4);
-  });
-
-  it("mints THIS attachment's share link and flashes 已複製連結", async () => {
-    const mint = vi
-      .spyOn(api, "getChatAttachmentShareLink")
-      .mockResolvedValue("/api/chat/attachment/att-7?sig=test-sig");
-    const writeText = vi.fn(async () => {});
-    Object.defineProperty(navigator, "clipboard", {
-      value: { writeText },
-      configurable: true,
-    });
-    renderOverlay();
-    await waitFor(() =>
-      expect(screen.getByRole("heading", { name: "doc" })).toBeTruthy(),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "複製分享連結" }));
-
-    await waitFor(() => expect(mint).toHaveBeenCalledWith("att-7"));
-    await waitFor(() =>
-      expect(writeText).toHaveBeenCalledWith(
-        `${window.location.origin}/api/chat/attachment/att-7?sig=test-sig`,
-      ),
-    );
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "已複製連結" })).toBeTruthy(),
-    );
-  });
-
-  it("shows 複製連結失敗 with its own glyph when the mint fails instead of faking success", async () => {
-    vi.spyOn(api, "getChatAttachmentShareLink").mockRejectedValue(
-      new Error("boom"),
-    );
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    const writeText = vi.fn(async () => {});
-    Object.defineProperty(navigator, "clipboard", {
-      value: { writeText },
-      configurable: true,
-    });
-    renderOverlay();
-    await waitFor(() =>
-      expect(screen.getByRole("heading", { name: "doc" })).toBeTruthy(),
-    );
-    const idleGlyph = screen.getByRole("button", {
-      name: "複製分享連結",
-    }).innerHTML;
-    fireEvent.click(screen.getByRole("button", { name: "複製分享連結" }));
-    await waitFor(() => expect(writeText).not.toHaveBeenCalled());
-    expect(screen.queryByRole("button", { name: "已複製連結" })).toBeNull();
-    const failed = screen.getByRole("button", { name: "複製連結失敗" });
-    expect(failed).toBeTruthy();
-    // T-51 ④ made these controls icon-only, so the accessible name above is the
-    // half only a screen reader gets. A sighted reader has the glyph and
-    // nothing else — a failure drawn as the idle copy icon is indistinguishable
-    // from "nothing happened yet". These two assertions are what makes deleting
-    // the copyFailed arm of the icon ternary go red: the name switch survives
-    // it, the glyph does not.
-    expect(failed.innerHTML).not.toBe(idleGlyph);
-    const { container: warning } = render(<AlertTriangleIcon size={14} />);
-    expect(failed.innerHTML).toBe(warning.innerHTML);
   });
 
   // T-59 — the COMPARE mode. A comparison stopped being an attachment the day
@@ -1775,17 +1732,28 @@ describe("MarkdownPreviewOverlay 複製分享連結 (T-d10b)", () => {
       // No blob, so nothing to download and no FILE-level share link to mint —
       // one here would point at a file that does not exist.
       expect(screen.queryByText(zh.chat.mdPreview.download)).toBeNull();
-      expect(screen.queryByLabelText(zh.chat.copyShareLink)).toBeNull();
+      expect(screen.getAllByRole("button", { name: zh.shareLinks.trigger })).toHaveLength(1);
       expect(screen.queryByText(zh.chat.mdPreview.openInNewTab)).toBeNull();
     });
 
-    // T-59 — the comparison's OWN external link. This is the studio host of
-    // that control: the owner is looking at the comparison and wants to hand it
-    // to someone outside, which until now was a CLI action only.
-    it("offers the comparison's external link as an icon in the header actions", async () => {
-      const mint = vi
-        .spyOn(api, "getDiffShareLink")
-        .mockResolvedValue("/diff?before=att-0123456789ab&after=att-fedcba987654&sig=minted");
+    it("offers the comparison's share menu as an icon in the header actions", async () => {
+      vi.spyOn(api, "listShareLinks").mockResolvedValue([]);
+      const mint = vi.spyOn(api, "createDiffShareLink").mockResolvedValue({
+        url: "/diff?before=att-0123456789ab&after=att-fedcba987654&link=minted",
+        link: {
+          id: "sl-0123456789ab",
+          kind: "diff",
+          attachmentId: null,
+          attachmentFilename: null,
+          before: "att-0123456789ab",
+          after: "att-fedcba987654",
+          labelBefore: "",
+          labelAfter: "",
+          createdBy: "owner",
+          createdTs: 1792650600,
+          expiresTs: null,
+        },
+      });
       const writeText = vi.fn(async () => {});
       Object.defineProperty(navigator, "clipboard", {
         value: { writeText },
@@ -1810,7 +1778,7 @@ describe("MarkdownPreviewOverlay 複製分享連結 (T-d10b)", () => {
       );
 
       await waitFor(() => expect(screen.getByTestId("diff-screen")).toBeTruthy());
-      const button = screen.getByRole("button", { name: zh.diff.copyShareLink });
+      const button = screen.getByRole("button", { name: zh.shareLinks.trigger });
       // It lives in the header action row, beside the close button — the same
       // slot the file-level share control occupies, not a second place to look.
       expect(
@@ -1822,10 +1790,11 @@ describe("MarkdownPreviewOverlay 複製分享連結 (T-d10b)", () => {
       expect(button.textContent).toBe("");
 
       fireEvent.click(button);
-      await waitFor(() => expect(mint).toHaveBeenCalledWith(params));
+      fireEvent.click(await screen.findByTestId("share-generate"));
+      await waitFor(() => expect(mint).toHaveBeenCalledWith(params, expect.any(Number)));
       await waitFor(() =>
         expect(writeText).toHaveBeenCalledWith(
-          `${window.location.origin}/diff?before=att-0123456789ab&after=att-fedcba987654&sig=minted`,
+          `${window.location.origin}/diff?before=att-0123456789ab&after=att-fedcba987654&link=minted`,
         ),
       );
     });

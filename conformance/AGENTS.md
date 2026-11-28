@@ -19,7 +19,7 @@
 
 - auth matrix 是 table-driven：每條 route 對無 token、owner、admin_agent、warden、agent self/other 判 status。`requires` 由 manifest 推導 capability floor：`machine/warden < agent < admin_agent < owner`；低於 floor 的 cell 不手寫預期，統一 403；達標 cell 才寫 route 語意 status。deny-first 必須先 403，再決定 target 是否存在，避免 agent 從 admin route 得 404 洩漏。
 - REST happy 面使用最低可行 caller，驗 spec status 與 response schema；`schema_check.py` 只做黑箱安全的 stdlib `$ref`/required/type/anyOf 子集。binary、install script、attachment blob、MCP JSON-RPC 等 non-JSON 面改用明確 check，不繞過 status 驗證。
-- attachment `?sig=` 是只給 blob GET 的第三授權路徑：正確 sig 可匿名取同一檔 bytes，壞/空 sig 401，A 檔 sig 不可取 B 檔，也不可升格打任何 gated route；bearer 在場且無效時不能 fallback 到 sig。
+- attachment 分享連結 `?link=` 是只給 blob GET（與比較頁 `/api/diff`）的授權路徑：有效連結可匿名取同一檔 bytes，未知／收回／過期 410，A 檔連結不可取 B 檔，也不可升格打任何 gated route；bearer 在場且無效時不能 fallback 到 link。
 - 全站錯誤 wire 只有 `{"error":{"code","message"}}`：body 恰兩鍵、code 在閉集、message 非空，不得回 legacy `detail`。代表性 400/401/403/404/405/409/422 來源都要由 HTTP 驗到；宣告 telemetry block 型別錯誤的 422 與未宣告 block/empty telemetry 的 400 不可混為一類。
 
 ## 4. MCP、SSE 與 lifecycle

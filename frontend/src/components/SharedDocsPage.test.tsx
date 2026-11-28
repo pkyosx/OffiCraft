@@ -277,7 +277,7 @@ describe("SharedDocsPage", () => {
       "/api/chat/attachment/att-5d0c11a2b3c4",
     );
     await waitFor(() =>
-      expect(actions(review)).toEqual(["編輯", "複製分享連結", "在新頁面顯示", "下載", "關閉預覽"]),
+      expect(actions(review)).toEqual(["編輯", "分享連結", "在新頁面顯示", "下載", "關閉預覽"]),
     );
     fireEvent.click(within(review).getByRole("button", { name: "編輯" }));
     expect(document.body.querySelector(".md-preview:not([data-testid])")).toBeNull();
@@ -290,7 +290,7 @@ describe("SharedDocsPage", () => {
     const config = await openPreview(configId);
     await waitFor(() => expect(config.querySelector("pre.md-preview__text")?.textContent).toBe("# keep\nkey:  v\n"));
     await waitFor(() =>
-      expect(actions(config)).toEqual(["編輯", "複製分享連結", "在新頁面顯示", "下載", "關閉預覽"]),
+      expect(actions(config)).toEqual(["編輯", "分享連結", "在新頁面顯示", "下載", "關閉預覽"]),
     );
     fireEvent.click(within(config).getByRole("button", { name: "編輯" }));
     expect(
@@ -301,14 +301,14 @@ describe("SharedDocsPage", () => {
 
     const contract = await openPreview(contractId);
     expect(contract.querySelector(".md-preview__title")?.textContent).toBe("Contract");
-    await waitFor(() => expect(actions(contract)).toEqual(["複製分享連結", "在新頁面顯示", "下載", "關閉預覽"]));
+    await waitFor(() => expect(actions(contract)).toEqual(["分享連結", "在新頁面顯示", "下載", "關閉預覽"]));
     const contractDoc = await api.getSharedDoc(contractId);
     expect(contract.querySelector("a.md-preview__download")?.getAttribute("href")).toContain(contractDoc.url);
     await closePreview(contract);
 
     const shot = await openPreview(shotId);
     expect(shot.querySelector(".md-preview__title")?.textContent).toBe("Shot");
-    await waitFor(() => expect(actions(shot)).toEqual(["複製分享連結", "在新頁面顯示", "下載", "關閉預覽"]));
+    await waitFor(() => expect(actions(shot)).toEqual(["分享連結", "在新頁面顯示", "下載", "關閉預覽"]));
     const shotDoc = await api.getSharedDoc(shotId);
     expect(shot.querySelector("img")?.getAttribute("src")).toContain(shotDoc.url);
     await closePreview(shot);

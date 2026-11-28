@@ -701,6 +701,24 @@ func (e SelfReportReceiptDTOStopEffect) Valid() bool {
 	}
 }
 
+// Defines values for ShareLinkDTOKind.
+const (
+	Attachment ShareLinkDTOKind = "attachment"
+	Diff       ShareLinkDTOKind = "diff"
+)
+
+// Valid indicates whether the value is a known member of the ShareLinkDTOKind enum.
+func (e ShareLinkDTOKind) Valid() bool {
+	switch e {
+	case Attachment:
+		return true
+	case Diff:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for WebhookCreateDTOPlatform.
 const (
 	WebhookCreateDTOPlatformGeneric WebhookCreateDTOPlatform = "generic"
@@ -1252,16 +1270,15 @@ type ChatAttachmentInputDTO struct {
 	Mime     *string `json:"mime,omitempty"`
 }
 
-// ChatAttachmentShareLinkDTO Response of “GET /api/chat/attachments/{attachment_id}/share-link“: the
-// server-relative serve URL for ONE attachment carrying its “?sig=“
-// file-level HMAC credential (see the attachment GET's SHARE-SIG
-// paragraph). The client prefixes its own origin to form the absolute link.
-//
-// The signature has NO expiry and no single link can be withdrawn — but it
-// is not unrevocable (T-62): it is derived from whichever signing key minted
-// it, so removing that key from the ring voids every link that key signed.
-type ChatAttachmentShareLinkDTO struct {
+// ChatAttachmentPreviewLinkDTO Response of `GET /api/chat/attachments/{attachment_id}/preview-link`: a server-relative serve URL carrying `?sig=&exp=`, valid for one hour. It is not recorded, not listed and cannot be revoked.
+type ChatAttachmentPreviewLinkDTO struct {
 	Url string `json:"url"`
+}
+
+// ChatAttachmentShareLinkCreateDTO Body of `POST /api/chat/attachments/{attachment_id}/share-link`. The body may be omitted entirely (the link then expires 7 days from now). The page turns its presets and a custom date into the absolute “expires_ts“.
+type ChatAttachmentShareLinkCreateDTO struct {
+	// ExpiresTs Epoch seconds from which the link stops opening, later than now and at most 365 days (31536000 seconds) ahead. ``null``: it never expires and stays valid until revoked. Omitted: 7 days from now.
+	ExpiresTs *float64 `json:"expires_ts,omitempty"`
 }
 
 // ChatAttachmentUploadDTO Response of “POST /api/chat/attachments“: the light ref of the stored
@@ -1632,11 +1649,18 @@ type DiffPairDTO struct {
 	Before DiffSideDTO `json:"before"`
 }
 
-// DiffShareLinkDTO Response of “GET /api/diff/share-link“: the server-relative page URL for ONE comparison carrying its “?sig=“ credential. The client prefixes its own origin to form the absolute link, exactly as it does for ChatAttachmentShareLinkDTO.
-//
-// The signature has NO expiry and no single link can be withdrawn — but it is not unrevocable (T-62): it is derived from whichever signing key minted it, so removing that key from the ring voids every link that key signed, at the same instant it voids that key's tokens and file links. Coarse, and a person's decision rather than a timer's.
-type DiffShareLinkDTO struct {
-	Url string `json:"url"`
+// DiffShareLinkCreateDTO Body of `POST /api/diff/share-link`.
+type DiffShareLinkCreateDTO struct {
+	// After The after side's address. Same two spellings as `before`.
+	After string `json:"after"`
+
+	// Before The before side's address: a stored attachment id (`att-` + 12 hex) or `doc:<kind>/<key>/<at>/<field>`, `<at>` = current|seed|revision id. Judged for shape only.
+	Before string `json:"before"`
+
+	// ExpiresTs Epoch seconds from which the link stops opening, later than now and at most 365 days (31536000 seconds) ahead. ``null``: it never expires and stays valid until revoked. Omitted: 7 days from now.
+	ExpiresTs   *float64 `json:"expires_ts,omitempty"`
+	LabelAfter  *string  `json:"label_after,omitempty"`
+	LabelBefore *string  `json:"label_before,omitempty"`
 }
 
 // DiffSideDTO ONE column of a comparison: the address that was asked for, the heading to put above it, and the text to draw.
@@ -4470,6 +4494,55 @@ type SettingsUpdateDTO struct {
 	WardenCredentialLifetimeSecs *int `json:"warden_credential_lifetime_secs,omitempty"`
 }
 
+// ShareLinkCreatedDTO Response of both share-link mint routes.
+type ShareLinkCreatedDTO struct {
+	// ShareLink One share link, without its URL or credential: the URL is returned once, when it is minted, and the server keeps only a hash of the credential.
+	ShareLink ShareLinkDTO `json:"share_link"`
+
+	// Url Server-relative; prefix the origin you reach this server on. Returned only in this response: it cannot be listed or fetched again.
+	Url string `json:"url"`
+}
+
+// ShareLinkDTO One share link, without its URL or credential: the URL is returned once, when it is minted, and the server keeps only a hash of the credential.
+type ShareLinkDTO struct {
+	// After The comparison's after-side address; null for an attachment link.
+	After *string `json:"after"`
+
+	// AttachmentFilename The attachment's filename; null for a diff link.
+	AttachmentFilename *string `json:"attachment_filename"`
+
+	// AttachmentId The attachment the link opens; null for a diff link.
+	AttachmentId *string `json:"attachment_id"`
+
+	// Before The comparison's before-side address; null for an attachment link.
+	Before *string `json:"before"`
+
+	// CreatedBy Who minted it: `owner`, or the member id of the AI member that called the tool.
+	CreatedBy string  `json:"created_by"`
+	CreatedTs float64 `json:"created_ts"`
+
+	// ExpiresTs Epoch seconds from which the link answers 410, as fixed when it was minted; ``null`` = it never expires and stays valid until revoked.
+	ExpiresTs *float64 `json:"expires_ts"`
+
+	// Id Server-minted (`sl-` + 12 hex), immutable; the key the revoke route takes. Not the credential in the URL.
+	Id   string           `json:"id"`
+	Kind ShareLinkDTOKind `json:"kind"`
+
+	// LabelAfter The after column's heading as minted (`""` when none was given); null for an attachment link.
+	LabelAfter *string `json:"label_after"`
+
+	// LabelBefore The before column's heading as minted (`""` when none was given); null for an attachment link.
+	LabelBefore *string `json:"label_before"`
+}
+
+// ShareLinkDTOKind defines model for ShareLinkDTO.Kind.
+type ShareLinkDTOKind string
+
+// ShareLinksDTO Share links still in force, ordered by `created_ts`: all of them, or only one target's when `GET /api/share-links` was filtered. Expired and revoked links are not listed.
+type ShareLinksDTO struct {
+	ShareLinks []ShareLinkDTO `json:"share_links"`
+}
+
 // SharedDocCreateDTO Create one shared document.
 type SharedDocCreateDTO struct {
 	// AttachmentId Required for ``file``/``image``, refused for ``link``: a blob already in the store (``ocagent upload``).
@@ -5484,7 +5557,7 @@ type ThemeBundleDTO struct {
 	Logo *string `json:"logo,omitempty"`
 	Name string  `json:"name"`
 
-	// NavIcons Optional per-tab navigation icon images (T-ea81). Keys are the closed set of the seven nav tabs `office` (辦公室) / `replies` (請示) / `tasks` (任務) / `secrets` (密鑰) / `shared_docs` (檔案庫) / `lore` (傳承) / `monitor` (監控), plus `guide`, which is still accepted so packs made while 使用說明 was a nav tab keep importing; no tab displays it and the cockpit's theme editor drops it on save. Each value is an EMBEDDED image encoded as a base64 `data:` URI that replaces that tab's built-in icon. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = that tab falls back to its built-in icon (office never degrades). The server 422s any navIcons that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
+	// NavIcons Optional per-tab navigation icon images (T-ea81). Keys are the closed set of the eight nav tabs `office` (辦公室) / `replies` (請示) / `tasks` (任務) / `secrets` (密鑰) / `share_links` (分享) / `shared_docs` (檔案庫) / `lore` (傳承) / `monitor` (監控), plus `guide`, which is still accepted so packs made while 使用說明 was a nav tab keep importing; no tab displays it and the cockpit's theme editor drops it on save. Each value is an EMBEDDED image encoded as a base64 `data:` URI that replaces that tab's built-in icon. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = that tab falls back to its built-in icon (office never degrades). The server 422s any navIcons that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
 	NavIcons *map[string]string `json:"navIcons,omitempty"`
 
 	// Wording Optional per-language wording overrides (T-16a1 P3). Outer key = UI language (`zh` / `en` only); inner map = an i18n message-key (an internal code path such as `nav.tasks`, drawn from the generated messageKeys whitelist) -> the owner's replacement PLAIN TEXT. Values are plain text only (trimmed, <=200 runes, control chars / newlines rejected, per-language entry count capped); no HTML/CSS. Absent = no overrides. The server 422s any wording that violates the language set or the value rules. A code OUTSIDE the messageKeys whitelist is NOT a 422: it is DROPPED from the overlay and the request succeeds, so only the surviving codes are stored - and NOTHING IN THE RESPONSE SAYS WHICH. GET the theme back to see which codes survived (an already-imported theme pack stays usable when the whitelist shrinks; the accepted cost is that a typo'd code silently does nothing).
@@ -5733,6 +5806,12 @@ type HandleListChatApiChatGetParams struct {
 	ExcludeInterAgent *string `form:"exclude_inter_agent,omitempty" json:"exclude_inter_agent,omitempty"`
 }
 
+// HandleGetChatAttachmentApiChatAttachmentAttachmentIdGetParams defines parameters for HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet.
+type HandleGetChatAttachmentApiChatAttachmentAttachmentIdGetParams struct {
+	// Link A share link's credential, as it appears in the URL the mint route returned.
+	Link *string `form:"link,omitempty" json:"link,omitempty"`
+}
+
 // HandleListChatAttachmentsApiChatAttachmentsGetParams defines parameters for HandleListChatAttachmentsApiChatAttachmentsGet.
 type HandleListChatAttachmentsApiChatAttachmentsGetParams struct {
 	With *string `form:"with,omitempty" json:"with,omitempty"`
@@ -5757,15 +5836,9 @@ type HandleGetDiffApiDiffGetParams struct {
 	After       string  `form:"after" json:"after"`
 	LabelBefore *string `form:"label_before,omitempty" json:"label_before,omitempty"`
 	LabelAfter  *string `form:"label_after,omitempty" json:"label_after,omitempty"`
-	Sig         *string `form:"sig,omitempty" json:"sig,omitempty"`
-}
 
-// HandleGetDiffShareLinkApiDiffShareLinkGetParams defines parameters for HandleGetDiffShareLinkApiDiffShareLinkGet.
-type HandleGetDiffShareLinkApiDiffShareLinkGetParams struct {
-	Before      string  `form:"before" json:"before"`
-	After       string  `form:"after" json:"after"`
-	LabelBefore *string `form:"label_before,omitempty" json:"label_before,omitempty"`
-	LabelAfter  *string `form:"label_after,omitempty" json:"label_after,omitempty"`
+	// Link A share link's credential, as it appears in the URL `POST /api/diff/share-link` returned.
+	Link *string `form:"link,omitempty" json:"link,omitempty"`
 }
 
 // HandleListLoreEntriesApiLoreGetParams defines parameters for HandleListLoreEntriesApiLoreGet.
@@ -5835,6 +5908,18 @@ type HandleResumeSummaryApiResumeSummaryGetParams struct {
 type HandlePeekResumeSummarySizeApiResumeSummarySizeGetParams struct {
 	// IncludeDeleteNotices ``true`` (the STRING) sizes the snapshot with the owner's delete notices (``system`` messages carrying ``meta.delete_notice``) counted, exactly as ``resume_summary`` with the same value would pack it. By default they are left out. Any other value reads as not sent. The snapshot already leaves deleted messages out, so by default it has no reason to print the notices about them either.
 	IncludeDeleteNotices *string `form:"include_delete_notices,omitempty" json:"include_delete_notices,omitempty"`
+}
+
+// HandleListShareLinksApiShareLinksGetParams defines parameters for HandleListShareLinksApiShareLinksGet.
+type HandleListShareLinksApiShareLinksGetParams struct {
+	// AttachmentId Only links to this attachment.
+	AttachmentId *string `form:"attachment_id,omitempty" json:"attachment_id,omitempty"`
+
+	// Before With `after`: only links to the comparison with exactly these two sides. Labels are not matched.
+	Before *string `form:"before,omitempty" json:"before,omitempty"`
+
+	// After With `before`; see `before`.
+	After *string `form:"after,omitempty" json:"after,omitempty"`
 }
 
 // HandleListTasksApiTasksGetParams defines parameters for HandleListTasksApiTasksGet.
@@ -5993,6 +6078,9 @@ type HandleBootstrapApiBootstrapPostJSONRequestBody = BootstrapRequestDTO
 // HandlePostChatApiChatPostJSONRequestBody defines body for HandlePostChatApiChatPost for application/json ContentType.
 type HandlePostChatApiChatPostJSONRequestBody = ChatPostDTO
 
+// HandleCreateChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkPostJSONRequestBody defines body for HandleCreateChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkPost for application/json ContentType.
+type HandleCreateChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkPostJSONRequestBody = ChatAttachmentShareLinkCreateDTO
+
 // HandleUpdateChatGroupsApiChatGroupsPutJSONRequestBody defines body for HandleUpdateChatGroupsApiChatGroupsPut for application/json ContentType.
 type HandleUpdateChatGroupsApiChatGroupsPutJSONRequestBody = ChatGroupsUpdateDTO
 
@@ -6001,6 +6089,9 @@ type HandleMarkChatReadApiChatMarkReadPostJSONRequestBody = MarkChatReadDTO
 
 // HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPutJSONRequestBody defines body for HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPut for application/json ContentType.
 type HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPutJSONRequestBody = ChatSuggestedRepliesUpdateDTO
+
+// HandleCreateDiffShareLinkApiDiffShareLinkPostJSONRequestBody defines body for HandleCreateDiffShareLinkApiDiffShareLinkPost for application/json ContentType.
+type HandleCreateDiffShareLinkApiDiffShareLinkPostJSONRequestBody = DiffShareLinkCreateDTO
 
 // HandleReplaceGlobalContextApiGlobalContextPostJSONRequestBody defines body for HandleReplaceGlobalContextApiGlobalContextPost for application/json ContentType.
 type HandleReplaceGlobalContextApiGlobalContextPostJSONRequestBody = GlobalContextReplaceDTO
@@ -6546,16 +6637,19 @@ type ServerInterface interface {
 	HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Request)
 	// Serve a chat attachment blob (owner-gated; raw bytes + stored mime).
 	// (GET /api/chat/attachment/{attachment_id})
-	HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w http.ResponseWriter, r *http.Request, attachmentId string)
+	HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w http.ResponseWriter, r *http.Request, attachmentId string, params HandleGetChatAttachmentApiChatAttachmentAttachmentIdGetParams)
 	// List every attachment of a member's conversations (?with=<member_id>; flattened, sender-labelled, newest→oldest).
 	// (GET /api/chat/attachments)
 	HandleListChatAttachmentsApiChatAttachmentsGet(w http.ResponseWriter, r *http.Request, params HandleListChatAttachmentsApiChatAttachmentsGetParams)
 	// Upload one attachment blob (raw octet-stream body; returns the light ref). ?filename= is capped at 128 characters (Unicode runes, not bytes); a longer one is refused with a 400 rather than truncated.
 	// (POST /api/chat/attachments)
 	HandleUploadChatAttachmentApiChatAttachmentsPost(w http.ResponseWriter, r *http.Request, params HandleUploadChatAttachmentApiChatAttachmentsPostParams)
-	// Mint a single-file share link (?sig= HMAC; grants read of this one attachment only). Returns {url} as a SERVER-RELATIVE path — prefix it with the origin you reach this server on to get a link you can paste to someone. The sig carries NO identity and NO expiry: whoever holds the link reads that one blob without signing in, for as long as the key that signed it is still in the server's signing-key ring. No single link can be withdrawn; the only way to void one is to remove that key (POST /api/auth/signing-keys/{key_id}/remove), which voids every link it signed at once. Mint it for deliverables you meant to hand over; do not paste it anywhere the blob itself would not belong.
-	// (GET /api/chat/attachments/{attachment_id}/share-link)
-	HandleGetChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkGet(w http.ResponseWriter, r *http.Request, attachmentId string)
+	// Mint a one-hour preview URL for one attachment (cockpit preview frames).
+	// (GET /api/chat/attachments/{attachment_id}/preview-link)
+	HandleGetChatAttachmentPreviewLinkApiChatAttachmentsAttachmentIdPreviewLinkGet(w http.ResponseWriter, r *http.Request, attachmentId string)
+	// Mint a share link to one attachment, valid until a chosen time or until revoked.
+	// (POST /api/chat/attachments/{attachment_id}/share-link)
+	HandleCreateChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkPost(w http.ResponseWriter, r *http.Request, attachmentId string)
 	// Get the owner's chat-list groups.
 	// (GET /api/chat/groups)
 	HandleGetChatGroupsApiChatGroupsGet(w http.ResponseWriter, r *http.Request)
@@ -6580,12 +6674,12 @@ type ServerInterface interface {
 	// Delete one of the owner's own chat messages sent within the last 24 hours (owner only; no undo).
 	// (DELETE /api/chat/{message_id})
 	HandleDeleteChatMessageApiChatMessageIdDelete(w http.ResponseWriter, r *http.Request, messageId string)
-	// Resolve both sides of one comparison (?before=&after=; optional labels and ?sig=). Each side carries its text, its column heading, and an honest gone marker when the address resolves to nothing.
+	// Resolve both sides of one comparison (?before=&after=; optional labels and ?link=). Each side carries its text, its column heading, and an honest gone marker when the address resolves to nothing.
 	// (GET /api/diff)
 	HandleGetDiffApiDiffGet(w http.ResponseWriter, r *http.Request, params HandleGetDiffApiDiffGetParams)
-	// Mint the EXTERNAL link to one before/after comparison (?sig= HMAC over both addresses AND both column labels). Returns {url} as a SERVER-RELATIVE path — prefix it with the origin you reach this server on to get a link you can paste to someone. The sig carries NO identity and NO expiry: whoever holds the link sees that one comparison without signing in, for as long as the key that signed it is still in the server's signing-key ring. No single link can be withdrawn; the only way to void one is to remove that key (POST /api/auth/signing-keys/{key_id}/remove), which voids every comparison link and every file link it signed at once. YOU USUALLY DO NOT NEED THIS: the INTERNAL link is the same /diff?before=…&after=… page with no sig, any signed-in reader opens it, and `ocagent diff` prints it without asking the server anything. Mint this one only for a reader who has no account. A side is a stored attachment id (att-…) or doc:<kind>/<key>/<at>/<field> — `ocagent diff --help` is the authority on the spelling.
-	// (GET /api/diff/share-link)
-	HandleGetDiffShareLinkApiDiffShareLinkGet(w http.ResponseWriter, r *http.Request, params HandleGetDiffShareLinkApiDiffShareLinkGetParams)
+	// Mint the external link to one before/after comparison, valid until a chosen time or until revoked.
+	// (POST /api/diff/share-link)
+	HandleCreateDiffShareLinkApiDiffShareLinkPost(w http.ResponseWriter, r *http.Request)
 	// Size-only overview of the capped documents on the station: each role's Duty / insight, and each task manual's SOP, as size_chars plus the cap_chars in force for THAT segment (the three segments have three separate caps — each is reported against its own). THE LISTING IS KEYED BY ROLE, AND THAT IS ITS LIMIT: nothing validates a role_key against the roster on the INSIGHT write face, so an admin or the owner can write insight under a role_key no role carries; such a document spends the insight cap and, having no role to hang off, never appears here. list_roles is the roster this listing is derived from — a document under a name that is not on it is not on this page either. Carries NO document text, so it costs a few hundred bytes. Use it to find which long-lived document is nearly full, then read only that one (get_role / get_insight / get_task_manual). It is the only way to see insight sizes in bulk — no listing reports those at any price; the manual sizes and caps are also on every list_task_manuals row, and a Duty's size and cap are already on every list_roles row.
 	// (GET /api/doc-sizes)
 	HandlePeekDocSizesApiDocSizesGet(w http.ResponseWriter, r *http.Request)
@@ -7011,6 +7105,12 @@ type ServerInterface interface {
 	// - `updater_check_interval_secs`: How often the server re-reads GitHub releases in the background; a manual check always reads fresh.
 	// (PATCH /api/settings)
 	HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, r *http.Request)
+	// List share links still in force, all or one target's (no URLs).
+	// (GET /api/share-links)
+	HandleListShareLinksApiShareLinksGet(w http.ResponseWriter, r *http.Request, params HandleListShareLinksApiShareLinksGetParams)
+	// Revoke one share link.
+	// (DELETE /api/share-links/{share_link_id})
+	HandleRevokeShareLinkApiShareLinksShareLinkIdDelete(w http.ResponseWriter, r *http.Request, shareLinkId string)
 	// List shared documents, sorted by name. Metadata only: read the content with get_shared_doc.
 	// (GET /api/shared-docs)
 	HandleListSharedDocsApiSharedDocsGet(w http.ResponseWriter, r *http.Request)
@@ -8076,8 +8176,24 @@ func (siw *ServerInterfaceWrapper) HandleGetChatAttachmentApiChatAttachmentAttac
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params HandleGetChatAttachmentApiChatAttachmentAttachmentIdGetParams
+
+	// ------------- Optional query parameter "link" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "link", r.URL.Query(), &params.Link, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "link"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "link", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w, r, attachmentId)
+		siw.Handler.HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w, r, attachmentId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8166,8 +8282,8 @@ func (siw *ServerInterfaceWrapper) HandleUploadChatAttachmentApiChatAttachmentsP
 	handler.ServeHTTP(w, r)
 }
 
-// HandleGetChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkGet operation middleware
-func (siw *ServerInterfaceWrapper) HandleGetChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkGet(w http.ResponseWriter, r *http.Request) {
+// HandleGetChatAttachmentPreviewLinkApiChatAttachmentsAttachmentIdPreviewLinkGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetChatAttachmentPreviewLinkApiChatAttachmentsAttachmentIdPreviewLinkGet(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -8182,7 +8298,33 @@ func (siw *ServerInterfaceWrapper) HandleGetChatAttachmentShareLinkApiChatAttach
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleGetChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkGet(w, r, attachmentId)
+		siw.Handler.HandleGetChatAttachmentPreviewLinkApiChatAttachmentsAttachmentIdPreviewLinkGet(w, r, attachmentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleCreateChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleCreateChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "attachment_id" -------------
+	var attachmentId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "attachment_id", r.PathValue("attachment_id"), &attachmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "attachment_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleCreateChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkPost(w, r, attachmentId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8408,15 +8550,15 @@ func (siw *ServerInterfaceWrapper) HandleGetDiffApiDiffGet(w http.ResponseWriter
 		return
 	}
 
-	// ------------- Optional query parameter "sig" -------------
+	// ------------- Optional query parameter "link" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "sig", r.URL.Query(), &params.Sig, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "link", r.URL.Query(), &params.Link, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sig"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "link"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sig", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "link", Err: err})
 		}
 		return
 	}
@@ -8432,69 +8574,11 @@ func (siw *ServerInterfaceWrapper) HandleGetDiffApiDiffGet(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
-// HandleGetDiffShareLinkApiDiffShareLinkGet operation middleware
-func (siw *ServerInterfaceWrapper) HandleGetDiffShareLinkApiDiffShareLinkGet(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params HandleGetDiffShareLinkApiDiffShareLinkGetParams
-
-	// ------------- Required query parameter "before" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, true, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
-		}
-		return
-	}
-
-	// ------------- Required query parameter "after" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, true, "after", r.URL.Query(), &params.After, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "label_before" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "label_before", r.URL.Query(), &params.LabelBefore, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "label_before"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label_before", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "label_after" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "label_after", r.URL.Query(), &params.LabelAfter, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "label_after"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label_after", Err: err})
-		}
-		return
-	}
+// HandleCreateDiffShareLinkApiDiffShareLinkPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleCreateDiffShareLinkApiDiffShareLinkPost(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleGetDiffShareLinkApiDiffShareLinkGet(w, r, params)
+		siw.Handler.HandleCreateDiffShareLinkApiDiffShareLinkPost(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11284,6 +11368,91 @@ func (siw *ServerInterfaceWrapper) HandleUpdateSettingsApiSettingsPatch(w http.R
 	handler.ServeHTTP(w, r)
 }
 
+// HandleListShareLinksApiShareLinksGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleListShareLinksApiShareLinksGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params HandleListShareLinksApiShareLinksGetParams
+
+	// ------------- Optional query parameter "attachment_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "attachment_id", r.URL.Query(), &params.AttachmentId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "attachment_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "attachment_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "before" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "after" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "after", r.URL.Query(), &params.After, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleListShareLinksApiShareLinksGet(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleRevokeShareLinkApiShareLinksShareLinkIdDelete operation middleware
+func (siw *ServerInterfaceWrapper) HandleRevokeShareLinkApiShareLinksShareLinkIdDelete(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "share_link_id" -------------
+	var shareLinkId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "share_link_id", r.PathValue("share_link_id"), &shareLinkId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "share_link_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleRevokeShareLinkApiShareLinksShareLinkIdDelete(w, r, shareLinkId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleListSharedDocsApiSharedDocsGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleListSharedDocsApiSharedDocsGet(w http.ResponseWriter, r *http.Request) {
 
@@ -13434,7 +13603,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/attachment/{attachment_id}", wrapper.HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/attachments", wrapper.HandleListChatAttachmentsApiChatAttachmentsGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/chat/attachments", wrapper.HandleUploadChatAttachmentApiChatAttachmentsPost)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/attachments/{attachment_id}/share-link", wrapper.HandleGetChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkGet)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/attachments/{attachment_id}/preview-link", wrapper.HandleGetChatAttachmentPreviewLinkApiChatAttachmentsAttachmentIdPreviewLinkGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/chat/attachments/{attachment_id}/share-link", wrapper.HandleCreateChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/groups", wrapper.HandleGetChatGroupsApiChatGroupsGet)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/chat/groups", wrapper.HandleUpdateChatGroupsApiChatGroupsPut)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/chat/mark-read", wrapper.HandleMarkChatReadApiChatMarkReadPost)
@@ -13444,7 +13614,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/unread-count", wrapper.HandleChatUnreadCountApiChatUnreadCountGet)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/chat/{message_id}", wrapper.HandleDeleteChatMessageApiChatMessageIdDelete)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/diff", wrapper.HandleGetDiffApiDiffGet)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/diff/share-link", wrapper.HandleGetDiffShareLinkApiDiffShareLinkGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/diff/share-link", wrapper.HandleCreateDiffShareLinkApiDiffShareLinkPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/doc-sizes", wrapper.HandlePeekDocSizesApiDocSizesGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/docs", wrapper.HandleListDocsApiDocsGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/docs/assets/{name}", wrapper.HandleGetDocAssetApiDocsAssetsNameGet)
@@ -13556,6 +13726,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/self/waking", wrapper.HandleReportWakingApiSelfWakingPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/settings", wrapper.HandleGetSettingsApiSettingsGet)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/settings", wrapper.HandleUpdateSettingsApiSettingsPatch)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/share-links", wrapper.HandleListShareLinksApiShareLinksGet)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/share-links/{share_link_id}", wrapper.HandleRevokeShareLinkApiShareLinksShareLinkIdDelete)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/shared-docs", wrapper.HandleListSharedDocsApiSharedDocsGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/shared-docs", wrapper.HandleCreateSharedDocApiSharedDocsPost)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/shared-docs/{doc_id}", wrapper.HandleDeleteSharedDocApiSharedDocsDocIdDelete)

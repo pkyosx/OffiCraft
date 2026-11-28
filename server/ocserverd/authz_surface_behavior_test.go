@@ -958,6 +958,15 @@ var writeVerbs = map[string]bool{"POST": true, "PATCH": true, "PUT": true, "DELE
 // choke (authz.go), so each of these is "any authenticated principal may do
 // this", which is a claim, not a default.
 var machineFloorWriteRulings = map[string]machineFloorRuling{
+	"POST /api/chat/attachments/{attachment_id}/share-link": {
+		Ruling: "T-767 spec v3 · owner-approved: minting keeps the floor the GET mint had",
+		Why: "every member must be able to hand over a deliverable; the route became a POST only " +
+			"because each call now stores a link. Listing and revoking links is admin_agent.",
+	},
+	"POST /api/diff/share-link": {
+		Ruling: "T-767 spec v3 · owner-approved: minting keeps the floor the GET mint had",
+		Why:    "the comparison twin of the attachment mint above.",
+	},
 	"PATCH /api/members/{member_id}": {
 		Ruling: "T-5336 · owner 2026-07-27",
 		Why: "KEPT at the floor deliberately: members trust each other, so editing a " +

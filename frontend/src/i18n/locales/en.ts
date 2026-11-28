@@ -32,13 +32,6 @@ export const en: Dict = {
     openSide: (label: string) => `Open "${label}" on its own`,
     tooLargeLead: "Too long to compare line by line (",
     tooLargeTail: " lines).",
-    // The external, server-signed link to THIS comparison. Icon-only control
-    // (owner 2026-09-03: 「1. 用圖示」), so these three strings are the whole
-    // accessible name — and the failure one has to exist, because a copy that
-    // did not happen must never look like one that did.
-    copyShareLink: "Copy external link",
-    shareLinkCopied: "External link copied",
-    shareLinkCopyFailed: "Could not copy the link",
   },
   connection: {
     lostTitle: "Live updates disconnected",
@@ -63,6 +56,7 @@ export const en: Dict = {
     lore: "Lore",
     sharedDocs: "Files",
     secrets: "Secrets",
+    shareLinks: "Sharing",
     monitor: "Monitor",
     // Top-left logo = home entry (aria-label/title).
     home: "Home",
@@ -227,6 +221,44 @@ export const en: Dict = {
     rename: "Rename",
     editDescription: "Edit description",
     descriptionPlaceholder: "Add a description",
+  },
+  shareLinks: {
+    trigger: "Share link",
+    menuTitle: "Link expiry",
+    amountLabel: "Valid for",
+    unitLabel: "Unit",
+    unitHour: "hours",
+    unitDay: "days",
+    unitForever: "Forever",
+    forever: "Never expires",
+    generate: "Create link",
+    copied: "Link copied",
+    copyFailed: "Link created, but copying failed",
+    copyManually: "Copying did not work. Copy the link below yourself — it is shown only here.",
+    newLinkLabel: "New share link",
+    copyAgain: "Copy again",
+    loading: "Loading…",
+    expiryRefused: "The server did not accept this expiry. Check that this device's clock is right.",
+    mintFailed: "Could not create the link. Try again.",
+    invalid: "Enter a whole number, 1 or more",
+    tooFar: "At most 365 days",
+    issued: "Issued",
+    revoke: "Revoke",
+    revokeConfirm: "Revoke",
+    revokeConfirmLead: "Revoke this share link to \u201c",
+    revokeConfirmTail: "\u201d? It stops working at once and cannot be undone.",
+    revokeFailed: "Could not revoke the link. Try again.",
+    createdLead: "Created ",
+    createdTail: "",
+    cancel: "Cancel",
+    loadFailed: "Could not load share links. Try again later.",
+    empty: "No share links in force",
+    colName: "Name",
+    colCreatedBy: "Created by",
+    colExpires: "Expires",
+    kindAttachment: "File",
+    kindDiff: "Comparison",
+    linkGone: "This share link is no longer valid",
   },
   secrets: {
     loadFailed: "Could not load secrets. Please try again later.",
@@ -1193,7 +1225,7 @@ export const en: Dict = {
     themeImportLinkWorking: "Fetching…",
     themeImportLinkFailed: "Could not fetch that link",
     themeImportLinkShareNote:
-      "Anyone who has this link can see the theme, including any private images inside it. The link never expires and cannot be withdrawn on its own.",
+      "Anyone who has this link can see the theme, including any private images inside it, until the link expires or is revoked.",
     themeImportDup: "This custom theme already exists",
     themeImportSeasonalId: "This id is reserved for a built-in seasonal theme. Change the theme's id and import again.",
     themeImportReadFailed: "Could not read that file",
@@ -1450,13 +1482,6 @@ export const en: Dict = {
     searchEmptyTail: "”",
     galleryPreviewHint: "Preview in a new tab",
     galleryDownloadHint: "Download",
-    // Single-file share link (?sig= HMAC) — copied to the clipboard. No expiry,
-    // but not permanent: it follows the signing-key ring, so removing the key
-    // that signed it voids it (T-62). Kept in step with its Chinese twin in
-    // zh.ts — the first pass fixed one and not the other.
-    copyShareLink: "Copy share link",
-    shareLinkCopied: "Link copied",
-    shareLinkCopyFailed: "Failed to copy link",
     // In-cockpit preview of a .md attachment (T-a1c4): a separate action from
     // download; the overlay renders via Markdown.tsx (not the raw-source new tab).
     // T-7bc2: the chip itself is the trigger now — no separate "action" label.
@@ -2334,7 +2359,7 @@ export const en: Dict = {
   signingKeys: {
     title: "Signing keys",
     intro:
-      "Manage the keys used to issue logins and share links. Replacing a key does not affect anyone already logged in.",
+      "Manage the keys used to sign logins and preview links. Replacing a key does not affect anyone already logged in.",
     loading: "Loading…",
     signingBadge: "In use",
     retiredBadge: "Old key (still valid)",
@@ -2347,7 +2372,7 @@ export const en: Dict = {
     removeButton: "Remove",
     removeConfirmTitle: "Remove this key?",
     removeConfirmBody:
-      "Everything this key signed stops working the moment you confirm, with no grace period and no notice to anyone: credentials signed by it are refused, and the share links produced under it — file links and comparison links alike — break too.",
+      "Everything this key signed stops working the moment you confirm, with no grace period and no notice to anyone: credentials signed by it are refused, and the temporary links used to view web pages, PDFs and videos, plus share links made before this update, break too. Share links made from the share menu or by AI members are not affected; to stop one of those, revoke it on the Sharing tab.",
     removeConfirmWarden:
       "⚠️ Any machine that has not moved to the new key disconnects the moment you remove this one; an offline machine can only move once it comes back online. Make sure every machine has moved to the new key before removing.",
     removeConfirmCancel: "Cancel",
@@ -2457,6 +2482,7 @@ export const en: Dict = {
     themeNavLore: "Lore icon",
     themeNavSharedDocs: "Files icon",
     themeNavSecrets: "Secrets icon",
+    themeNavShareLinks: "Sharing icon",
     themeNavMonitor: "Monitor icon",
     // ── outer-canvas background image (T-081b) ──
     themeCanvasBgSection: "Outer canvas",

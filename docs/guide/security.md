@@ -80,15 +80,17 @@ For the steps to back up and restore the database, see "Backup and restore" in [
 
 ## Signing keys
 
-Signing keys are what OffiCraft uses to prove that sign-ins and share links are valid. Your sign-in, the sign-ins of members and machines, and the links created by "Copy external link" and "Copy share link" are all checked against a signing key.
+Signing keys are what OffiCraft uses to prove that sign-ins are valid. Your sign-in and the sign-ins of members and machines are all checked against a signing key. The links the console uses to show web pages, PDFs and videos in the file viewer are signed with it too; they stop working on their own after one hour.
 
-If you suspect a sign-in or a share link has leaked:
+Share links do not depend on signing keys. Each share link stops working when it expires or when you revoke it on the "Sharing" tab; creating or removing a key does not affect it. If you suspect a share link has leaked, revoke that link (see "Sharing" in [Interface reference](interface.md)). The exception is share links copied in versions of OffiCraft before share links had an expiry: those are signed with a signing key, still open, never expire, and stop working only when the key that signed them is removed.
+
+If you suspect a sign-in has leaked:
 
 1. Go to the "Signing keys" card at the bottom of **Settings › System update & backup** and press "Create a new key". The new key takes over immediately, and nobody who is signed in is signed out.
 2. Wait until every machine has come online at least once, so that it switches to the new key.
 3. Press "Remove" next to the old key.
 
-**Removing cannot be undone and takes effect immediately**: every sign-in and share link signed with the old key stops working, and people holding those links are not notified. Machines that have not yet switched to the new key are disconnected immediately. So before removing, make sure every machine has come online.
+**Removing cannot be undone and takes effect immediately**: every sign-in signed with the old key stops working, and so does every older share link signed with it; people holding those links are not notified. Machines that have not yet switched to the new key are disconnected immediately. So before removing, make sure every machine has come online.
 
 For a description of the Signing keys card, see "System update & backup" in [Settings](settings.md). For how long members and machines each stay signed in, see "General" in [Settings](settings.md).
 

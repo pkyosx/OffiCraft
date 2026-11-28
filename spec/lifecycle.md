@@ -60,11 +60,12 @@ Two operator actions, and no timer anywhere:
 - **rotate** mints a key, appends it and moves the signing mark. Every existing key stays,
   so nothing already issued stops working. The outgoing key never signs again.
 - **remove** drops a retired key, and refuses to touch the one that is signing. THIS is
-  the revocation: every token — and every `?sig=` share credential, both the attachment
-  share-link one and the comparison one (`GET /api/diff`), which OpenAPI documents as
-  "derived from the server signing secret" and which are therefore governed by this ring
-  too — produced under that key stops verifying the instant the call returns,
-  with no grace period. It is a human's decision precisely because it has no undo.
+  the revocation: every token — and every `?sig=` credential: the cockpit's one-hour
+  preview link (`?sig=&exp=`) and the attachment and comparison sigs handed out before
+  share links were stored (still accepted while `legacyShareSigsOpen`, sharesig.go) —
+  produced under that key stops verifying the instant the call returns, with no grace
+  period. Stored share links (`?link=`, the `share_link` table) never read the ring: they
+  end only by their own `expires_ts` or a revoke (`DELETE /api/share-links/{id}`). It is a human's decision precisely because it has no undo.
   ⚠️ Warden credentials expire again since §1.6, but "wait for the old tokens to expire" is
   still the SLOW strategy rather than the answer: a machine's credential lives up to the
   full lifetime (30 days by default) and is replaced at two thirds of it, so a key that has
@@ -433,8 +434,9 @@ ceiling of the warden lifetime setting (§1.6).
      the operator never enumerated — including `kind="warden"` credentials, which the other
      cuts deliberately exempt or cannot reach, and whose own `exp` (§1.6) is far
      enough out — up to a full lifetime — that waiting for it is not a substitute. That is why it is a human's decision with no timer and no undo, and why
-     the settings page states the cost before the press. It also ends every attachment
-     share-link `?sig=` produced under that key, which is not a token at all.
+     the settings page states the cost before the press. It also ends every preview
+     link and every pre-stored-link `?sig=` produced under that key, which are not tokens
+     at all; stored `?link=` share links are untouched.
 
   5. **member scope — leaving the roster.** Whenever a staff or outsource row is set
      `roster_status="removed"` — a dismissal (`DELETE /api/members/{member_id}`, or a
@@ -505,9 +507,10 @@ ceiling of the warden lifetime setting (§1.6).
     as "nothing has proved this one moved" rather than as converged.
 
   ⚠️ **What this does NOT change**: removal is still immediate, still has no grace period,
-  still takes every share-link `?sig=` produced under that key, and is still a human's
-  decision with no timer. Convergence makes the press SAFE for the fleet; it does not make
-  it reversible, and it says nothing about the links.
+  still takes every `?sig=` link produced under that key (preview links and the
+  pre-stored-link share sigs), and is still a human's decision with no timer. Convergence
+  makes the press SAFE for the fleet; it does not make it reversible, and it says nothing
+  about the links.
 
 ### 1.4 Credential renewal (`POST /api/machines/renew-credential`)
 

@@ -28,6 +28,7 @@ describe("parseHash", () => {
     expect(parseHash("#replies/opener")).toEqual({ page: "replies" });
     expect(parseHash("#monitor")).toEqual({ page: "monitor" });
     expect(parseHash("#secrets")).toEqual({ page: "secrets" });
+    expect(parseHash("#share-links")).toEqual({ page: "share_links" });
     expect(parseHash("#shared-docs")).toEqual({ page: "shared_docs" });
     expect(parseHash("#shared-docs/sd-0c41e97a2b58")).toEqual({
       page: "shared_docs",
@@ -252,6 +253,7 @@ describe("formatHash", () => {
     expect(formatHash({ page: "replies", openerId: "mira" })).toBe("#replies/opener/mira");
     expect(formatHash({ page: "monitor" })).toBe("#monitor");
     expect(formatHash({ page: "secrets" })).toBe("#secrets");
+    expect(formatHash({ page: "share_links" })).toBe("#share-links");
     expect(formatHash({ page: "shared_docs" })).toBe("#shared-docs");
     expect(
       formatHash({ page: "shared_docs", sharedDocId: "sd-0c41e97a2b58" }),
@@ -377,6 +379,7 @@ describe("formatHash", () => {
       { page: "monitor" as const },
       { page: "monitor" as const, detailId: "mira" },
       { page: "secrets" as const },
+      { page: "share_links" as const },
       { page: "shared_docs" as const },
       { page: "shared_docs" as const, sharedDocId: "sd-0c41e97a2b58" },
       { page: "settings" as const, settingsGuide: true },

@@ -73,6 +73,7 @@ export const NAV_ICON_KEYS = [
   "replies",
   "tasks",
   "secrets",
+  "share_links",
   "shared_docs",
   "lore",
   "monitor",

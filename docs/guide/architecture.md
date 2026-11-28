@@ -89,7 +89,8 @@ Because every action goes through the server, the console always shows the data 
 
 - The server gives a member its login credential when it starts the member, and the same credential is used for REST, SSE, and MCP. Its validity is "Member login lifetime" under Settings › General. When a credential enters its last hour, the server automatically asks the member to wrap up and hand over so a new one can be issued.
 - Each machine's warden has its own credential too, valid for the "Machine credential lifetime" (30 days by default). The warden renews it automatically before it expires; a machine that misses the renewal is disconnected and has to be reinstalled.
-- File share links, the external links of comparison pages, and login credentials are all issued with the server's signing keys. For the effect of renewing and removing keys, see [Protect your studio](security.md).
+- Login credentials are issued with the server's signing keys. For the effect of renewing and removing keys, see [Protect your studio](security.md).
+- A share link (to a file or a comparison page) is a random credential the server stores only as a hash; it does not depend on the signing keys. It stops working when it expires or is revoked. See "Sharing" in [Interface reference](interface.md).
 
 ## What members read when they boot
 
