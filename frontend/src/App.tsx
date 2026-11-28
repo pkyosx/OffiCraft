@@ -15,7 +15,7 @@ import {
   MonitorIcon,
   AlertTriangleIcon,
 } from "./components/icons";
-import { InstantHint } from "./components/InstantHint";
+import { InstantHint, isInHint } from "./components/InstantHint";
 import { dueToneOf } from "./lib/dueDate";
 import { Avatar } from "./components/Avatar";
 import { BrandLogo } from "./components/BrandLogo";
@@ -250,9 +250,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   useEffect(() => {
     if (!profileOpen) return;
     function onDown(e: MouseEvent) {
-      const target = e.target as Element;
-      // A pinned hint is portalled to <body> but belongs to a row in the menu.
-      if (!profileMenuRef.current?.contains(target) && !target.closest?.(".instant-hint")) {
+      if (!profileMenuRef.current?.contains(e.target as Node) && !isInHint(e.target)) {
         setProfileOpen(false);
       }
     }

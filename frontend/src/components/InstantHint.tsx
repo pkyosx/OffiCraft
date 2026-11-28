@@ -24,6 +24,13 @@ const EDGE = 8;
  * the pointer just moved onto. */
 let closeOpenHint: (() => void) | null = null;
 
+/** Whether a press landed on a hint. Hints are portalled to <body>, so a host's
+ * click-outside check must not count a press on the hint of one of its own rows
+ * as outside. */
+export function isInHint(target: EventTarget | null): boolean {
+  return !!(target as Element | null)?.closest?.(".instant-hint");
+}
+
 /** The trigger's box without its padding. A host may pad the trigger to widen
  * its tap area on touch screens; placing the hint against the padded box would
  * float it that far away from what it explains. */

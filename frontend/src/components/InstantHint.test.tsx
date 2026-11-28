@@ -1,7 +1,7 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useRef } from "react";
-import { InstantHint } from "./InstantHint";
+import { InstantHint, isInHint } from "./InstantHint";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 
 function DialogWithHint({ onEscape }: { onEscape: () => void }) {
@@ -263,5 +263,19 @@ describe("InstantHint", () => {
     fireEvent.click(screen.getByTestId("trigger"));
     expect(screen.getByRole("tooltip").textContent).toBe("說明");
     expect(document.activeElement).not.toBe(screen.getByTestId("field"));
+  });
+});
+
+describe("isInHint", () => {
+  it("is true for a press on a pinned hint or a line inside it, false for its trigger and the page", () => {
+    renderHint("一\n二");
+    const trigger = screen.getByTestId("trigger");
+    fireEvent.click(trigger);
+    const hint = screen.getByRole("tooltip");
+    expect(isInHint(hint)).toBe(true);
+    expect(isInHint(hint.firstElementChild)).toBe(true);
+    expect(isInHint(trigger)).toBe(false);
+    expect(isInHint(document.body)).toBe(false);
+    expect(isInHint(null)).toBe(false);
   });
 });
