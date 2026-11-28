@@ -12815,7 +12815,6 @@
           "entries",
           "limit",
           "offset",
-          "total",
           "cap_chars",
           "first_dropped_id",
           "used_chars",

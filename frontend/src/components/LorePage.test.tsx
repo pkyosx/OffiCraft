@@ -661,11 +661,18 @@ describe("LorePage — 篩選器複選", () => {
     fireEvent.click(box);
   }
 
-  it("asks for 置頂 and 生效中 by default, and ticking 已失效 adds it to the same request and shows that request's server total", async () => {
-    const spy = vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) => ({
-      ...page([mkEntry({ id: "L-1" })]),
-      total: o?.states?.includes("retired") ? 50 : 42,
-    }));
+  it("asks for 置頂 and 生效中 by default, and ticking 已失效 adds it to the same request and shows that request's server total, or the loaded rows once a total-less list is exhausted", async () => {
+    const spy = vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) => {
+      const states = o?.states ?? [];
+      if (!states.includes("pinned")) {
+        const n = states.includes("active") ? 30 : 3;
+        const { total: _omitted, ...rest } = page(
+          Array.from({ length: n }, (_, i) => mkEntry({ id: `L-${100 + i}` })),
+        );
+        return rest;
+      }
+      return { ...page([mkEntry({ id: "L-1" })]), total: states.includes("retired") ? 50 : 42 };
+    });
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
     expect(screen.getByTestId("lore-filter-summary").textContent).toBe("42 筆傳承");
@@ -693,6 +700,14 @@ describe("LorePage — 篩選器複選", () => {
     expect(screen.getByTestId("lore-filter-count").textContent).toBe("1");
     expect(screen.getByTestId("lore-filter-clear")).not.toBeNull();
     await waitFor(() => expect(screen.getByTestId("lore-filter-summary").textContent).toBe("50 筆傳承"));
+
+    tick("lore-filter-state", "pinned");
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(30));
+    expect(screen.queryByTestId("lore-filter-summary")).toBeNull();
+
+    tick("lore-filter-state", "active");
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(3));
+    expect(screen.getByTestId("lore-filter-summary").textContent).toBe("3 筆傳承");
   });
 
   it("sends the ticked types as loreTypes, counts each narrowed field once on the funnel, and 清除篩選 drops them all", async () => {

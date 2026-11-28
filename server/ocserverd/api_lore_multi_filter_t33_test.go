@@ -137,8 +137,8 @@ func TestPluralStateFilterReturnsOnlyTheStatesAskedFor(t *testing.T) {
 		States: strsp(LoreStatePinned, LoreStateRetired),
 		Limit:  &one,
 	})
-	if len(paged.Entries) != 1 || paged.Total != 2 {
-		t.Fatalf("limit=1 page: %d entries, total %d; want 1 entry and total 2 — "+
+	if len(paged.Entries) != 1 || paged.Total == nil || *paged.Total != 2 {
+		t.Fatalf("limit=1 page: %d entries, total %v; want 1 entry and total 2 — "+
 			"total counts every row the filter matches, not the page and not the scope",
 			len(paged.Entries), paged.Total)
 	}

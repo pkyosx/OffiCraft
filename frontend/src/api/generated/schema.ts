@@ -13124,7 +13124,7 @@ export interface components {
              * Total
              * @description How many entries match this request's filter across ALL pages — the same WHERE as ``entries``, without ``limit`` / ``offset``. Unlike ``cap_chars`` and the budget fields it does follow every filter axis (state, type, id, title), so it is the count of what the list would show when read to the end.
              */
-            total: number;
+            total?: number;
             /**
              * Cap Chars
              * @description The fold budget in force for the ONE scope this request's filter converged on — ``lore_cap_chars_role`` for ``agent`` and ``everyone``, ``lore_cap_chars_manual`` for ``manual``. It is 0 unless ``scope_kind`` and ``scope_key`` BOTH name a single scope — or ``scope_kind`` is ``everyone`` alone with no ``scope_key``, since that scope's key is "", or ``everyone`` + ``agent`` with one ``scope_key``, a member's whole boot list — because a budget belongs to a scope and a page spanning several has no single one to report.

@@ -206,7 +206,7 @@ function capOf(page: LoreEntryPageView): CapInfo {
 
 interface SectionData {
   entries: LoreEntryView[];
-  /** The server's count for the current filter (all pages); null until page one lands. */
+  /** The server's count for the current filter (all pages); null until page one lands or when the server omits it. */
   total: number | null;
   cap: CapInfo;
   loading: boolean;
@@ -568,7 +568,7 @@ function LoreView({
           flightRef.current.delete(def.key);
           patchSection(def.key, (p) => ({
             entries: page.entries,
-            total: page.total,
+            total: page.total ?? null,
             cap: isLatestCap(def.key, capSeq) ? capOf(page) : p.cap,
             loading: false,
             fetchingMore: false,
@@ -826,7 +826,7 @@ function LoreView({
         const seen = new Set<string>();
         let offset = 0;
         let last: LoreEntryPageView | null = null;
-        let total: number | null = null;
+        let total: number | undefined;
         let exhausted = false;
         while (offset < want) {
           const limit = Math.min(MAX_LIST_LIMIT, want - offset);
@@ -849,7 +849,7 @@ function LoreView({
         const fresh = last;
         patchSection(def.key, (p) => ({
           entries: rows,
-          total,
+          total: total ?? null,
           cap: fresh && isLatestCap(def.key, capSeq) ? capOf(fresh) : p.cap,
           loading: false,
           fetchingMore: false,
@@ -1587,6 +1587,7 @@ function LoreView({
   }
 
   const sd = currentDef ? data[currentDef.key] : undefined;
+  const listedCount = sd?.total ?? (sd?.exhausted ? sd.entries.length : null);
   const highlightMissing =
     highlightId !== "" &&
     !!sd &&
@@ -1656,7 +1657,7 @@ function LoreView({
             clearLabel={t.lore.clearFilters}
             onClear={activeFilterCount > 0 ? clearFilters : undefined}
             collapse={{ title: t.lore.filterDialogTitle, activeCount: activeFilterCount }}
-            summary={sd?.total == null ? undefined : msg.loreListedCount(sd.total)}
+            summary={listedCount == null ? undefined : msg.loreListedCount(listedCount)}
           >
             <FilterField label={t.lore.idSearchLabel} wide>
               <IdFilterInput

@@ -556,7 +556,7 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 		return
 	}
 	out := LoreEntryListDTO{Entries: make([]LoreEntryDTO, 0, len(entries)),
-		Limit: limit, Offset: offset, Total: total, BudgetSegments: []LoreBudgetSegmentDTO{}}
+		Limit: limit, Offset: offset, Total: &total, BudgetSegments: []LoreBudgetSegmentDTO{}}
 	for _, e := range entries {
 		out.Entries = append(out.Entries, newLoreEntryDTO(e, facts[e.ID]))
 	}
