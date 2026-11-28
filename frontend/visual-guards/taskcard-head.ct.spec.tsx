@@ -82,8 +82,7 @@ for (const width of [320, 390, 1440]) {
     const colours = await cmp
       .locator(".task-card__status-icon")
       .evaluateAll((els) => els.map((el) => getComputedStyle(el).color));
-    // 可結案 is left out: in office it is the same blue as the step 進行中.
-    expect(new Set(colours.filter((_, i) => i !== 4)).size, "every other status has its own colour").toBe(7);
+    expect(new Set(colours).size, "every status has its own colour").toBe(8);
 
     await page.evaluate(() => {
       const root = document.documentElement.style;
