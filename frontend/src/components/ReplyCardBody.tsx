@@ -340,21 +340,15 @@ export function ReplyCardIdChip({ id }: { id: string }) {
   );
 }
 
-/** 已回覆／已過期 and when, as a label/value row of `.reply-card__meta`. A
- * secret card has no time (owner), so `time` is empty there. */
-export function ReplyCardHandledRow({ expired, time }: { expired: boolean; time: string }) {
+/** 處理時間, as a label/value row of `.reply-card__meta`. Whether the card was
+ * answered or expired is the first line's status icon (owner). A secret card
+ * shows no time (owner), so it has no such row. */
+export function ReplyCardHandledRow({ time }: { time: string }) {
   const { t } = useI18n();
   return (
-    <div className="reply-card__meta-row reply-card__answered-at" data-testid="reply-card-handled-at">
-      <span className="reply-card__meta-label">
-        {expired ? t.replies.expiredAtLabel : t.replies.answeredAtLabel}
-      </span>
-      {time && (
-        <>
-          {" "}
-          <span className="reply-card__meta-time">{time}</span>
-        </>
-      )}
+    <div className="reply-card__meta-row reply-card__handled-at" data-testid="reply-card-handled-at">
+      <span className="reply-card__meta-label">{t.replies.handledAtLabel}</span>{" "}
+      <span className="reply-card__meta-time">{time}</span>
     </div>
   );
 }

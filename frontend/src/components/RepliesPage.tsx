@@ -1732,14 +1732,11 @@ export function RepliesPage({
         expired ? "reply-card--expired" : "reply-card--answered"
       }`,
       state: expired ? "expired" : "answered",
-      // Absolute date+time (7/13 09:05): a handled card has no ticking counter
-      // to say it instead. A secret card shows no time (owner).
-      handled: (
-        <ReplyCardHandledRow
-          expired={expired}
-          time={ts !== null && row.kind !== "secret" ? formatAbsolute(ts, nowTs) : ""}
-        />
-      ),
+      // A secret card shows no time (owner).
+      handled:
+        ts !== null && row.kind !== "secret" ? (
+          <ReplyCardHandledRow time={formatAbsolute(ts, nowTs)} />
+        ) : undefined,
       body: (card) => (
         <>
           {card.body && (

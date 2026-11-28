@@ -410,7 +410,7 @@ describe("the replies page's handled pane", () => {
     await waitFor(() => expect(u.getByTestId("secret-face").textContent).toBe("已取得"));
   });
 
-  it("stamps a settled secret card as answered or expired, with no time", async () => {
+  it("a settled secret card shows answered or expired by its status icon, with no 處理時間 row", async () => {
     const ts = Date.now() / 1000 - 60;
     const settled = { status: "answered" as const, answeredTs: ts };
     const answer = { optionIdxs: null, text: "", attachments: [] };
@@ -440,18 +440,19 @@ describe("the replies page's handled pane", () => {
     await selectRepliesTab("answered");
     const stamp = async (id: string) =>
       waitFor(() => {
-        const el = u.container.querySelector(`[data-reply-card-id="${id}"] .reply-card__answered-at`);
-        expect(el).not.toBeNull();
-        return el!.textContent;
+        const card = u.container.querySelector(`[data-reply-card-id="${id}"]`);
+        const icon = card?.querySelector('[data-testid="reply-status-icon"]');
+        expect(icon).toBeTruthy();
+        return [icon!.getAttribute("data-state"), card!.querySelector('[data-testid="reply-card-handled-at"]')];
       });
-    expect(await stamp("rc-aaaaaaaaaaa1")).toBe("已回覆");
-    expect(await stamp("rc-aaaaaaaaaaa2")).toBe("已回覆");
-    expect(await stamp("rc-aaaaaaaaaaa3")).toBe("已過期");
+    expect(await stamp("rc-aaaaaaaaaaa1")).toEqual(["answered", null]);
+    expect(await stamp("rc-aaaaaaaaaaa2")).toEqual(["answered", null]);
+    expect(await stamp("rc-aaaaaaaaaaa3")).toEqual(["expired", null]);
   });
 });
 
 describe("the chat card's handled row", () => {
-  it("stamps a settled secret card as answered or expired, with no time", async () => {
+  it("a settled secret card shows answered or expired by its status icon, with no 處理時間 row", async () => {
     const ts = Date.now() / 1000 - 60;
     __injectMockReplyCard(
       mkCard({
@@ -475,12 +476,16 @@ describe("the chat card's handled row", () => {
         withBystander(<ChatReplyCard replyCardId={id} fallbackSummary="部署金鑰" initialStatus="waiting" />),
       );
       fireEvent.click(u.getByTestId("chat-reply-card-expand"));
-      const text = (await u.findByTestId("reply-card-handled-at")).textContent;
+      await u.findByTestId("secret-face");
+      const shown = [
+        u.getByTestId("reply-status-icon").getAttribute("data-state"),
+        u.queryByTestId("reply-card-handled-at"),
+      ];
       u.unmount();
-      return text;
+      return shown;
     };
-    expect(await stamp("rc-aaaaaaaaaaa1")).toBe("已回覆");
-    expect(await stamp("rc-aaaaaaaaaaa3")).toBe("已過期");
+    expect(await stamp("rc-aaaaaaaaaaa1")).toEqual(["answered", null]);
+    expect(await stamp("rc-aaaaaaaaaaa3")).toEqual(["expired", null]);
   });
 });
 

@@ -189,7 +189,7 @@ for (const width of [390, 1280]) {
 
 for (const width of [320, 390, 1440]) {
   for (const language of ["zh", "en"]) {
-    test(`${width}px ${language}: the open chat card draws a line under its title, or under 已回覆 on an answered card, and its question starts below it; the folded row has none`, async ({
+    test(`${width}px ${language}: the open chat card draws a line under its title, or under 處理時間 on an answered card, and its question starts below it; the folded row has none`, async ({
       mount,
       page,
     }) => {

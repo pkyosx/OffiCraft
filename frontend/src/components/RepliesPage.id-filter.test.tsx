@@ -423,7 +423,7 @@ describe("請示 ID 篩選 (T-118)", () => {
     expect(getByTestId("replies-tab-answered").getAttribute("aria-selected")).toBe("true");
   });
 
-  it("a link to a handled card selects 近期已回覆 and shows it stamped 已回覆; under another label it is the filtered-empty counting 0", async () => {
+  it("a link to a handled card selects 近期已回覆 and shows it with its 處理時間; under another label it is the filtered-empty counting 0", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(
       mkCard({
@@ -441,7 +441,7 @@ describe("請示 ID 篩選 (T-118)", () => {
     expect(await findByText("已經回過的")).toBeTruthy();
     const card = await findByTestId("answered-card");
     expect(card.dataset.replyCardId).toBe("rc-handled");
-    expect(card.querySelector(".reply-card__answered-at")?.textContent).toMatch(/^已回覆 \d/);
+    expect(card.querySelector(".reply-card__handled-at")?.textContent).toMatch(/^處理時間 \d/);
     expect(getByTestId("replies-tab-answered").getAttribute("aria-selected")).toBe("true");
     expect(getByTestId("replies-count-line").textContent).toBe("1 張請示卡 · 近 24 小時");
     expect(listSpy.mock.calls.map(([status]) => status)).not.toContain("answered");

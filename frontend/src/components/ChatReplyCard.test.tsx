@@ -172,7 +172,7 @@ describe("ChatReplyCard", () => {
     );
   });
 
-  it("renders inline in the chat thread as a card: the first line (state icon, its id, 標為過期, chevron), the task box, the title, chips (the ai_pick one tagged) + composer, no close/skip", async () => {
+  it("renders inline in the chat thread as a card: the first line (state icon, its id, 標為過期, chevron), the task box, the title and the line under it, chips (the ai_pick one tagged) + composer, no close/skip", async () => {
     __injectMockReplyCard(
       mkCard({ id: "rc-83935a1b2c3d", task: { id: "T-9", typeKey: "", title: "寄信", priority: "high", dueTs: null, dueSoonLeadMinutes: null } }),
     );
@@ -222,7 +222,9 @@ describe("ChatReplyCard", () => {
     expect(head.querySelector('[data-testid="reply-card-id"]')!.textContent).toBe("rc-83935a");
     expect(head.nextElementSibling!.getAttribute("data-testid")).toBe("reply-task-ref");
     expect(head.nextElementSibling!.textContent).toBe("T-9高寄信");
-    expect(head.nextElementSibling!.nextElementSibling!.className).toBe("reply-card__summary doc-md");
+    const summary = head.nextElementSibling!.nextElementSibling!;
+    expect(summary.className).toBe("reply-card__summary doc-md");
+    expect(summary.nextElementSibling!.className).toBe("reply-card__divider");
     // The typed composer rides the card; no close/skip control exists.
     expect(row.querySelector(".reply-composer")).not.toBeNull();
     expect(row.textContent).not.toContain("關閉");
@@ -516,7 +518,7 @@ describe("ChatReplyCard", () => {
       "你選的AI 建議先不要",
     );
     expect((await findByTestId("reply-status-icon")).getAttribute("data-state")).toBe("answered");
-    expect((await findByTestId("reply-card-handled-at")).textContent).toMatch(/^已回覆 \d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
+    expect((await findByTestId("reply-card-handled-at")).textContent).toMatch(/^處理時間 \d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
     expect(getSpy).toHaveBeenCalledTimes(1);
   });
 

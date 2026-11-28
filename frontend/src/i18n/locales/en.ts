@@ -706,8 +706,7 @@ export const en: Dict = {
     // Opened/answered stamps are always absolute with the date (e.g. 7/13
     // 09:05) — no relative time, no "Today" special case.
     openedAtLabel: "Opened",
-    answeredAtLabel: "Answered",
-    expiredAtLabel: "Expired",
+    handledAtLabel: "Handled at",
     // Mark expired (terminal; not an answer; no undo) — the button opens a
     // double-confirm. The "owner/admin-agent since T-6020" framing is still
     // true as history, but T-1b88 (owner 2026-08-07, card rc-3ff94b116970)

@@ -387,7 +387,7 @@ for (const { width, mode } of HEAD_SCENES) {
 
       await selectTab(page, "answered", "click");
       const answered = cardOf(page, "rc-desk-done");
-      await expect(answered.locator(".reply-card__answered-at")).toHaveText(/^已回覆 /);
+      await expect(answered.locator(".reply-card__handled-at")).toHaveText(/^處理時間 /);
       const answeredHead = await expectHeadLine(answered, "answered", mode);
       expect(answeredHead.stamp, "an answered card has no pill").toBeNull();
       rights.push(answeredHead.fold.right);

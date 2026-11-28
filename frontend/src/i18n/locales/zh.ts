@@ -737,10 +737,9 @@ export const zh = {
     waitedHourMany: "小時",
     waitedMinuteOne: "分",
     waitedMinuteMany: "分",
-    // 開卡/已回覆一律絕對時間含日期(如 7/13 09:05),不用相對或「今天」。
+    // 開卡/處理時間一律絕對時間含日期(如 7/13 09:05),不用相對或「今天」。
     openedAtLabel: "開卡",
-    answeredAtLabel: "已回覆",
-    expiredAtLabel: "已過期",
+    handledAtLabel: "處理時間",
     // 標為過期(終態、不是回答、不可復原)——按鈕開二次確認。
     // ⚠️「owner 專用」這句在本包之前就已經是假話,不是本包造成的:T-6020(owner
     // 2026-07-26)起 admin 助理也按得動;owner 2026-08-07 於卡 rc-3ff94b116970

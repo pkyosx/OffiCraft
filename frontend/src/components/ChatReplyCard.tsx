@@ -398,11 +398,11 @@ export function ChatReplyCard({
   const shownStatus = card?.status ?? initialStatus ?? "waiting";
   const headState =
     shownStatus === "waiting" ? (snoozed ? "snoozed" : "waiting") : shownStatus;
-  // undefined: still waiting, no row. null: settled at a time this card does not carry.
+  // A secret card shows no time (owner).
   const handledTs =
-    card && card.status !== "waiting"
+    card && card.status !== "waiting" && card.kind !== "secret"
       ? (card.status === "expired" ? card.expiredTs : card.answeredTs) ?? null
-      : undefined;
+      : null;
 
   // The summary is agent-authored free text (markdown), like body.
   const summaryNode = (
@@ -475,12 +475,9 @@ export function ChatReplyCard({
             />
           )}
           {summaryNode}
-          {handledTs !== undefined && (
+          {handledTs !== null && (
             <div className="reply-card__meta">
-              <ReplyCardHandledRow
-                expired={card?.status === "expired"}
-                time={handledTs !== null && card?.kind !== "secret" ? formatAbsolute(handledTs, Date.now() / 1000) : ""}
-              />
+              <ReplyCardHandledRow time={formatAbsolute(handledTs, Date.now() / 1000)} />
             </div>
           )}
           <hr className="reply-card__divider" />

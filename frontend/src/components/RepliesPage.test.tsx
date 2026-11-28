@@ -743,7 +743,7 @@ describe("RepliesPage", () => {
     expect(workersSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("opens on 等待回覆 with the selected label's count on the line under the toolbar and no number on any label, lists only that label's cards (handled ones stamped 已回覆／已過期 in the head), and fetches the handled lists only once 近期已回覆 is selected", async () => {
+  it("opens on 等待回覆 with the selected label's count on the line under the toolbar and no number on any label, lists only that label's cards (handled ones with their status icon and 處理時間 under 開卡人), and fetches the handled lists only once 近期已回覆 is selected", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(mkCard({ id: "rc-wait", createdTs: now - 60 }));
     __injectMockReplyCard(mkCard({ id: "rc-later", createdTs: now - 30, snoozedUntilTs: now + 3600 }));
@@ -765,7 +765,8 @@ describe("RepliesPage", () => {
       [...document.querySelectorAll<HTMLElement>("[data-reply-card-id][aria-expanded]")].map(
         (el) => [
           el.dataset.replyCardId,
-          el.querySelector(".reply-card__answered-at")?.textContent?.split(" ")[0] ?? null,
+          el.querySelector('[data-testid="reply-status-icon"]')?.getAttribute("data-state"),
+          el.querySelector(".reply-card__handled-at .reply-card__meta-label")?.textContent ?? null,
         ]
       );
     const tab = (v: string) => getByTestId(`replies-tab-${v}`);
@@ -777,7 +778,7 @@ describe("RepliesPage", () => {
       expect(tab(v).textContent, "the labels carry no count").not.toMatch(/\d/);
     }
     expect(line()).toBe("1 張請示卡");
-    expect(shown()).toEqual([["rc-wait", null]]);
+    expect(shown()).toEqual([["rc-wait", "waiting", null]]);
     expect(queryByTestId("replies-answered-window")).toBeNull();
     expect(listSpy.mock.calls.map(([status]) => status)).not.toContain("answered");
     expect(listSpy.mock.calls.map(([status]) => status)).not.toContain("expired");
@@ -785,7 +786,7 @@ describe("RepliesPage", () => {
     await selectRepliesTab("snoozed");
     expect(tab("snoozed").getAttribute("aria-selected")).toBe("true");
     expect(tab("waiting").getAttribute("aria-selected")).toBe("false");
-    expect(shown()).toEqual([["rc-later", null]]);
+    expect(shown()).toEqual([["rc-later", "snoozed", null]]);
     expect(line()).toBe("1 張請示卡");
     expect(listSpy.mock.calls.map(([status]) => status)).not.toContain("answered");
 
@@ -793,8 +794,8 @@ describe("RepliesPage", () => {
     expect(line(), "the count read's answered + expired, before the list is loaded").toBe("7 張請示卡 · 近 24 小時");
     await waitFor(() =>
       expect(shown()).toEqual([
-        ["rc-gone", "已過期"],
-        ["rc-done", "已回覆"],
+        ["rc-gone", "expired", "處理時間"],
+        ["rc-done", "answered", "處理時間"],
       ])
     );
     expect(line(), "the loaded list's length from then on").toBe("2 張請示卡 · 近 24 小時");
@@ -1400,8 +1401,8 @@ describe("RepliesPage", () => {
       answered.querySelector('[data-testid="final-answer"]')?.textContent
     ).toContain("先不要");
     expect(
-      answered.querySelector(".reply-card__answered-at")?.textContent
-    ).toMatch(/^已回覆 (?:\d{4}\/)?\d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
+      answered.querySelector(".reply-card__handled-at")?.textContent
+    ).toMatch(/^處理時間 (?:\d{4}\/)?\d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
     expect(getByTestId("replies-tab-waiting").getAttribute("aria-selected")).toBe("true");
     expect(getByTestId("replies-count").textContent).toBe("0 張請示卡");
     await selectRepliesTab("answered");
@@ -1448,8 +1449,8 @@ describe("RepliesPage", () => {
     expect(expired.textContent).toContain("已過期");
     expect(expired.querySelector('[data-testid="expired-note"]')).toBeTruthy();
     expect(
-      expired.querySelector(".reply-card__answered-at")?.textContent
-    ).toMatch(/^已過期 (?:\d{4}\/)?\d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
+      expired.querySelector(".reply-card__handled-at")?.textContent
+    ).toMatch(/^處理時間 (?:\d{4}\/)?\d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
     expect(getByTestId("replies-tab-waiting").getAttribute("aria-selected")).toBe("true");
     expect(getByTestId("replies-count").textContent).toBe("0 張請示卡");
     await selectRepliesTab("answered");
