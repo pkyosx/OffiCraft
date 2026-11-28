@@ -1627,10 +1627,11 @@ describe("RepliesPage", () => {
     expect(over.querySelector('[data-testid="reply-task-priority"]')!.textContent).toBe("高");
     expect(over.querySelector(".reply-card__task-title")!.textContent).toBe("修好登入");
     const due = over.querySelector<HTMLElement>('[data-testid="reply-task-due"]')!;
+    const date = new Date().getFullYear() === 2026 ? "9/30" : "2026/9/30";
     const shown = [...due.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE).map((n) => n.textContent).join("");
-    expect(shown).toBe(new Date().getFullYear() === 2026 ? "9/30" : "2026/9/30");
-    expect(due.getAttribute("title")).toBe(`到期 ${shown}`);
-    expect(due.textContent).toBe(`到期 ${shown}已逾期`);
+    expect(shown).toBe(`到期 ${date}`);
+    expect(due.getAttribute("title")).toBe(`到期 ${date}`);
+    expect(due.textContent).toBe(`到期 ${date}已逾期`);
     expect(over.querySelector('[data-testid="reply-task-due"]')!.className).toBe(
       "card-meta__chip task-card__due-chip task-card__due-date--overdue"
     );

@@ -82,8 +82,7 @@ export function TaskDueChip({
       data-testid={testId}
       title={`${t.replies.taskDueLabel} ${text}`}
     >
-      <span className="task-card__due-status">{t.replies.taskDueLabel} </span>
-      {text}
+      {t.replies.taskDueLabel} {text}
       {due !== null && due.kind !== "later" && (
         <span className="task-card__due-status">
           {due.kind === "soon" ? t.tasks.dueSoonHint : t.tasks.dueOverdueHint}

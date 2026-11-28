@@ -1155,3 +1155,35 @@ test.describe(() => {
     expect(title.y + title.height, "the moved card's title is under the bar").toBeLessThanOrEqual(barTop + 0.5);
   });
 });
+
+for (const width of [320, 390]) {
+  for (const language of ["zh", "en"] as const) {
+    test(`width ${width}, ${language}: the task box's due line leads with 「到期」/"Due", whole on one line inside the box, with no page overflow`, async ({ mount, page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate((lang) => localStorage.setItem("oc.language", lang), language);
+      const cmp = await mount(<ReplyDeskStory />);
+      await expect(cmp.getByTestId("waiting-card")).toHaveCount(3);
+      for (const id of CARDS_WITH_DUE) {
+        const row = cmp.locator(`[data-reply-card-id="${id}"]`).getByTestId("reply-task-ref");
+        await row.scrollIntoViewIfNeeded();
+        const due = row.getByTestId("reply-task-due");
+        const shown = await due.evaluate((el) =>
+          [...el.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE).map((n) => n.textContent).join(""),
+        );
+        expect(shown, `${id}: the label before the date`).toMatch(language === "zh" ? /^到期 \d{1,2}\/\d{1,2}( \d{2}:\d{2})?$/ : /^Due \d{1,2}\/\d{1,2}( \d{2}:\d{2})?$/);
+        expect(inside(await box(due), await box(row)), `${id}: due inside the task box`).toBe(true);
+        const tops = await due.evaluate((el) =>
+          [...el.childNodes]
+            .filter((n) => n.nodeType === Node.TEXT_NODE)
+            .flatMap((n) => {
+              const r = document.createRange();
+              r.selectNodeContents(n);
+              return [...r.getClientRects()].filter((x) => x.width > 0).map((x) => Math.round(x.top));
+            }),
+        );
+        expect(new Set(tops).size, `${id}: the shown due text on one line`).toBe(1);
+      }
+      await noPageOverflow(page);
+    });
+  }
+}
