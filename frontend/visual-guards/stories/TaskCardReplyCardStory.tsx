@@ -30,7 +30,13 @@ function Lang({ language }: { language: "zh" | "en" }) {
   return null;
 }
 
-export function TaskCardReplyCardStory({ language = "zh" }: { language?: "zh" | "en" }) {
+export function TaskCardReplyCardStory({
+  language = "zh",
+  reassignedFrom = "",
+}: {
+  language?: "zh" | "en";
+  reassignedFrom?: string;
+}) {
   const [ready, setReady] = useState(false);
   useEffect(() => {
     __resetMock();
@@ -63,7 +69,7 @@ export function TaskCardReplyCardStory({ language = "zh" }: { language?: "zh" | 
         <main className="app__main">
           <div className="tasks">
             <TaskCard
-              task={TASK}
+              task={{ ...TASK, reassignedFrom }}
               members={[MIRA]}
               workers={WORKERS}
               nowTs={3000}
@@ -72,7 +78,7 @@ export function TaskCardReplyCardStory({ language = "zh" }: { language?: "zh" | 
               onSetPriority={NOOP as never}
               onSendMessage={NOOP as never}
               onReassign={NOOP as never}
-              onHydrate={(async () => TASK) as never}
+              onHydrate={(async () => ({ ...TASK, reassignedFrom })) as never}
             />
           </div>
         </main>

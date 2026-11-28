@@ -2,7 +2,7 @@
 // and inside a task's step —, secret, file, lore) are one style: on every card
 // each label starts at the rows' left edge in the task card's colour, opacity
 // and size, the values start at the same x on every card of one language (the
-// label column is one width, at least the longest label of any card), and a
+// label column is one width, that of the longest label of any card), and a
 // one-line value is centred on its label. The copy id chip on each
 // card's first line is drawn the same way too, and so are the first line's
 // icon buttons and status icon (the task card's size). Measured against the task card's
@@ -43,11 +43,13 @@ async function measure(page: Page, cardSelector: string): Promise<Meta[]> {
             const value = label.nextElementSibling!;
             const lb = label.getBoundingClientRect();
             const vb = value.getBoundingClientRect();
+            const text = document.createRange();
+            text.selectNodeContents(label);
             const cs = getComputedStyle(label);
             return {
               label: label.textContent ?? "",
               labelX: lb.left - mb.left,
-              labelWidth: lb.width,
+              labelWidth: text.getBoundingClientRect().width,
               valueX: vb.left - mb.left,
               labelMid: (lb.top + lb.bottom) / 2,
               valueMid: (vb.top + vb.bottom) / 2,
@@ -89,8 +91,9 @@ async function headIconLooks(page: Page, scope: string, cls: string): Promise<st
   );
 }
 
-function expectSameRows(metas: Meta[], ref: Row, gap: number, tag: string) {
+function expectSameRows(metas: Meta[], ref: Row, gap: number, tag: string, seen: Meta[]) {
   expect(metas.length, `${tag}: some rows measured`).toBeGreaterThan(0);
+  seen.push(...metas);
   for (const meta of metas) {
     const column = Math.max(...meta.rows.map((r) => r.labelWidth));
     expect.soft(ref.valueX - gap, `${tag} ${meta.card}: the label column holds its widest label`).toBeGreaterThanOrEqual(column - 0.5);
@@ -114,8 +117,9 @@ for (const width of [320, 390, 1440]) {
       await page.setViewportSize({ width, height: 1400 });
       await page.evaluate((l) => localStorage.setItem("oc.language", l), language);
       const tag = `[${width}px ${language}]`;
+      const seen: Meta[] = [];
 
-      let cmp = await mount(<TaskCardReplyCardStory language={language} />);
+      let cmp = await mount(<TaskCardReplyCardStory language={language} reassignedFrom="mira" />);
       await cmp.locator(".task-card__title").first().click();
       await expect(cmp.locator('[data-testid="task-reply-card"] .card-meta')).toBeVisible();
       const all = await measure(page, '[data-testid="task-reply-card"], .task-card');
@@ -125,7 +129,7 @@ for (const width of [320, 390, 1440]) {
       const ref = task[0].rows[0];
       const gap = await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector(".task-card .card-meta")!).columnGap));
       expect(gap, `${tag} the task card's gap`).toBe(12);
-      expectSameRows(task, ref, gap, `${tag} task card`);
+      expectSameRows(task, ref, gap, `${tag} task card`, seen);
       const idChip = await idChipLook(page);
       expect(idChip, `${tag} the task card's id chip`).not.toBe("no id chip");
       const [taskButton] = await headIconLooks(page, ".task-card", "card-head__icon-btn");
@@ -135,7 +139,7 @@ for (const width of [320, 390, 1440]) {
       for (const look of await headIconLooks(page, '[data-testid="task-reply-card"]', "card-head__icon-btn")) {
         expect.soft(look, `${tag} reply card in a step: head button`).toBe(taskButton);
       }
-      expectSameRows(embedded, ref, gap, `${tag} reply card in a step`);
+      expectSameRows(embedded, ref, gap, `${tag} reply card in a step`, seen);
       expect(embedded[0].rows.map((r) => r.label), `${tag} the embedded card's rows`).toEqual([
         language === "zh" ? "開卡人" : "Asked by",
       ]);
@@ -143,7 +147,7 @@ for (const width of [320, 390, 1440]) {
 
       cmp = await mount(<ReplyDeskStory longAskers />);
       await expect(cmp.locator(".reply-card .card-meta").first()).toBeVisible();
-      expectSameRows(await measure(page, ".reply-card"), ref, gap, `${tag} 請示 page`);
+      expectSameRows(await measure(page, ".reply-card"), ref, gap, `${tag} 請示 page`, seen);
       expect.soft(await idChipLook(page), `${tag} 請示 page id chip`).toBe(idChip);
       const deskButtons = await headIconLooks(page, ".reply-card", "card-head__icon-btn");
       expect(deskButtons.length, `${tag} 請示 page head buttons measured`).toBeGreaterThan(0);
@@ -157,7 +161,7 @@ for (const width of [320, 390, 1440]) {
       ] as const) {
         cmp = await mount(story);
         await expect(cmp.locator(".card-meta").first()).toBeVisible();
-        expectSameRows(await measure(page, card), ref, gap, `${tag} ${name}`);
+        expectSameRows(await measure(page, card), ref, gap, `${tag} ${name}`, seen);
         expect.soft(await idChipLook(page), `${tag} ${name} id chip`).toBe(idChip);
         const buttons = await headIconLooks(page, card, "card-head__icon-btn");
         expect(buttons.length, `${tag} ${name} head buttons measured`).toBeGreaterThan(0);
@@ -169,6 +173,15 @@ for (const width of [320, 390, 1440]) {
         }
         await cmp.unmount();
       }
+
+      // The column is a fixed em width set to fit the longest label, so it
+      // overshoots that label by up to a font's rounding; one em more is a
+      // column sized for some other label.
+      const widest = seen.flatMap((m) => m.rows).reduce((a, r) => (r.labelWidth > a.labelWidth ? r : a));
+      expect(
+        ref.valueX - gap,
+        `${tag} the label column is less than an em wider than the widest label any card shows (「${widest.label}」)`,
+      ).toBeLessThan(widest.labelWidth + parseFloat(ref.fontSize));
     });
   }
 }

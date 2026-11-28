@@ -59,9 +59,8 @@ type View =
  * Choosing a theme, the time-of-day schedule and the seasonal switch live in the
  * 主題設定 dialog, opened from here and from 設定 › 主題 › 外觀; theme MANAGEMENT
  * (add / edit colours / 用詞 / import / export / delete) lives in 設定 › 主題 ›
- * 主題庫 (owner 2026-11-05). The
- * server PARAMETER knobs likewise live in 設定/參數調整 — all of them, which
- * is why this line names none of them.
+ * 主題庫 (owner 2026-11-05). Server parameters live in 設定 › 一般設定 and
+ * 設定 › 進階設定, not here.
  *
  * Local preferences persist via the i18n/preferences provider. Click-outside +
  * toggling is owned by the parent (App) via a wrapping ref.

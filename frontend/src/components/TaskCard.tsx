@@ -651,8 +651,8 @@ export function TaskCard({
   const forcedDoneByNames = useWorkerCodenames(
     isUnlisted(forcedDoneBy) ? [forcedDoneBy] : [],
   );
-  // Same resolution as the creator row: anyone with a chat is a chat chip;
-  // the owner (no self-chat) and an id nothing resolves are plain text.
+  // The owner has no chat with themself, so they, like an id nothing
+  // resolves, are plain text.
   const forcedDoneByPerson = ((): { text: string; peerId: string } => {
     const m = members.find((x) => x.id === forcedDoneBy);
     if (m) return { text: m.name, peerId: forcedDoneBy };
