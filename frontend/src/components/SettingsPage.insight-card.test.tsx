@@ -35,6 +35,7 @@ import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { en } from "../i18n/locales/en";
 import { SettingsPage } from "./SettingsPage";
+import { infoHintText } from "../test/infoHint";
 import { __resetMock, mockApi } from "../api/mock";
 import { DOC_CAP_CHARS_DEFAULTS } from "../api/docCap";
 
@@ -80,11 +81,9 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     expect(duty).toBeTruthy();
     const dutyHead = duty!.querySelector(".doc-card__head") as HTMLElement;
     expect(within(dutyHead).getByText("職責（Duty）")).toBeTruthy();
-    expect(
-      within(duty!).getByText(
-        "其他成員看這段，判斷什麼事要找這個角色；會出現在每位成員開機看到的名冊上。"
-      )
-    ).toBeTruthy();
+    expect(infoHintText(dutyHead)).toBe(
+      "其他成員看這段，判斷什麼事要找這個角色；會出現在每位成員開機看到的名冊上。"
+    );
     // Insight goes AFTER Duty (Duty → Insight, owner ruling 2026-08-03).
     expect(
       card!.compareDocumentPosition(duty!) & Node.DOCUMENT_POSITION_PRECEDING
@@ -202,8 +201,8 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     // READ is unrestricted by owner ruling: the sentence says who reads it by
     // default, never that others cannot.
     const utils = await openRolePage(zh.office.role.assistant);
-    const note = within(insightCard(utils)!).getByText(mp.insightShared);
-    expect(note.textContent).toBe(
+    const head = insightCard(utils)!.querySelector<HTMLElement>(".mp-lessons__head")!;
+    expect(infoHintText(head)).toBe(
       "寫給這個角色自己的判斷原則。只有這個角色的成員開機時會讀，其他成員預設不會讀。"
     );
   });
@@ -215,19 +214,16 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     const duty = utils.container.querySelector(".doc-card") as HTMLElement;
     const dutyHead = duty.querySelector(".doc-card__head") as HTMLElement;
     expect(within(dutyHead).getByText("Duty")).toBeTruthy();
-    expect(
-      within(duty).getByText(
-        "Other members read this to decide what to bring to this role; it appears on the roster every member sees at boot."
-      )
-    ).toBeTruthy();
+    expect(infoHintText(dutyHead)).toBe(
+      "Other members read this to decide what to bring to this role; it appears on the roster every member sees at boot."
+    );
 
     const card = insightCard(utils)!;
     expect(within(card).getByText("Insight (judgement calls)")).toBeTruthy();
-    expect(
-      within(card).getByText(
-        "Judgement principles this role keeps for its own work. Only this role's members read them at boot; other members don't read them by default."
-      )
-    ).toBeTruthy();
+    expect(infoHintText(card.querySelector<HTMLElement>(".mp-lessons__head")!)).toBe(
+      "Judgement principles this role keeps for its own work. Only this role's members read them at boot; other members don't read them by default."
+    );
+    expect(within(card).getByRole("img", { name: "About Insight (judgement calls)" })).toBeTruthy();
   });
 
   it("carries a version-history entry keyed on the BARE role_key", async () => {

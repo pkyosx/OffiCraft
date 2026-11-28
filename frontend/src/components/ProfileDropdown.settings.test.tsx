@@ -18,6 +18,7 @@ import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { makeMessages } from "../i18n/compose";
 import { ProfileDropdown } from "./ProfileDropdown";
+import { infoHintText } from "../test/infoHint";
 import { __resetMock, __setMockNoAppearance } from "../api/mock";
 import { api } from "../api";
 
@@ -321,17 +322,33 @@ describe("ProfileDropdown · menu levels", () => {
     );
   }
   const rowTexts = (root: HTMLElement) =>
-    Array.from(root.querySelectorAll(".profile-dd__row")).map((r) => r.textContent);
+    Array.from(root.querySelectorAll<HTMLElement>(".profile-dd__row")).map((r) => [
+      r.textContent,
+      r.querySelector('[data-testid="info-hint"]') ? infoHintText(r) : "",
+    ]);
   const backText = (root: HTMLElement) => root.querySelector(".profile-dd__back")?.textContent;
 
   it("the first level holds preferences, notification email and account security", () => {
     const utils = renderMenu();
     expect(rowTexts(utils.container)).toEqual([
-      "偏好設定外觀、語言、版面",
-      "通知信箱填寫後才會送出通知。這個信箱會提供給瀏覽器的推播服務，請用可公開的信箱。",
-      "帳號安全修改密碼、兩步驟驗證、通行密鑰",
-      "登出",
+      ["偏好設定", "外觀、語言、版面"],
+      ["通知信箱填寫後才會送出通知。", "這個信箱會提供給瀏覽器的推播服務，請用可公開的信箱。"],
+      ["帳號安全", "修改密碼、兩步驟驗證、通行密鑰"],
+      ["登出", ""],
     ]);
+    expect(utils.getByRole("button", { name: "偏好設定" })).toBeTruthy();
+    expect(
+      utils.getByRole("button", { name: "通知信箱" }).getAttribute("aria-describedby"),
+    ).toBeTruthy();
+  });
+
+  it("tapping a row's ⓘ pins its explanation and does not open the row", () => {
+    const utils = renderMenu();
+    const icon = utils.getByRole("img", { name: "關於 偏好設定" });
+    fireEvent.click(icon);
+    expect(utils.getByRole("tooltip").textContent).toBe("外觀、語言、版面");
+    expect(backText(utils.container)).toBeUndefined();
+    expect(utils.getByText("帳號安全")).toBeTruthy();
   });
 
   it("account security opens a sub-list of password, two-step verification and passkeys", () => {
@@ -339,9 +356,9 @@ describe("ProfileDropdown · menu levels", () => {
     fireEvent.click(utils.getByText("帳號安全"));
     expect(backText(utils.container)).toBe("帳號安全");
     expect(rowTexts(utils.container)).toEqual([
-      "修改密碼登入這個主控台用的密碼",
-      "兩步驟驗證",
-      "通行密鑰用手機或電腦本身的解鎖方式登入，例如 Face ID、Touch ID、指紋或裝置密碼",
+      ["修改密碼", "登入這個主控台用的密碼"],
+      ["兩步驟驗證", ""],
+      ["通行密鑰", "用手機或電腦本身的解鎖方式登入，例如 Face ID、Touch ID、指紋或裝置密碼"],
     ]);
   });
 

@@ -46,6 +46,7 @@ import {
 } from "./DocumentHistoryEntry";
 import { serverMessageOf } from "../api/errors";
 import { docCapBlockedBySize, shownDocSize } from "../api/docCap";
+import { InfoHint } from "./InfoHint";
 import "./settings.css";
 
 /** The folded document this card renders. Structural on purpose: the role
@@ -123,7 +124,7 @@ export interface DocCardProps {
   /** A heading inside the card head, before the badge — for a page that shows
    * the document under a title that is not the document's own name (the role
    * page's title is the role; the card is its Duty). */
-  heading?: { label: string; icon?: ReactNode };
+  heading?: { label: string; icon?: ReactNode; info?: string };
   /** One line under the card head about THIS document — why a read-only
    * document has no editor (T-3201), or what belongs in the document. */
   note?: ReactNode;
@@ -452,6 +453,7 @@ export function DocCard({
               <span className="doc-card__heading">
                 {heading.icon}
                 <span className="doc-card__heading-label">{heading.label}</span>
+                {heading.info && <InfoHint about={heading.label} hint={heading.info} />}
               </span>
             )}
             {badge ? (

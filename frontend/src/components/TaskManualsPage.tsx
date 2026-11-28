@@ -35,7 +35,7 @@
 //                   雇用數量 = −/＋ stepper + 無限 (wire
 //                   copies=0 = unlimited, spec TaskManualDTO).
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useI18n } from "../i18n";
 import { taskTypeLabel } from "../lib/taskTypeLabel";
@@ -59,6 +59,7 @@ import { Breadcrumbs, type Crumb } from "./Breadcrumbs";
 import { DocumentHistoryEntry } from "./DocumentHistoryEntry";
 import { DocUsage } from "./DocUsage";
 import "./stepper.css";
+import { InfoHint, TitleWithInfo } from "./InfoHint";
 import { ConfirmModal } from "./ConfirmModal";
 import { CODEX_MODEL_OPTIONS, MODEL_QUICK_PICKS, EFFORTS } from "./ModelEffortEditor";
 import {
@@ -370,6 +371,7 @@ export function TaskManualHub({
   onOpenDefinition: () => void;
 }) {
   const { t } = useI18n();
+  const defEntryId = useId();
   return (
     <div className="settings">
       <Breadcrumbs items={crumbs} />
@@ -402,6 +404,7 @@ export function TaskManualHub({
           type="button"
           className="set-entry manual-entry"
           data-testid="manual-entry-definition"
+          aria-labelledby={`${defEntryId}-name`}
           onClick={onOpenDefinition}
         >
           <span className="set-entry__icon set-entry__icon--blue">
@@ -409,10 +412,8 @@ export function TaskManualHub({
           </span>
           <span className="set-entry__body">
             <span className="set-entry__name">
-              {t.settings.manualTabDefinition}
-            </span>
-            <span className="set-entry__sub">
-              {t.settings.manualDefEntrySub}
+              <span id={`${defEntryId}-name`}>{t.settings.manualTabDefinition}</span>
+              <InfoHint about={t.settings.manualTabDefinition} hint={t.settings.manualDefEntrySub} />
             </span>
           </span>
           <ChevronRightIcon size={18} className="set-entry__chev" />
@@ -420,7 +421,10 @@ export function TaskManualHub({
       </div>
 
       <div className="manual-section-label">
-        {t.settings.manualSuggestedRepliesSection}
+        <TitleWithInfo
+          title={t.settings.manualSuggestedRepliesSection}
+          hint={t.settings.manualSuggestedRepliesSub}
+        />
       </div>
       <TaskManualSuggestedRepliesCard typeKey={manual.typeKey} />
     </div>
@@ -433,7 +437,6 @@ function TaskManualSuggestedRepliesCard({ typeKey }: { typeKey: string }) {
     useTaskManualSuggestedRepliesContext();
   return (
     <div className="manual-reply-suggestions-card" data-testid="manual-reply-suggestions">
-      <div className="manual-reply-suggestions-card__sub">{t.settings.manualSuggestedRepliesSub}</div>
       {loaded ? (
         <SuggestedRepliesEditor
           label={t.settings.manualSuggestedRepliesSection}
@@ -813,10 +816,11 @@ function DefinitionCard({
       <section className="manual-sec" data-testid="manual-section-1">
         <div className="manual-sec__head">
           <span className="manual-sec__num">1</span>
-          <span className="manual-sec__title">{t.settings.manualQ1}</span>
+          <span className="manual-sec__title">
+            <TitleWithInfo title={t.settings.manualQ1} hint={t.settings.manualQ1Hint} />
+          </span>
           {switchFor(1, t.settings.manualQ1)}
         </div>
-        <div className="manual-sec__sub">{t.settings.manualQ1Hint}</div>
         {openBlocks.has(1) ? (
           <textarea
             ref={purposeRef}
@@ -844,10 +848,11 @@ function DefinitionCard({
       <section className="manual-sec" data-testid="manual-section-2">
         <div className="manual-sec__head">
           <span className="manual-sec__num">2</span>
-          <span className="manual-sec__title">{t.settings.manualQ2}</span>
+          <span className="manual-sec__title">
+            <TitleWithInfo title={t.settings.manualQ2} hint={t.settings.manualQ2Hint} />
+          </span>
           {switchFor(2, t.settings.manualQ2)}
         </div>
-        <div className="manual-sec__sub">{t.settings.manualQ2Hint}</div>
         {openBlocks.has(2) ? (
           <div className="manual-fields" data-testid="manual-fields-editor">
             {fieldsDraft.map((f, idx) => (
@@ -952,8 +957,9 @@ function DefinitionCard({
       <section className="manual-sec" data-testid="manual-section-3">
         <div className="manual-sec__head">
           <span className="manual-sec__num">3</span>
-          <span className="manual-sec__title">{t.settings.manualQ3}</span>
-          <span className="manual-sec__aside">{t.settings.manualQ3Hint}</span>
+          <span className="manual-sec__title">
+            <TitleWithInfo title={t.settings.manualQ3} hint={t.settings.manualQ3Hint} />
+          </span>
           {/* T-100. The SOP has been capped all along and this page showed the
             * number nowhere, so the owner met the cap as a refusal AFTER
             * writing. The cap comes off THIS MANUAL's own answer — the two

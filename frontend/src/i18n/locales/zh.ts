@@ -1332,7 +1332,8 @@ export const zh = {
     langEn: "English",
     languageSub: "成員對你使用的語言也跟著換（成員下次開機生效）。",
     pushContactEmail: "通知信箱",
-    pushContactEmailSub: "填寫後才會送出通知。這個信箱會提供給瀏覽器的推播服務，請用可公開的信箱。",
+    pushContactEmailUnsetWarning: "填寫後才會送出通知。",
+    pushContactEmailPrivacy: "這個信箱會提供給瀏覽器的推播服務，請用可公開的信箱。",
     pushContactEmailPlaceholder: "name@company.com",
     pushContactEmailError: "請填入可公開使用的信箱。",
     layout: "版面",
@@ -2589,15 +2590,16 @@ export const zh = {
     systemName: "系統互動",
     systemSub: "每位成員開機時都會讀到的系統運作說明",
     customName: "使用者自訂",
-    customSub: "每位成員開機時都會讀到的自訂內容 · 可編輯",
-    bootDocEditableSuffix: " · 可編輯",
+    customSub: "每位成員開機時都會讀到的自訂內容",
+    bootDocEditableTag: "可編輯",
+    bootDocReadOnlyTag: "不能編輯",
     dutyHeading: "職責（Duty）",
     dutyNote:
       "其他成員看這段，判斷什麼事要找這個角色；會出現在每位成員開機看到的名冊上。",
     userLanguageName: "使用者語言",
     userLanguageSub: "成員跟你說話用的語言 · 沒改過時跟著顯示語言",
     termGlossaryName: "名詞對照表",
-    termGlossarySub: "功能的英文與中文名稱對照 · 隨版本更新，不能編輯",
+    termGlossarySub: "功能的英文與中文名稱對照 · 隨版本更新",
     // 兩份**不同**的文件，分別開自己的頁：只有 Codex 那一份要求成員在開機
     // 那一輪結束時把控制權交回旁邊的程序，兩份不能互換，
     // 所以清單上不併成一列、詳情頁也不並排。
@@ -2814,7 +2816,8 @@ export const zh = {
       "轉派後，外包前任多久沒有更新任務就會被回收；每次更新任務都會重新計時，正職前任不受影響（60–86400）",
     wardenCredentialLifetime: "機器憑證壽命",
     wardenCredentialLifetimeSub:
-      "機器登入憑證的有效期。機器會在到期前自動換新；錯過換新的機器要重新安裝。調小不影響已經發出的憑證。（86400–34560000 秒）",
+      "機器登入憑證的有效期。機器會在到期前自動換新。調小不影響已經發出的憑證。（86400–34560000 秒）",
+    wardenCredentialLifetimeWarning: "錯過換新的機器要重新安裝。",
     runtimeLoginCheckInterval: "登入檢查間隔",
     runtimeLoginCheckIntervalSub:
       "Claude 或 Codex 已登入時，每台機器多久再檢查一次。改動會在各機器下一次回報時生效（30–3600 秒）",
@@ -2845,7 +2848,8 @@ export const zh = {
     // 旋鈕的人。
     backupRetain: "備份保留份數",
     backupRetainSub:
-      "資料庫備份要保留幾份（1–20）。超過的會在下一次備份時永久刪除。算的是份數不是天數；日常備份與升級前備份各自保留這個份數，所以磁碟上最多會有兩倍的檔案。",
+      "資料庫備份要保留幾份（1–20）。算的是份數不是天數；日常備份與升級前備份各自保留這個份數，所以磁碟上最多會有兩倍的檔案。",
+    backupRetainWarning: "超過的會在下一次備份時永久刪除。",
     backupRetainUnit: "份（每類各計）",
     // T-122:建議回覆清單(T-33 加上第三份)。刻意是一格一個訊息框而不是共用
     // 一格——請示卡的回覆、任務訊息與傳承條目的訊息是三件不同的對話,同一句話
@@ -2891,7 +2895,8 @@ export const zh = {
     // 旋鈕的人最容易誤以為連帶變寬的東西。
     loreCapRole: "成員傳承字數上限",
     loreCapRoleSub:
-      "每位成員開機時最多讀多少字的成員傳承。放不下的整筆不會被讀到，也不會有錯誤訊息。可以調低，不會影響已寫好的條目。",
+      "每位成員開機時最多讀多少字的成員傳承。可以調低，不會影響已寫好的條目。",
+    loreCapRoleWarning: "放不下的整筆不會被讀到，也不會有錯誤訊息。",
     loreCapManual: "任務傳承字數上限",
     loreCapManualSub:
       "讀任務手冊時最多附帶多少字的任務傳承。與成員傳承各自計算，可以調低。",

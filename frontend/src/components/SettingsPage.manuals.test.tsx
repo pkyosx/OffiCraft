@@ -45,6 +45,7 @@ import {
 } from "../test/effortOptions";
 import type { TaskManualView, TaskView } from "../api/adapter";
 import { en } from "../i18n/locales/en";
+import { infoHintText } from "../test/infoHint";
 
 let seq = 0;
 
@@ -983,7 +984,7 @@ describe("設定 › 任務手冊 — 建議回覆", () => {
     const first = (await findByLabelText("建議回覆 1")) as HTMLInputElement;
     expect(first.value).toBe("照 SOP 審");
     expect(((await findByLabelText("建議回覆 2")) as HTMLInputElement).value).toBe("先別合併");
-    expect(getByTestId("manual-reply-suggestions").textContent).toContain("回覆這類任務的請示卡、在這類任務上傳訊息，或跟負責這類任務的外包聊天時，可一鍵帶入的句子。");
+    expect(infoHintText(getByTestId("manual-reply-suggestions").previousElementSibling as HTMLElement)).toBe("回覆這類任務的請示卡、在這類任務上傳訊息，或跟負責這類任務的外包聊天時，可一鍵帶入的句子。");
 
     fireEvent.change(first, { target: { value: "照 SOP 審完再回" } });
     fireEvent.blur(first);
@@ -1003,7 +1004,7 @@ describe("設定 › 任務手冊 — 建議回覆", () => {
     vi.spyOn(api, "getTaskManualSuggestedReplies").mockReturnValueOnce(new Promise((res) => (answer = res)));
     const { findByTestId, queryByLabelText, findByLabelText } = await openHub("review-pr");
     const card = await findByTestId("manual-reply-suggestions");
-    expect(card.textContent).toBe("回覆這類任務的請示卡、在這類任務上傳訊息，或跟負責這類任務的外包聊天時，可一鍵帶入的句子。");
+    expect(card.textContent).toBe("");
     expect(queryByLabelText("建議回覆 1")).toBeNull();
 
     await act(async () => answer(held));

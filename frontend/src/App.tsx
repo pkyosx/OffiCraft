@@ -250,7 +250,9 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   useEffect(() => {
     if (!profileOpen) return;
     function onDown(e: MouseEvent) {
-      if (!profileMenuRef.current?.contains(e.target as Node)) {
+      const target = e.target as Element;
+      // A pinned hint is portalled to <body> but belongs to a row in the menu.
+      if (!profileMenuRef.current?.contains(target) && !target.closest?.(".instant-hint")) {
         setProfileOpen(false);
       }
     }

@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
 import { useSigningKeys } from "../hooks/useSigningKeys";
 import { ConfirmModal } from "./ConfirmModal";
+import { TitleWithInfo } from "./InfoHint";
 import { formatAbsolute } from "../lib/dateFormat";
 
 /**
@@ -56,9 +57,10 @@ export function SigningKeysCard() {
 
   return (
     <>
-      <h2 className="settings__title settings__title--doc">{d.title}</h2>
+      <h2 className="settings__title settings__title--doc" aria-label={d.title}>
+        <TitleWithInfo title={d.title} hint={d.intro} />
+      </h2>
       <div className="param-card signing-keys" data-testid="set-signing-keys">
-        <div className="signing-keys__hint">{d.intro}</div>
 
         {loading ? (
           <div className="signing-keys__loading">{d.loading}</div>

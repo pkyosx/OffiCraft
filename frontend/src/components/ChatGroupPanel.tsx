@@ -31,6 +31,7 @@ import {
 } from "./icons";
 import { FILTER_SECTIONS, matchesCheck, matchesFilter, readFilterChecks, writeFilterChecks } from "../lib/chatFilter";
 import type { FilterCheck, FilterSection, RowFacts } from "../lib/chatFilter";
+import { InfoHint } from "./InfoHint";
 import "./chat-groups.css";
 
 const EDGE = 8;
@@ -481,13 +482,13 @@ function AutoJoinDialog({
     </button>
   );
   const heading = (
-    <h2 id={titleId} className="chat-groups__dialog-title">
-      {title}
+    <h2 className="chat-groups__dialog-title" aria-label={title}>
+      <span id={titleId}>{title}</span>
+      <InfoHint about={title} hint={t.office.groups.autoJoinHint} />
     </h2>
   );
   const content = (
     <>
-      <p className="chat-groups__dialog-hint">{t.office.groups.autoJoinHint}</p>
       <div className="chat-groups__autojoin-list" role="group" aria-labelledby={titleId}>
         {items.map((it) => (
           <button

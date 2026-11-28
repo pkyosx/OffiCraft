@@ -5,6 +5,7 @@ import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { SuggestedRepliesEditor } from "./SuggestedRepliesEditor";
 import { CloseIcon } from "./icons";
 import "./chat-groups.css";
+import { InfoHint } from "./InfoHint";
 import "./suggested-replies.css";
 
 /** One member's chat 建議回覆, opened from the chat room's header. */
@@ -105,10 +106,12 @@ export function ChatSuggestedRepliesDialog({
       >
         <div className="chat-suggested-replies__head">
           <div>
-            <h2 id={titleId} className="chat-groups__dialog-title">
-              {t.chat.suggestedRepliesLabel} · {memberName}
+            <h2 className="chat-groups__dialog-title" aria-labelledby={titleId}>
+              <span id={titleId}>
+                {t.chat.suggestedRepliesLabel} · {memberName}
+              </span>
+              <InfoHint about={t.chat.suggestedRepliesLabel} hint={t.chat.suggestedRepliesSub} />
             </h2>
-            <p className="chat-groups__dialog-hint">{t.chat.suggestedRepliesSub}</p>
           </div>
           <button
             type="button"

@@ -548,3 +548,7 @@
 .profile-dd__pk-delete {
   align-self: flex-end;
 }
+
+.profile-dd__row-title .info-hint {
+  vertical-align: -3px;
+}

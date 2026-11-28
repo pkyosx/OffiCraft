@@ -16,6 +16,7 @@ import { SettingsPage } from "./SettingsPage";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
 import { toVersion } from "../api/mappers";
+import { infoHintText } from "../test/infoHint";
 
 const s = zh.settings;
 
@@ -282,9 +283,10 @@ describe("SettingsPage · 系統更新與備份 · 讓助理告訴我新版本�
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     const row = toggle.closest(".param-row") as HTMLElement;
     expect(row.querySelector(".param-row__name")?.textContent).toBe("讓助理告訴我新版本的功能");
-    expect(row.querySelector(".param-row__sub")?.textContent).toBe(
+    expect(infoHintText(row)).toBe(
       "升級到有新功能公告的正式版後，助理會在聊天裡跟你說這版多了什麼"
     );
+    expect(row.querySelector(".param-row__sub")).toBeNull();
     const rows = Array.from(row.parentElement!.querySelectorAll(":scope > .param-row"));
     expect(rows.indexOf(row)).toBe(3);
     expect(rows).toHaveLength(4);

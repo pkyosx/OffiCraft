@@ -1237,7 +1237,8 @@ export const en: Dict = {
     langEn: "English",
     languageSub: "Also the language members use with you (from their next start).",
     pushContactEmail: "Notification email",
-    pushContactEmailSub: "Notifications are not sent until this is set. The address is shared with the browser's push service, so use one that can be public.",
+    pushContactEmailUnsetWarning: "Notifications are not sent until this is set.",
+    pushContactEmailPrivacy: "The address is shared with the browser's push service, so use one that can be public.",
     pushContactEmailPlaceholder: "name@company.com",
     pushContactEmailError: "Enter a public email address.",
     layout: "Layout",
@@ -2544,8 +2545,9 @@ export const en: Dict = {
     systemName: "System interaction",
     systemSub: "How the system works, read by every member at boot",
     customName: "User additions",
-    customSub: "Custom content read by every member at boot · editable",
-    bootDocEditableSuffix: " · editable",
+    customSub: "Custom content read by every member at boot",
+    bootDocEditableTag: "editable",
+    bootDocReadOnlyTag: "not editable",
     dutyHeading: "Duty",
     dutyNote:
       "Other members read this to decide what to bring to this role; it appears on the roster every member sees at boot.",
@@ -2554,7 +2556,7 @@ export const en: Dict = {
       "The language members write to you in · follows the display language until you edit it",
     termGlossaryName: "Term glossary",
     termGlossarySub:
-      "English and Chinese feature names side by side · updated with each release, not editable",
+      "English and Chinese feature names side by side · updated with each release",
     bootName: "Boot steps",
     bootSub: "What an AI follows while starting up · one per runtime",
     bootRuntimeClaude: "Standard",
@@ -2751,7 +2753,8 @@ export const en: Dict = {
       "How long an outsource predecessor may go without updating the task after a reassign before it is reclaimed; every task update restarts the clock. Staff predecessors are not affected (60–86400)",
     wardenCredentialLifetime: "Machine credential lifetime",
     wardenCredentialLifetimeSub:
-      "How long a machine's login credential lasts. Machines renew it automatically before it expires; a machine that misses its renewal has to be re-installed. Lowering it does not affect credentials already issued. (86400–34560000 seconds)",
+      "How long a machine's login credential lasts. Machines renew it automatically before it expires. Lowering it does not affect credentials already issued. (86400–34560000 seconds)",
+    wardenCredentialLifetimeWarning: "A machine that misses its renewal has to be re-installed.",
     runtimeLoginCheckInterval: "Login check interval",
     runtimeLoginCheckIntervalSub:
       "While Claude or Codex reads as logged in, how often each machine checks it again. A change reaches each machine at its next report (30–3600 seconds)",
@@ -2785,7 +2788,8 @@ export const en: Dict = {
     // person who needs them is the one turning the knob.
     backupRetain: "Backups kept",
     backupRetainSub:
-      "How many database backups are kept (1–20). Anything past this number is permanently deleted on the next backup. It counts backups, not days; routine backups and pre-upgrade backups each keep this many, so there can be up to twice as many files on disk.",
+      "How many database backups are kept (1–20). It counts backups, not days; routine backups and pre-upgrade backups each keep this many, so there can be up to twice as many files on disk.",
+    backupRetainWarning: "Anything past this number is permanently deleted on the next backup.",
     backupRetainUnit: "backups (per type)",
     // T-122 (+ the lore list, T-33): the three suggested-reply lists. One row
     // per box and not one shared row, deliberately — answering a reply card,
@@ -2825,7 +2829,8 @@ export const en: Dict = {
     // otherwise get wrong.
     loreCapRole: "Member lore size cap",
     loreCapRoleSub:
-      "How many characters of member lore each member reads at boot. An entry that does not fit is skipped whole, with no error message. It can be lowered without affecting any entry already written.",
+      "How many characters of member lore each member reads at boot. It can be lowered without affecting any entry already written.",
+    loreCapRoleWarning: "An entry that does not fit is skipped whole, with no error message.",
     loreCapManual: "Task manual lore size cap",
     loreCapManualSub:
       "How many characters of task lore come with a task manual when it is read. Counted separately from member lore. May be lowered.",

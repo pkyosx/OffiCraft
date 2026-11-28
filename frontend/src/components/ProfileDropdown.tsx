@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
 import { isHttpStatus, retryAfterSeconds } from "../api/errors";
@@ -20,6 +20,7 @@ import { InlineEdit } from "./InlineEdit";
 import { PasskeysPanel } from "./PasskeysPanel";
 import { qrSvg } from "../lib/qrSvg";
 import { ThemeAppearanceDialog, ThemeEntryRow } from "./ThemeAppearanceDialog";
+import { InfoHint } from "./InfoHint";
 import "./profile-dropdown.css";
 
 interface ProfileDropdownProps {
@@ -73,6 +74,7 @@ export function ProfileDropdown({
   setOwnerName,
 }: ProfileDropdownProps) {
   const { t, language, setLanguage, wide, setWide, resetPreferences, msg } = useI18n();
+  const rowsId = useId();
 
   const [themeDialogOpen, setThemeDialogOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -446,31 +448,25 @@ export function ProfileDropdown({
           <button
             type="button"
             className="profile-dd__row"
+            aria-labelledby={`${rowsId}-prefs`}
             onClick={openPreferences}
           >
             <span className="profile-dd__row-icon">
               <GearIcon size={16} />
             </span>
-            <span className="profile-dd__row-body">
-              <span className="profile-dd__row-title">
-                {t.profile.preferences}
-              </span>
-              <span className="profile-dd__row-sub">
-                {t.profile.preferencesSub}
-              </span>
-            </span>
+            <RowText id={`${rowsId}-prefs`} title={t.profile.preferences} hint={t.profile.preferencesSub} />
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
           </button>
 
-          <button type="button" className="profile-dd__row" onClick={openNotifications}>
+          <button type="button" className="profile-dd__row" aria-labelledby={`${rowsId}-push`} aria-describedby={`${rowsId}-push-sub`} onClick={openNotifications}>
             <span className="profile-dd__row-icon"><BellIcon size={16} /></span>
-            <span className="profile-dd__row-body"><span className="profile-dd__row-title">{t.profile.pushContactEmail}</span><span className="profile-dd__row-sub">{t.profile.pushContactEmailSub}</span></span>
+            <RowText id={`${rowsId}-push`} title={t.profile.pushContactEmail} hint={t.profile.pushContactEmailPrivacy} sub={t.profile.pushContactEmailUnsetWarning} />
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
           </button>
 
-          <button type="button" className="profile-dd__row" onClick={() => setView("security")}>
+          <button type="button" className="profile-dd__row" aria-labelledby={`${rowsId}-security`} onClick={() => setView("security")}>
             <span className="profile-dd__row-icon"><KeyIcon size={16} /></span>
-            <span className="profile-dd__row-body"><span className="profile-dd__row-title">{t.profile.accountSecurity}</span><span className="profile-dd__row-sub">{t.profile.accountSecuritySub}</span></span>
+            <RowText id={`${rowsId}-security`} title={t.profile.accountSecurity} hint={t.profile.accountSecuritySub} />
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
           </button>
 
@@ -497,9 +493,9 @@ export function ProfileDropdown({
             <span>{t.profile.accountSecurity}</span>
           </button>
 
-          <button type="button" className="profile-dd__row" onClick={openPasswordView}>
+          <button type="button" className="profile-dd__row" aria-labelledby={`${rowsId}-password`} onClick={openPasswordView}>
             <span className="profile-dd__row-icon"><GearIcon size={16} /></span>
-            <span className="profile-dd__row-body"><span className="profile-dd__row-title">{t.profile.changePassword}</span><span className="profile-dd__row-sub">{t.profile.changePasswordSub}</span></span>
+            <RowText id={`${rowsId}-password`} title={t.profile.changePassword} hint={t.profile.changePasswordSub} />
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
           </button>
 
@@ -509,9 +505,9 @@ export function ProfileDropdown({
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
           </button>
 
-          <button type="button" className="profile-dd__row" onClick={() => setView("passkeys")}>
+          <button type="button" className="profile-dd__row" aria-labelledby={`${rowsId}-passkeys`} onClick={() => setView("passkeys")}>
             <span className="profile-dd__row-icon"><GearIcon size={16} /></span>
-            <span className="profile-dd__row-body"><span className="profile-dd__row-title">{t.profile.passkeys}</span><span className="profile-dd__row-sub">{t.profile.passkeysSub}</span></span>
+            <RowText id={`${rowsId}-passkeys`} title={t.profile.passkeys} hint={t.profile.passkeysSub} />
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
           </button>
         </>
@@ -932,7 +928,7 @@ export function ProfileDropdown({
           <button type="button" className="profile-dd__back" onClick={() => setView("main")}><ChevronLeftIcon size={16} /><span>{t.profile.pushContactEmail}</span></button>
           <form className="profile-dd__form" onSubmit={(e) => { e.preventDefault(); void commitPushContactEmail(); }}>
             <label className="profile-dd__field-label" htmlFor="push-contact-email">{t.profile.pushContactEmail}</label>
-            <div className="profile-dd__section-hint">{t.profile.pushContactEmailSub}</div>
+            <div className="profile-dd__section-hint">{t.profile.pushContactEmailUnsetWarning} {t.profile.pushContactEmailPrivacy}</div>
             <input id="push-contact-email" className="profile-dd__input" type="email" inputMode="email" autoComplete="email" placeholder={t.profile.pushContactEmailPlaceholder} value={pushContactEmail} disabled={!pushEmailLoaded} onChange={(e) => setPushContactEmail(e.target.value)} />
             {pushEmailError && <div className="profile-dd__error">{t.profile.pushContactEmailError}</div>}
             <button type="submit" className="profile-dd__submit" disabled={!pushEmailLoaded || pushEmailSaving || pushContactEmail === savedPushContactEmail}>{pushEmailSaving ? t.profile.saving : t.profile.save}</button>
@@ -940,5 +936,24 @@ export function ProfileDropdown({
         </>
       )}
     </div>
+  );
+}
+
+/** A menu row's title with its explanation behind ⓘ; `sub` is a line that
+ * must stay visible (a warning). The row button names itself from `${id}`
+ * only, so the ⓘ's own name is not read as part of the row's. */
+function RowText({ id, title, hint, sub }: { id: string; title: string; hint: string; sub?: string }) {
+  return (
+    <span className="profile-dd__row-body">
+      <span className="profile-dd__row-title">
+        <span id={id}>{title}</span>
+        <InfoHint about={title} hint={hint} />
+      </span>
+      {sub && (
+        <span id={`${id}-sub`} className="profile-dd__row-sub">
+          {sub}
+        </span>
+      )}
+    </span>
   );
 }

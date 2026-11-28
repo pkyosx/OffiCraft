@@ -2860,6 +2860,9 @@ button.chat__msg-file {
   color: var(--color-dot-waking);
   background: color-mix(in srgb, var(--color-dot-waking) 8%, transparent);
 }
+.outsource-panel__pop-head .info-hint {
+  margin-left: -4px;
+}
 .outsource-panel__pop-title {
   font-size: 13px;
   font-weight: 700;
@@ -2876,12 +2879,6 @@ button.chat__msg-file {
   margin-top: 12px;
   display: flex;
   justify-content: flex-end;
-}
-.outsource-panel__pop-hint {
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--color-text-muted);
 }
 .outsource-panel__pop-row {
   margin-top: 10px;

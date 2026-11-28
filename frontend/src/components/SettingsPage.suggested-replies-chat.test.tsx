@@ -14,7 +14,7 @@ async function openParamsPage() {
     </I18nProvider>,
   );
   fireEvent.click(utils.getByTestId("settings-params-entry"));
-  await utils.findByText("請示卡建議回覆");
+  await utils.findByRole("img", { name: "關於 請示卡建議回覆" });
   return utils;
 }
 
@@ -26,8 +26,8 @@ describe("聊天室建議回覆 in 參數調整", () => {
       suggestedRepliesReplyCard: ["請示卡用的"],
       suggestedRepliesChat: ["聊天用的"],
     });
-    const { getByText, findByLabelText } = await openParamsPage();
-    expect(getByText("聊天室建議回覆")).toBeTruthy();
+    const { getByRole, findByLabelText } = await openParamsPage();
+    expect(getByRole("img", { name: "關於 聊天室建議回覆" })).toBeTruthy();
     expect(((await findByLabelText(chatRow(1))) as HTMLInputElement).value).toBe("聊天用的");
   });
 

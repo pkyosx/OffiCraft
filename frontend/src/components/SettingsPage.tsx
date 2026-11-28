@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type FocusEvent, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 import { taskTypeLabel } from "../lib/taskTypeLabel";
 import type { Dict } from "../i18n/locales/zh";
@@ -149,6 +149,7 @@ const LORE_CAP_FIELDS: Record<
       | "loreCapManualSub"
       | "loreCapTitleSub"
       | "loreCapBodySub";
+    warnKey?: "loreCapRoleWarning";
   }
 > = {
   loreCapCharsRole: {
@@ -157,6 +158,7 @@ const LORE_CAP_FIELDS: Record<
     inputId: "param-lore-cap-role",
     labelKey: "loreCapRole",
     subKey: "loreCapRoleSub",
+    warnKey: "loreCapRoleWarning",
   },
   loreCapCharsManual: {
     min: LORE_FOLD_CAP_CHARS_MIN,
@@ -428,26 +430,60 @@ function BootDocEntry({
 }) {
   const { t } = useI18n();
   const { Icon } = row;
+  const id = useId();
+  const tag = editable
+    ? t.settings.bootDocEditableTag
+    : "readOnly" in row && row.readOnly
+      ? t.settings.bootDocReadOnlyTag
+      : undefined;
   return (
     <button
       type="button"
       className="set-entry"
       data-testid={`boot-doc-entry-${kind}`}
+      aria-labelledby={setEntryLabelledBy(id, tag)}
       onClick={onOpen}
     >
       <span className={`set-entry__icon set-entry__icon--${row.tone}`}>
         <Icon size={18} />
       </span>
-      <span className="set-entry__body">
-        <span className="set-entry__name">{t.settings[row.nameKey]}</span>
-        <span className="set-entry__sub">
-          {t.settings[row.subKey]}
-          {editable && t.settings.bootDocEditableSuffix}
-        </span>
-      </span>
+      <SetEntryText id={id} name={t.settings[row.nameKey]} hint={t.settings[row.subKey]} tag={tag} />
       <ChevronRightIcon size={18} className="set-entry__chev" />
     </button>
   );
+}
+
+/** A settings-list row's title with its explanation behind ⓘ and its state as
+ * a visible tag. The row button names itself from the title and the tag only
+ * (`setEntryLabelledBy`), so the ⓘ's own name is not read as part of it. */
+function SetEntryText({
+  id,
+  name,
+  hint,
+  tag,
+}: {
+  id: string;
+  name: string;
+  hint: string;
+  tag?: string;
+}) {
+  return (
+    <span className="set-entry__body">
+      <span className="set-entry__name">
+        <span id={`${id}-name`}>{name}</span>
+        <InfoHint about={name} hint={hint} />
+        {tag && (
+          <span id={`${id}-tag`} className="set-badge" data-testid="set-entry-tag">
+            {tag}
+          </span>
+        )}
+      </span>
+    </span>
+  );
+}
+
+function setEntryLabelledBy(id: string, tag: string | undefined): string {
+  return tag ? `${id}-name ${id}-tag` : `${id}-name`;
 }
 
 /** The rows of one group, in declaration order. */
@@ -464,6 +500,7 @@ function bootDocRowsIn(
 import { ThemeSettings } from "./ThemeSettings";
 import { GuidePage } from "./UserGuidePage";
 import { ConfirmModal } from "./ConfirmModal";
+import { InfoHint, TitleWithInfo } from "./InfoHint";
 import "./settings.css";
 
 // Which settings sub-view is showing. Navigation is internal to the page; the
@@ -532,6 +569,7 @@ export function SettingsPage({
   initialRoleKey?: string;
 } = {}) {
   const { t } = useI18n();
+  const bootRowsId = useId();
   const [route] = useHashRoute();
   const [view, setView] = useState<View>(
     initialManualKey
@@ -916,6 +954,7 @@ export function SettingsPage({
     // both documents' identity, so the very defect being fixed was reproduced
     // in the accessibility tree. The rows below take their accessible name from
     // their own visible title (bootClaudeName / bootCodexName), which is the
+    const bootRuntimeTag = params.settings?.developerMode ? t.settings.bootDocEditableTag : undefined;
     // runtime — do not replace that with a shared label.
     return (
       <div className="settings">
@@ -932,36 +971,36 @@ export function SettingsPage({
             type="button"
             className="set-entry"
             data-testid="boot-entry-claude"
+            aria-labelledby={setEntryLabelledBy(`${bootRowsId}-claude`, bootRuntimeTag)}
             onClick={() => setView({ kind: "bootRuntime", runtime: "claude" })}
           >
             <span className="set-entry__icon set-entry__icon--violet">
               <BoltIcon size={18} />
             </span>
-            <span className="set-entry__body">
-              <span className="set-entry__name">{t.settings.bootClaudeName}</span>
-              <span className="set-entry__sub">
-                {t.settings.bootClaudeSub}
-                {params.settings?.developerMode && t.settings.bootDocEditableSuffix}
-              </span>
-            </span>
+            <SetEntryText
+              id={`${bootRowsId}-claude`}
+              name={t.settings.bootClaudeName}
+              hint={t.settings.bootClaudeSub}
+              tag={bootRuntimeTag}
+            />
             <ChevronRightIcon size={18} className="set-entry__chev" />
           </button>
           <button
             type="button"
             className="set-entry"
             data-testid="boot-entry-codex"
+            aria-labelledby={setEntryLabelledBy(`${bootRowsId}-codex`, bootRuntimeTag)}
             onClick={() => setView({ kind: "bootRuntime", runtime: "codex" })}
           >
             <span className="set-entry__icon set-entry__icon--blue">
               <MonitorIcon size={18} />
             </span>
-            <span className="set-entry__body">
-              <span className="set-entry__name">{t.settings.bootCodexName}</span>
-              <span className="set-entry__sub">
-                {t.settings.bootCodexSub}
-                {params.settings?.developerMode && t.settings.bootDocEditableSuffix}
-              </span>
-            </span>
+            <SetEntryText
+              id={`${bootRowsId}-codex`}
+              name={t.settings.bootCodexName}
+              hint={t.settings.bootCodexSub}
+              tag={bootRuntimeTag}
+            />
             <ChevronRightIcon size={18} className="set-entry__chev" />
           </button>
         </div>
@@ -1090,8 +1129,8 @@ export function SettingsPage({
         heading={{
           label: t.settings.dutyHeading,
           icon: <BriefcaseIcon size={15} />,
+          info: t.settings.dutyNote,
         }}
-        note={t.settings.dutyNote}
         // The Duty doc has had a cap since T-ae38, and this is the only place
         // an owner or an agent sees how close it is to it. Omitted while the
         // role has not loaded — an invented 0/0 would read as a real budget.
@@ -1331,8 +1370,9 @@ function SuggestedRepliesRow({
   return (
     <div className="param-row param-row--stacked">
       <div className="param-row__body">
-        <div className="param-row__name">{label}</div>
-        <div className="param-row__sub">{sub}</div>
+        <div className="param-row__name">
+          <TitleWithInfo title={label} hint={sub} />
+        </div>
       </div>
       <SuggestedRepliesEditor
         label={label}
@@ -1698,9 +1738,8 @@ function ServerParams({
           <div className="param-row">
             <div className="param-row__body">
               <label className="param-row__name" htmlFor="param-ttl">
-                {t.settings.sessionTtl}
+                <TitleWithInfo title={t.settings.sessionTtl} hint={t.settings.sessionTtlSub} />
               </label>
-              <div className="param-row__sub">{t.settings.sessionTtlSub}</div>
             </div>
             <select
               id="param-ttl"
@@ -1722,8 +1761,9 @@ function ServerParams({
 
           <div className="param-row">
             <div className="param-row__body">
-              <label className="param-row__name" htmlFor="param-agent-ttl">{t.settings.agentTokenTtl}</label>
-              <div className="param-row__sub">{t.settings.agentTokenTtlSub}</div>
+              <label className="param-row__name" htmlFor="param-agent-ttl">
+                <TitleWithInfo title={t.settings.agentTokenTtl} hint={t.settings.agentTokenTtlSub} />
+              </label>
             </div>
             <select id="param-agent-ttl" className="param-select" aria-label={t.settings.agentTokenTtl}
               value={settings.agentTokenTtl}
@@ -1735,9 +1775,8 @@ function ServerParams({
           <div className="param-row">
             <div className="param-row__body">
               <label className="param-row__name" htmlFor="param-notice">
-                {t.settings.notice}
+                <TitleWithInfo title={t.settings.notice} hint={t.settings.noticeSub} />
               </label>
-              <div className="param-row__sub">{t.settings.noticeSub}</div>
             </div>
             <div className="param-pct">
               <input
@@ -1765,9 +1804,8 @@ function ServerParams({
           <div className="param-row">
             <div className="param-row__body">
               <label className="param-row__name" htmlFor="param-handover">
-                {t.settings.handover}
+                <TitleWithInfo title={t.settings.handover} hint={t.settings.handoverSub} />
               </label>
-              <div className="param-row__sub">{t.settings.handoverSub}</div>
             </div>
             <div className="param-pct">
               <input
@@ -1795,9 +1833,8 @@ function ServerParams({
           <div className="param-row">
             <div className="param-row__body">
               <label className="param-row__name" htmlFor="param-codex-notice">
-                {t.settings.codexNotice}
+                <TitleWithInfo title={t.settings.codexNotice} hint={t.settings.codexNoticeSub} />
               </label>
-              <div className="param-row__sub">{t.settings.codexNoticeSub}</div>
             </div>
             <div className="param-pct">
               <input
@@ -1818,8 +1855,9 @@ function ServerParams({
 
           <div className="param-row">
             <div className="param-row__body">
-              <div className="param-row__name">{t.settings.codexHandover}</div>
-              <div className="param-row__sub">{t.settings.codexHandoverSub}</div>
+              <div className="param-row__name">
+                <TitleWithInfo title={t.settings.codexHandover} hint={t.settings.codexHandoverSub} />
+              </div>
             </div>
             <div className="param-pct">
               <input
@@ -1840,8 +1878,9 @@ function ServerParams({
 
           <div className="param-row">
             <div className="param-row__body">
-              <div className="param-row__name">{t.settings.acceleratedGrace}</div>
-              <div className="param-row__sub">{t.settings.acceleratedGraceSub}</div>
+              <div className="param-row__name">
+                <TitleWithInfo title={t.settings.acceleratedGrace} hint={t.settings.acceleratedGraceSub} />
+              </div>
             </div>
             <div className="param-pct">
               <input id="param-accelerated-grace" className="param-input" type="number" min={10} max={3600}
@@ -1855,8 +1894,9 @@ function ServerParams({
 
           <div className="param-row">
             <div className="param-row__body">
-              <div className="param-row__name">{t.settings.reassignHandoverTimeout}</div>
-              <div className="param-row__sub">{t.settings.reassignHandoverTimeoutSub}</div>
+              <div className="param-row__name">
+                <TitleWithInfo title={t.settings.reassignHandoverTimeout} hint={t.settings.reassignHandoverTimeoutSub} />
+              </div>
             </div>
             <div className="param-pct">
               <input id="param-reassign-handover-timeout" className="param-input" type="number" min={60} max={86400}
@@ -1870,8 +1910,10 @@ function ServerParams({
 
           <div className="param-row">
             <div className="param-row__body">
-              <div className="param-row__name">{t.settings.wardenCredentialLifetime}</div>
-              <div className="param-row__sub">{t.settings.wardenCredentialLifetimeSub}</div>
+              <div className="param-row__name">
+                <TitleWithInfo title={t.settings.wardenCredentialLifetime} hint={t.settings.wardenCredentialLifetimeSub} />
+              </div>
+              <div className="param-row__sub">{t.settings.wardenCredentialLifetimeWarning}</div>
             </div>
             <div className="param-pct">
               <input id="param-warden-cred-lifetime" className="param-input" type="number" min={86400} max={34560000}
@@ -1885,8 +1927,9 @@ function ServerParams({
 
           <div className="param-row">
             <div className="param-row__body">
-              <div className="param-row__name">{t.settings.runtimeLoginCheckInterval}</div>
-              <div className="param-row__sub">{t.settings.runtimeLoginCheckIntervalSub}</div>
+              <div className="param-row__name">
+                <TitleWithInfo title={t.settings.runtimeLoginCheckInterval} hint={t.settings.runtimeLoginCheckIntervalSub} />
+              </div>
             </div>
             <div className="param-pct">
               <input id="param-runtime-login-check-interval" className="param-input" type="number" min={30} max={3600}
@@ -1900,8 +1943,9 @@ function ServerParams({
 
           <div className="param-row">
             <div className="param-row__body">
-              <div className="param-row__name">{t.settings.runtimeLoginRecheckInterval}</div>
-              <div className="param-row__sub">{t.settings.runtimeLoginRecheckIntervalSub}</div>
+              <div className="param-row__name">
+                <TitleWithInfo title={t.settings.runtimeLoginRecheckInterval} hint={t.settings.runtimeLoginRecheckIntervalSub} />
+              </div>
             </div>
             <div className="param-pct">
               <input id="param-runtime-login-recheck-interval" className="param-input" type="number" min={30} max={3600}
@@ -1915,8 +1959,9 @@ function ServerParams({
 
           <div className="param-row">
             <div className="param-row__body">
-              <div className="param-row__name">{t.settings.diskUsageInterval}</div>
-              <div className="param-row__sub">{t.settings.diskUsageIntervalSub}</div>
+              <div className="param-row__name">
+                <TitleWithInfo title={t.settings.diskUsageInterval} hint={t.settings.diskUsageIntervalSub} />
+              </div>
             </div>
             <div className="param-pct">
               <input id="param-disk-usage-interval" className="param-input" type="number" min={600} max={86400}
@@ -1930,8 +1975,9 @@ function ServerParams({
 
           <div className="param-row">
             <div className="param-row__body">
-              <div className="param-row__name">{t.settings.monitoringRefresh}</div>
-              <div className="param-row__sub">{t.settings.monitoringRefreshSub}</div>
+              <div className="param-row__name">
+                <TitleWithInfo title={t.settings.monitoringRefresh} hint={t.settings.monitoringRefreshSub} />
+              </div>
             </div>
             <div className="param-pct">
               <input id="param-monitoring-refresh" className="param-input" type="number" min={1} max={60}
@@ -1949,8 +1995,9 @@ function ServerParams({
             return (
               <div className="param-row" key={field}>
                 <div className="param-row__body">
-                  <div className="param-row__name">{label}</div>
-                  <div className="param-row__sub">{t.settings[spec.subKey]}</div>
+                  <div className="param-row__name">
+                    <TitleWithInfo title={label} hint={t.settings[spec.subKey]} />
+                  </div>
                 </div>
                 <div className="param-pct">
                   <input id={spec.inputId} className="param-input" type="number" min={spec.min} max={250000}
@@ -1966,8 +2013,9 @@ function ServerParams({
 
           <div className="param-row">
             <div className="param-row__body">
-              <div className="param-row__name">{t.settings.stepNoteCap}</div>
-              <div className="param-row__sub">{t.settings.stepNoteCapSub}</div>
+              <div className="param-row__name">
+                <TitleWithInfo title={t.settings.stepNoteCap} hint={t.settings.stepNoteCapSub} />
+              </div>
             </div>
             <div className="param-pct">
               <input id="param-step-note-cap" className="param-input" type="number"
@@ -1982,8 +2030,9 @@ function ServerParams({
 
           <div className="param-row">
             <div className="param-row__body">
-              <div className="param-row__name">{t.settings.dueSoonLead}</div>
-              <div className="param-row__sub">{t.settings.dueSoonLeadSub}</div>
+              <div className="param-row__name">
+                <TitleWithInfo title={t.settings.dueSoonLead} hint={t.settings.dueSoonLeadSub} />
+              </div>
             </div>
             <div className="param-pct" ref={dueSoonLeadPairRef}>
               <input id="param-due-soon-lead" className="param-input" type="number"
@@ -2037,8 +2086,9 @@ function ServerParams({
 
           <div className="param-row">
             <div className="param-row__body">
-              <div className="param-row__name">{t.settings.chatBudget}</div>
-              <div className="param-row__sub">{t.settings.chatBudgetSub}</div>
+              <div className="param-row__name">
+                <TitleWithInfo title={t.settings.chatBudget} hint={t.settings.chatBudgetSub} />
+              </div>
             </div>
             <div className="param-pct">
               <input id="param-chat-budget" className="param-input" type="number"
@@ -2068,8 +2118,10 @@ function ServerParams({
             return (
               <div className="param-row" key={field}>
                 <div className="param-row__body">
-                  <div className="param-row__name">{label}</div>
-                  <div className="param-row__sub">{t.settings[spec.subKey]}</div>
+                  <div className="param-row__name">
+                    <TitleWithInfo title={label} hint={t.settings[spec.subKey]} />
+                  </div>
+                  {spec.warnKey && <div className="param-row__sub">{t.settings[spec.warnKey]}</div>}
                 </div>
                 <div className="param-pct">
                   <input id={spec.inputId} className="param-input" type="number"
@@ -2086,8 +2138,10 @@ function ServerParams({
 
           <div className="param-row">
             <div className="param-row__body">
-              <div className="param-row__name">{t.settings.backupRetain}</div>
-              <div className="param-row__sub">{t.settings.backupRetainSub}</div>
+              <div className="param-row__name">
+                <TitleWithInfo title={t.settings.backupRetain} hint={t.settings.backupRetainSub} />
+              </div>
+              <div className="param-row__sub">{t.settings.backupRetainWarning}</div>
             </div>
             <div className="param-pct">
               <input id="param-backup-retain" className="param-input" type="number"
@@ -2141,8 +2195,9 @@ function ServerParams({
 
           <div className="param-row">
             <div className="param-row__body">
-              <span className="param-row__name">{t.settings.developerMode}</span>
-              <div className="param-row__sub">{t.settings.developerModeSub}</div>
+              <span className="param-row__name">
+                <TitleWithInfo title={t.settings.developerMode} hint={t.settings.developerModeSub} />
+              </span>
             </div>
             <button
               type="button"
@@ -2214,8 +2269,9 @@ function SecretDurationRow({
   return (
     <div className="param-row">
       <div className="param-row__body">
-        <div className="param-row__name">{label}</div>
-        <div className="param-row__sub">{sub}</div>
+        <div className="param-row__name">
+          <TitleWithInfo title={label} hint={sub} />
+        </div>
       </div>
       <div className="param-pct" ref={pairRef}>
         <input id={id} className="param-input" type="number" min={0}
@@ -2630,8 +2686,9 @@ function SoftwareUpdate({
           {/* ── the two dual-channel toggles ── */}
           <div className="param-row">
             <div className="param-row__body">
-              <span className="param-row__name">{t.settings.receiveBeta}</span>
-              <div className="param-row__sub">{t.settings.receiveBetaSub}</div>
+              <span className="param-row__name">
+                <TitleWithInfo title={t.settings.receiveBeta} hint={t.settings.receiveBetaSub} />
+              </span>
             </div>
             <button
               type="button"
@@ -2649,8 +2706,9 @@ function SoftwareUpdate({
           </div>
           <div className="param-row">
             <div className="param-row__body">
-              <span className="param-row__name">{t.settings.autoUpdate}</span>
-              <div className="param-row__sub">{t.settings.autoUpdateSub}</div>
+              <span className="param-row__name">
+                <TitleWithInfo title={t.settings.autoUpdate} hint={t.settings.autoUpdateSub} />
+              </span>
             </div>
             <button
               type="button"
@@ -2675,8 +2733,9 @@ function SoftwareUpdate({
           </div>
           <div className="param-row">
             <div className="param-row__body">
-              <div className="param-row__name">{t.settings.updateCheckInterval}</div>
-              <div className="param-row__sub">{t.settings.updateCheckIntervalSub}</div>
+              <div className="param-row__name">
+                <TitleWithInfo title={t.settings.updateCheckInterval} hint={t.settings.updateCheckIntervalSub} />
+              </div>
             </div>
             <div className="param-pct">
               <input id="param-update-check-interval" className="param-input" type="number" min={1} max={60}
@@ -2689,8 +2748,9 @@ function SoftwareUpdate({
           </div>
           <div className="param-row">
             <div className="param-row__body">
-              <span className="param-row__name">{t.settings.announceFeatures}</span>
-              <div className="param-row__sub">{t.settings.announceFeaturesSub}</div>
+              <span className="param-row__name">
+                <TitleWithInfo title={t.settings.announceFeatures} hint={t.settings.announceFeaturesSub} />
+              </span>
             </div>
             <button
               type="button"
@@ -2890,6 +2950,7 @@ function GlobalContextSection({
   developerMode: boolean | undefined;
 }) {
   const { t } = useI18n();
+  const customRowId = useId();
   return (
     <div className="settings">
       <Breadcrumbs items={crumbs} />
@@ -2915,15 +2976,18 @@ function GlobalContextSection({
             type="button"
             className="set-entry"
             data-testid="boot-doc-entry-custom"
+            aria-labelledby={setEntryLabelledBy(customRowId, t.settings.bootDocEditableTag)}
             onClick={onOpenCustom}
           >
             <span className="set-entry__icon set-entry__icon--violet">
               <PencilIcon size={18} />
             </span>
-            <span className="set-entry__body">
-              <span className="set-entry__name">{t.settings.customName}</span>
-              <span className="set-entry__sub">{t.settings.customSub}</span>
-            </span>
+            <SetEntryText
+              id={customRowId}
+              name={t.settings.customName}
+              hint={t.settings.customSub}
+              tag={t.settings.bootDocEditableTag}
+            />
             <ChevronRightIcon size={18} className="set-entry__chev" />
           </button>
         </div>

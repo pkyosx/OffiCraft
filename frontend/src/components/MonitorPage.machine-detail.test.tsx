@@ -135,13 +135,13 @@ const MEASURED = {
     ["other", "5%"],
   ],
   rows: [
-    "資料庫成員、任務、聊天等所有資料4.0 GB",
-    "資料庫自動備份定期自動備份，保留最近幾份10.0 GB",
-    "成員 workspace各成員的工作目錄16.0 GB",
+    "資料庫4.0 GB",
+    "資料庫自動備份10.0 GB",
+    "成員 workspace16.0 GB",
     "Mira9.0 GB",
-    "日誌OffiCraft 程式的執行紀錄6.0 GB",
-    "升級殘留升級時留下的舊版程式與舊資料庫副本，不會自動刪除2.0 GB",
-    "其他目前版本的程式、設定檔，以及手動放進來的檔案2.0 GB",
+    "日誌6.0 GB",
+    "升級殘留2.0 GB",
+    "其他2.0 GB",
     "硬碟剩餘／總容量384.0 GB / 931.0 GB",
   ],
   measured: "量於 12m 前",
@@ -170,7 +170,7 @@ describe("MonitorPage 機器詳情 dialog", () => {
     const d = dialog()!;
     expect(d.getAttribute("aria-modal")).toBe("true");
     expect(readDialog(d)).toEqual(MEASURED);
-    expect(within(d).getByRole("img").getAttribute("aria-label")).toBe(
+    expect(within(d).getByTestId("disk-usage-bar").getAttribute("aria-label")).toBe(
       "OffiCraft 磁碟用量組成：資料庫 4.0 GB (10%)、資料庫自動備份 10.0 GB (25%)、成員 workspace 16.0 GB (40%)、日誌 6.0 GB (15%)、升級殘留 2.0 GB (5%)、其他 2.0 GB (5%)"
     );
     expect(screen.queryByRole("menu"), "choosing the item closes the menu").toBeNull();
@@ -199,7 +199,7 @@ describe("MonitorPage 機器詳情 dialog", () => {
       rows: [],
       measured: null,
     });
-    expect(within(dialog()!).queryByRole("img")).toBeNull();
+    expect(within(dialog()!).queryByTestId("disk-usage-bar")).toBeNull();
   });
 
   it("closes via ✕, Esc and the backdrop, but not a click inside the box", async () => {

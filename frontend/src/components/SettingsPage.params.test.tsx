@@ -11,6 +11,7 @@ import { zh } from "../i18n/locales/zh";
 import { SettingsPage } from "./SettingsPage";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
+import { infoHintText } from "../test/infoHint";
 
 const s = zh.settings;
 
@@ -307,9 +308,10 @@ describe("SettingsPage · 參數調整", () => {
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     const row = toggle.closest(".param-row") as HTMLElement;
     expect(row.querySelector(".param-row__name")?.textContent).toBe("開發者模式");
-    expect(row.querySelector(".param-row__sub")?.textContent).toBe(
+    expect(infoHintText(row)).toBe(
       "打開後可以修改全域情境裡的開機文件。使用者語言與使用者自訂隨時都能修改。"
     );
+    expect(row.querySelector(".param-row__sub")).toBeNull();
     const card = utils.getByLabelText(s.sessionTtl).closest(".param-card") as HTMLElement;
     const rows = card.querySelectorAll(":scope > .param-row");
     expect(rows[rows.length - 1]).toBe(row);

@@ -44,7 +44,7 @@ async function openParamsPage() {
   // failure message is "the page never loaded" says nothing about which row is
   // missing. The reply-card row predates this ticket and is what says the
   // 參數調整 page has rendered; each case below asserts the new row itself.
-  await utils.findByText(s.suggestedRepliesReplyCard);
+  await utils.findByRole("img", { name: `關於 ${s.suggestedRepliesReplyCard}` });
   return utils;
 }
 
@@ -63,7 +63,7 @@ describe("T-33 — 傳承訊息建議回覆 是自己的一份參數設定", () 
 
     // The row is ON the page, under its own label — asserted here rather than
     // inherited from the helper's wait.
-    expect(utils.queryByText(s.suggestedRepliesLoreMessage)).not.toBeNull();
+    expect(utils.queryByRole("img", { name: `關於 ${s.suggestedRepliesLoreMessage}` })).not.toBeNull();
     expect((utils.getByLabelText(loreRow(1)) as HTMLInputElement).value).toBe(
       "傳承用的一",
     );

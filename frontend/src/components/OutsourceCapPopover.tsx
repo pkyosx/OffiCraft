@@ -12,6 +12,7 @@
 import { useState } from "react";
 import { useI18n } from "../i18n";
 import { BriefcaseIcon } from "./icons";
+import { InfoHint } from "./InfoHint";
 import "./stepper.css";
 
 export function OutsourceCapPopover({
@@ -55,9 +56,7 @@ export function OutsourceCapPopover({
         <span className="outsource-panel__pop-title">
           {t.office.outsource.capTitle}
         </span>
-      </div>
-      <div className="outsource-panel__pop-hint">
-        {t.office.outsource.capHint}
+        <InfoHint about={t.office.outsource.capTitle} hint={t.office.outsource.capHint} />
       </div>
       <div className="outsource-panel__pop-label">
         {t.office.outsource.capMaxLabel}

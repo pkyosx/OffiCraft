@@ -23,6 +23,7 @@ import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { en } from "../i18n/locales/en";
 import { SettingsPage } from "./SettingsPage";
+import { infoHintText } from "../test/infoHint";
 import { __resetMock, mockApi } from "../api/mock";
 import {
   BACKUP_RETAIN_DEFAULT,
@@ -55,7 +56,8 @@ async function openParamsPage() {
   return utils;
 }
 
-/** The RENDERED sub-label under the retention row, in one locale.
+/** The RENDERED copy of the retention row, in one locale: the line that stays
+ * visible under the title, and the explanation behind its ⓘ.
  *
  * 🔴 WHY THIS EXISTS. The English half of these assertions used to read
  * `en.settings.backupRetainSub` — the CONSTANT. That checks the dictionary
@@ -64,7 +66,9 @@ async function openParamsPage() {
  * the English cockpit shows the wrong paragraph entirely. The Chinese half was
  * always on `textContent`; this puts English on the same footing, by mounting
  * the provider in `en` and reading the node it actually painted. */
-async function retainSubTextIn(locale: "zh" | "en"): Promise<string> {
+async function retainCopyIn(
+  locale: "zh" | "en",
+): Promise<{ visible: string; info: string }> {
   window.localStorage.setItem(LS_LANGUAGE, locale);
   const dict = locale === "zh" ? zh : en;
   const utils = render(
@@ -73,10 +77,15 @@ async function retainSubTextIn(locale: "zh" | "en"): Promise<string> {
     </I18nProvider>
   );
   fireEvent.click(utils.getByTestId("settings-params-entry"));
-  await utils.findByLabelText(dict.settings.backupRetain);
-  const text = utils.getByText(dict.settings.backupRetainSub).textContent ?? "";
+  const row = (await utils.findByLabelText(dict.settings.backupRetain)).closest<HTMLElement>(
+    ".param-row",
+  )!;
+  const copy = {
+    visible: row.querySelector(".param-row__sub")?.textContent ?? "",
+    info: infoHintText(row),
+  };
   utils.unmount();
-  return text;
+  return copy;
 }
 
 describe("T-8 — backup retention N is an adjustable setting", () => {
@@ -130,27 +139,26 @@ describe("T-8 — backup retention N is an adjustable setting", () => {
     // The failure: a reader sets 5 and believes they bought a fixed number of
     // days of history. They did not — the same 5 covered under three days on
     // this machine's busiest day and over a week on a quiet one.
-    expect(await retainSubTextIn("zh")).toContain("算的是份數不是天數");
-    expect(await retainSubTextIn("en")).toContain("counts backups, not days");
+    expect((await retainCopyIn("zh")).info).toContain("算的是份數不是天數");
+    expect((await retainCopyIn("en")).info).toContain("counts backups, not days");
   });
 
   it("the copy beside the field says each backup type keeps N, so the disk holds up to twice as many", async () => {
     // The failure: a reader sets 5 and believes the directory holds 5 files. It
     // holds up to 10 — routine and pre-migration backups keep separate quotas —
     // so both the disk cost and the depth are double what they assumed.
-    const zhSub = await retainSubTextIn("zh");
-    expect(zhSub).toContain("日常備份與升級前備份各自保留這個份數");
-    expect(zhSub).toContain("磁碟上最多會有兩倍的檔案");
-    const enSub = await retainSubTextIn("en");
-    expect(enSub).toContain("routine backups and pre-upgrade backups each keep this many");
-    expect(enSub).toContain("up to twice as many files on disk");
+    const zhInfo = (await retainCopyIn("zh")).info;
+    expect(zhInfo).toContain("日常備份與升級前備份各自保留這個份數");
+    expect(zhInfo).toContain("磁碟上最多會有兩倍的檔案");
+    const enInfo = (await retainCopyIn("en")).info;
+    expect(enInfo).toContain("routine backups and pre-upgrade backups each keep this many");
+    expect(enInfo).toContain("up to twice as many files on disk");
   });
 
-  it("the copy says the excess is DELETED, not moved aside", async () => {
+  it("the copy says the excess is DELETED, not moved aside, on the row itself rather than behind ⓘ", async () => {
     // The whole point of the ticket. Someone lowering this number is deleting
     // backups, and the page must say so before they do it, not after.
-    const zhSub = await retainSubTextIn("zh");
-    expect(zhSub).toContain("永久刪除");
-    expect(await retainSubTextIn("en")).toContain("permanently deleted");
+    expect((await retainCopyIn("zh")).visible).toContain("永久刪除");
+    expect((await retainCopyIn("en")).visible).toContain("permanently deleted");
   });
 });
