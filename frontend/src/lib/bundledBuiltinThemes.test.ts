@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { bundledBuiltinThemeLoaderFrom, loadBundledBuiltinTheme } from "./bundledBuiltinThemes";
-import { BUNDLED_BUILTIN_THEMES, validateThemeBundleWith, type ThemeBundle } from "./themeBundleCore";
+import { BUNDLED_BUILTIN_THEMES, NAV_TAB_KEYS, validateThemeBundleWith, type ThemeBundle } from "./themeBundleCore";
 import { validateWording } from "./themeWording";
 import { validateThemeBundle } from "./themeBundle";
 import { paintRecordFor } from "./themePaint";
@@ -49,6 +49,12 @@ describe("the shipped bundled built-in themes", () => {
         validateThemeBundleWith(bundle, id, skipped, validateWording, { allowBundledBuiltinId: true })
       ).toBeNull();
       expect(skipped).toEqual([]);
+    });
+
+    it(`${id} draws an icon for every nav tab once it draws any`, () => {
+      const drawn = Object.keys(bundle.navIcons ?? {});
+      const missing = drawn.length === 0 ? [] : NAV_TAB_KEYS.filter((key) => !drawn.includes(key));
+      expect(missing).toEqual([]);
     });
 
     it(`${id} validates as the pre-paint record`, () => {

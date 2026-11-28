@@ -11,7 +11,7 @@ import {
   seasonalPickAt,
   themeIdOfFile,
 } from "./seasonalSchedule";
-import { validateThemeBundleWith, type ThemeBundle } from "./themeBundleCore";
+import { NAV_TAB_KEYS, validateThemeBundleWith, type ThemeBundle } from "./themeBundleCore";
 import { validateWording } from "./themeWording";
 import { readDictMessage } from "../i18n/wording";
 import { zh } from "../i18n/locales/zh";
@@ -174,6 +174,12 @@ describe("the shipped themes/ seasonal data", () => {
       expect(validateThemeBundleWith(bundle, file, skipped, validateWording)).toBeNull();
       expect(skipped, "wording codes the app does not know").toEqual([]);
       expect((bundle as ThemeBundle).id).toBe(id);
+    });
+
+    it(`${file} draws an icon for every nav tab once it draws any`, () => {
+      const drawn = Object.keys((readThemesFile(file) as ThemeBundle).navIcons ?? {});
+      const missing = drawn.length === 0 ? [] : NAV_TAB_KEYS.filter((key) => !drawn.includes(key));
+      expect(missing).toEqual([]);
     });
 
     it(`${file} keeps the plain wording for the waits count`, () => {
