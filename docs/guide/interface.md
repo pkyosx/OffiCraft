@@ -409,7 +409,7 @@ The first line of the card holds the status icon, the task number, the priority 
 - **Workflow** — A framed block like "Task description", with the list of steps, each step's status, DoD, step notes ("Show note"), and dependencies. Its title bar shows "4 steps · 1/4 done". Clicking the title bar of either block collapses that block only, not the card; the collapsed workflow's title bar shows "1/4 done · In progress: <step name>".
 - **Ask** — Reply cards embedded in the task; you can "Reply in chat".
 - **Reassign** — The swap icon next to "Assignee" (hover to see "Reassign…").
-- **Message box** — The message box on the card sends a message to the assignee. The suggested replies below the box list this task manual's sentences first, then the "Task-message suggestions". Clicking the name of the assignee, creator or previous assignee (hover to see "Message the assignee", "Message the creator" or "Message the predecessor") opens your chat with that member.
+- **Message box** — The message box on the card sends a message to the assignee. Its placeholder names the assignee; an outsource member is named by its code name alone, for example "Message O-7…". The suggested replies below the box list this task manual's sentences first, then the "Task-message suggestions". Clicking the name of the assignee, creator or previous assignee (hover to see "Message the assignee", "Message the creator" or "Message the predecessor") opens your chat with that member.
 
 **Setting the due date**
 
@@ -504,7 +504,7 @@ Clicking an entry's state badge opens the "Change state" menu, with the options 
 - **Retired**: when a member retires an entry, it gives a reason, which is shown on the entry as "Retire reason". A retired entry can be activated again.
 - **Bump to latest**: a member can change an entry's effective time to now, which moves the entry to the first position after the pinned entries; the original creation time does not change. The Lore tab has no button for this.
 - Members can also retire, activate, bump to latest and edit entries they wrote themselves; you and the Assistant can do this to any entry. Once an entry is pinned, only you and the Assistant can retire, activate or edit it.
-- **Message box**: the message box at the bottom of an entry card works like the message box on a task card. You can attach files, and below the box are the "Lore-message suggestions". A message you send begins with this entry's ID, for example "[LoreID=L-212] ". The message goes to the author (staff or outsource), pinned entries included; on entries you wrote, or when the author is no longer on the roster, the card has no message box. The placeholder text in the input box says who the message will go to. The author name on an entry is only a label and cannot be clicked.
+- **Message box**: the message box at the bottom of an entry card works like the message box on a task card. You can attach files, and below the box are the "Lore-message suggestions". A message you send begins with this entry's ID, for example "[LoreID=L-212] ". The message goes to the author (staff or outsource), pinned entries included; on entries you wrote, or when the author is no longer on the roster, the card has no message box. The placeholder text in the input box says who the message will go to; an outsource author is named by its code name alone, as on a task card. The author name on an entry is only a label and cannot be clicked.
 
 **Edit**
 

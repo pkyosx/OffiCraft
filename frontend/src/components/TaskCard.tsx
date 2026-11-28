@@ -2703,7 +2703,7 @@ export function TaskCard({
                 : task.executorKind === "staff"
                   ? staffExecutorName
                   : worker
-                    ? msg.outsourceLabel(worker.codename)
+                    ? worker.codename
                     : t.tasks.outsource
             )}
             data-testid="task-msg-input"
@@ -2853,8 +2853,7 @@ export function TaskCard({
           ) : (
             // Genuinely no leaves yet — assigned but the executor has not created
             // any steps. 「等待 ○○ 建立 Steps」, ○○ = the executor's display name
-            // (member name / 外包 代號; owner ruling 2026-07). Resolved the same
-            // way as the message-box placeholder above.
+            // (member name / 外包 代號; owner ruling 2026-07).
             <div className="task-card__transition" data-testid="task-transition">
               {msg.taskPlanningBy(
                 task.executorKind === "staff"

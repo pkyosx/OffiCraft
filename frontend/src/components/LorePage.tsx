@@ -1379,7 +1379,9 @@ function LoreView({
     if (membersLoading) return { id: "", name: "", roster: "loading" };
     if (membersError) return { id: "", name: "", roster: "error" };
     const author = resolveAuthor(entry.authorId);
-    return author.peerId !== "" ? { id: author.peerId, name: author.text } : null;
+    if (author.peerId === "") return null;
+    const codename = workers.find((w) => w.id === author.peerId)?.codename;
+    return { id: author.peerId, name: codename ?? author.text };
   }
 
   function openManual(typeKey: string) {

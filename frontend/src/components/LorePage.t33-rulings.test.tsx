@@ -213,7 +213,7 @@ describe("LorePage — 已離開的撰寫人只留名牌，沒有訊息框", () 
     );
   });
 
-  it("a 外包 who is STILL on the live roster gets the card's message himself", async () => {
+  it("a 外包 who is STILL on the live roster gets the card's message himself, addressed by bare 代號", async () => {
     stubRoster([worker(LIVE, "O-1")]);
     stubList([mkEntry({ id: "L-10", authorId: LIVE })]);
     const { container } = await renderPage();
@@ -222,8 +222,9 @@ describe("LorePage — 已離開的撰寫人只留名牌，沒有訊息框", () 
     await waitFor(() =>
       expect(
         row.querySelector<HTMLTextAreaElement>('[data-testid="lore-msg-input"]')!.placeholder,
-      ).toBe("傳訊息給 外包 · O-1…"),
+      ).toBe("傳訊息給 O-1…"),
     );
+    expect(row.querySelector('[data-testid="lore-author-row"]')?.textContent).toBe("外包 · O-1");
     expect(await messageRecipientOf(row)).toBe(LIVE);
   });
 });

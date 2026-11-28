@@ -315,7 +315,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     );
   });
 
-  it("外包 executor keeps its 代號 · 模型 · 投入度 chip", async () => {
+  it("外包 executor keeps its 外包 · 代號 · 模型 · 投入度 chip while the message box addresses the bare 代號", async () => {
     const task = mkTask({
       title: "外包負責",
       executorKind: "outsource",
@@ -334,6 +334,9 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     expect(
       link.querySelector('[data-testid="task-executor"]')?.textContent
     ).toBe("外包 · O-7 · Opus 4.6 · 高投入");
+    expect((await findByTestId("task-msg-input")).getAttribute("placeholder")).toBe(
+      "傳訊息給 O-7…"
+    );
   });
 
   it("an executor missing from the live lists shows its name from the lazy cache, the raw id only when unresolvable, and opens its chat", async () => {
