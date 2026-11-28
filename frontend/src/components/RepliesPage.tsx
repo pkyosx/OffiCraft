@@ -558,7 +558,7 @@ export function RepliesPage({
   // older; use the same predicate for pane visibility and 開卡人 counts.
   const withinHandledWindow = (c: ReplyCardRow) => {
     const ts = handledTsOf(c);
-    return ts !== null && nowTs - ts < HANDLED_WINDOW_SECONDS;
+    return ts !== null && nowTs - ts <= HANDLED_WINDOW_SECONDS;
   };
   const isVisibleHandled = (c: ReplyCardRow) =>
     settledRows.has(c.id) || withinHandledWindow(c);
@@ -701,6 +701,7 @@ export function RepliesPage({
             ? null
             : handledCount,
       };
+  const listedCount = error ? null : viewCounts[view];
   // ── 開卡了哪一張 (owner 2026-09-07) ─────────────────────────────────────────
   // A row is a TITLE, not a card: since `?view=full` left the wire the panes
   // carry `ReplyCardRow`s, so the only thing this page can draw without asking
@@ -1779,16 +1780,10 @@ export function RepliesPage({
             labels={viewLabels}
             shortLabels={viewShortLabels}
             locale={locale}
-            counts={error ? null : viewCounts}
             ariaLabel={t.replies.tabsLabel}
             idPrefix={tabsId}
             onSelect={setView}
           />
-          {view === "answered" && (
-            <span className="replies__section-hint" data-testid="replies-answered-window">
-              {t.replies.tabAnsweredHint}
-            </span>
-          )}
           <div className="replies__head-tools">
             <FilterPanel
               testId="replies-filter"
@@ -1851,6 +1846,15 @@ export function RepliesPage({
                 />
               </FilterField>
             </FilterPanel>
+          </div>
+          <div className="replies__count-line" data-testid="replies-count-line">
+            {listedCount !== null && (
+              <span data-testid="replies-count">{msg.replyListedCount(listedCount)}</span>
+            )}
+            {listedCount !== null && view === "answered" && " · "}
+            {view === "answered" && (
+              <span data-testid="replies-answered-window">{t.replies.tabAnsweredHint}</span>
+            )}
           </div>
         </div>
         <div
@@ -1980,7 +1984,6 @@ function ReplyListTabs({
   labels,
   shortLabels,
   locale,
-  counts,
   ariaLabel,
   idPrefix,
   onSelect,
@@ -1990,8 +1993,6 @@ function ReplyListTabs({
   labels: Record<ListView, string>;
   shortLabels: Record<ListView, string>;
   locale: Locale;
-  /** A null entry is a count not known yet. */
-  counts: Record<ListView, number | null> | null;
   ariaLabel: string;
   idPrefix: string;
   onSelect: (view: ListView) => void;
@@ -2025,7 +2026,6 @@ function ReplyListTabs({
     >
       {views.map((v) => {
         const active = v === selected;
-        const count = counts?.[v] ?? null;
         return (
           <button
             key={v}
@@ -2053,20 +2053,6 @@ function ReplyListTabs({
                 </>
               )}
             </span>
-            {count !== null ? (
-              <span
-                className={`replies__tab-count${v === "waiting" && count > 0 ? " replies__tab-count--hot" : ""}${count === 0 ? " replies__tab-count--zero" : ""}`}
-                data-testid={`replies-tab-count-${v}`}
-              >
-                {count > 99 ? "99+" : count}
-              </span>
-            ) : (
-              <span
-                className="replies__tab-pending"
-                data-testid={`replies-tab-pending-${v}`}
-                aria-hidden="true"
-              />
-            )}
           </button>
         );
       })}

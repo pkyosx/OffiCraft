@@ -665,6 +665,8 @@ export const en: Dict = {
     tabSnoozedShort: "Later",
     tabAnsweredShort: "Done",
     tabAnsweredHint: "last 24h",
+    listedCountOne: "card",
+    listedCountMany: "cards",
     empty: "✓ No pending asks",
     emptyFiltered: "No asks match the current filter",
     emptySnoozed: "No reply cards set aside for later",

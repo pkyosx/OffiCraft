@@ -25,11 +25,11 @@
 //   (5) the shell adds no spacing of its own below the row;
 //   (6) on 請示頁 the three list label chips and the funnel / 顯示方式 hold one
 //       row inside the column at 320, 360, 375, 390, 393 and 1440 in both
-//       languages with counts 4/1/3 and 99/18/23 — short labels below zh 375 /
-//       en 400 — each count a badge at its chip's top-right corner clear of the
-//       label and the next chip, a fixed-size placeholder there before the count
-//       is known, 近期已回覆's 「近 24 小時」 beside them on a desktop and on its
-//       own line under the row on a phone, and no sort wording in the row;
+//       languages with 4/1/3 and 99/18/23 cards — short labels below zh 345 /
+//       en 387, no number on any chip — and the selected label's count
+//       (「N 張請示卡」, 近期已回覆's with 「· 近 24 小時」) on one muted line under
+//       the row at every width, its height held before the count is known, and
+//       no sort wording in the row;
 //   (7) on 任務頁 and a 傳承 section page the row's count (「5 個任務」) sits at
 //       its left end on the funnel's centre line, whole and on one line, at
 //       320, 390 and 1440 in both languages.
@@ -338,37 +338,46 @@ test("the 篩選 shell adds no spacing of its own: the gap below the label row i
     const head = root.querySelector(".replies__head") as HTMLElement;
     const list = root.querySelector('[role="tabpanel"]') as HTMLElement;
     const tabs = root.querySelector('[role="tablist"]') as HTMLElement;
+    const countLine = root.querySelector('[data-testid="replies-count-line"]') as HTMLElement;
     const cs = getComputedStyle(panel);
     const headBottom = head.getBoundingClientRect().bottom;
     return {
       hostGap: parseFloat(getComputedStyle(head.parentElement!).rowGap || "0"),
       actual: list.getBoundingClientRect().top - headBottom,
       rowBottomInHead:
-        headBottom - Math.max(panel.getBoundingClientRect().bottom, tabs.getBoundingClientRect().bottom),
+        headBottom -
+        Math.max(
+          panel.getBoundingClientRect().bottom,
+          tabs.getBoundingClientRect().bottom,
+          countLine.getBoundingClientRect().bottom,
+        ),
       panelMargins: [cs.marginTop, cs.marginBottom],
     };
   });
   expect(m.hostGap, "the host must own a real rhythm for this test to mean anything").toBeGreaterThan(0);
   expect(m.panelMargins, "the shell's own vertical margins").toEqual(["0px", "0px"]);
-  expect(m.rowBottomInHead, "the label row ends at the lower of the labels and the shell").toBeCloseTo(0, 0);
+  expect(m.rowBottomInHead, "the head ends at the lowest of the labels, the shell and the count line").toBeCloseTo(0, 0);
   expect(m.actual, "gap under the label row").toBeCloseTo(m.hostGap, 0);
 });
 
 /** Below these widths the labels are the short ones (待回覆／稍後／已回覆,
  * Waiting / Later / Done). */
-const FULL_LABELS_FROM = { zh: 375, en: 400 };
+const FULL_LABELS_FROM = { zh: 345, en: 387 };
 const LABELS = {
   zh: { full: ["等待回覆", "稍後再看", "近期已回覆"], short: ["待回覆", "稍後", "已回覆"] },
   en: { full: ["Awaiting", "Later", "Recently answered"], short: ["Waiting", "Later", "Done"] },
 };
-
+const COUNT_LINE = {
+  zh: (n: number, answered: boolean) => `${n} 張請示卡${answered ? " · 近 24 小時" : ""}`,
+  en: (n: number, answered: boolean) => `${n} ${n === 1 ? "card" : "cards"}${answered ? " · last 24h" : ""}`,
+};
 type Box = { left: number; right: number; top: number; bottom: number; width: number; height: number };
 
 for (const cards of [[4, 1, 3], [99, 18, 23]] as const) {
   for (const width of [320, 360, 375, 390, 393, 1440]) {
     for (const language of ["zh", "en"] as const) {
       const full = width >= FULL_LABELS_FROM[language];
-      test(`width ${width}, ${language}, counts ${cards.join("/")}: the three list label chips, the 篩選 and 顯示方式 buttons hold one row inside the column, ${full ? "full" : "short"} labels whole, separate chips with a gap, each count a badge at its chip's top-right corner clear of the label and the next chip, the 24h note ${width > 720 ? "beside them" : "on its own line under the row"}, and the row names no sort`, async ({
+      test(`width ${width}, ${language}, ${cards.join("/")} cards: the three list label chips, the 篩選 and 顯示方式 buttons hold one row inside the column, ${full ? "full" : "short"} labels whole with no number, separate chips with a gap, and each label's count on one line under the row (近期已回覆's with its 24h note), and the row names no sort`, async ({
         mount,
         page,
       }) => {
@@ -376,11 +385,7 @@ for (const cards of [[4, 1, 3], [99, 18, 23]] as const) {
         await page.evaluate((lang) => localStorage.setItem("oc.language", lang), language);
         const cmp = await mount(<RepliesPageStory theme="office" cards={cards} />);
         await expect(cmp.getByRole("tab")).toHaveCount(3);
-        for (const [i, v] of (["waiting", "snoozed", "answered"] as const).entries()) {
-          await expect(cmp.getByTestId(`replies-tab-count-${v}`), "known without opening the list").toHaveText(
-            String(cards[i])
-          );
-        }
+        await expect(cmp.getByTestId("replies-count-line")).toHaveText(COUNT_LINE[language](cards[0], false));
 
         const m = await cmp.evaluate((root: HTMLElement) => {
           const r = (el: Element) => {
@@ -399,24 +404,16 @@ for (const cards of [[4, 1, 3], [99, 18, 23]] as const) {
           const column = root.querySelector(".replies") as HTMLElement;
           const tabs = Array.from(list.querySelectorAll<HTMLElement>('[role="tab"]')).map((tab) => {
             const l = tab.querySelector<HTMLElement>(".replies__tab-label")!;
-            const badge = tab.querySelector<HTMLElement>(".replies__tab-count")!;
             const range = document.createRange();
             range.selectNodeContents(l);
             const shown = Array.from(range.getClientRects()).filter((x) => x.width > 0);
             return {
               box: r(tab),
               text: l.innerText,
+              tabText: tab.innerText,
               title: l.title,
-              textBox: {
-                left: Math.min(...shown.map((x) => x.left)),
-                right: Math.max(...shown.map((x) => x.right)),
-                top: Math.min(...shown.map((x) => x.top)),
-              },
               lines: new Set(shown.map((x) => Math.round(x.top))).size,
               cut: l.scrollWidth > l.clientWidth + 0.5,
-              badge: r(badge),
-              badgeCut: badge.scrollWidth > badge.clientWidth + 0.5,
-              badgeFill: getComputedStyle(badge).backgroundColor,
               fill: getComputedStyle(tab).backgroundColor,
             };
           });
@@ -425,7 +422,6 @@ for (const cards of [[4, 1, 3], [99, 18, 23]] as const) {
             column: r(column),
             tabs,
             activeFill: paint("var(--color-indigo)"),
-            dangerFill: paint("var(--color-danger-badge)"),
             headText: (root.querySelector(".replies__head") as HTMLElement).textContent,
             funnel: r(root.querySelector('[data-testid="replies-filter-toggle"]')!),
             display: r(root.querySelector('[data-testid="display-options"]')!),
@@ -451,72 +447,68 @@ for (const cards of [[4, 1, 3], [99, 18, 23]] as const) {
 
         const want = LABELS[language][full ? "full" : "short"];
         expect(m.tabs.map((t) => t.text)).toEqual(want);
+        expect(m.tabs.map((t) => t.tabText), "a chip shows only its label").toEqual(want);
         expect(m.tabs.map((t) => t.title), "the full label in its title").toEqual(LABELS[language].full);
-        for (const t of m.tabs) {
+        m.tabs.forEach((t, i) => {
           expect(t.lines, `${t.text} on one line`).toBe(1);
           expect(t.cut, `${t.text} whole`).toBe(false);
-        }
-
+          if (i < m.tabs.length - 1) {
+            expect(m.tabs[i + 1].box.left - t.box.right, "a visible gap between chips").toBeGreaterThanOrEqual(6);
+          }
+        });
         expect(m.tabs[0].fill, "the selected chip wears the active fill").toBe(m.activeFill);
         expect(m.tabs[1].fill).not.toBe(m.activeFill);
-        expect(m.tabs[0].badgeFill, "等待回覆's count in the nav's red pill").toBe(m.dangerFill);
-        expect(m.tabs[1].badgeFill).not.toBe(m.dangerFill);
-        expect(m.tabs[2].badgeFill).not.toBe(m.dangerFill);
-
-        m.tabs.forEach((t, i) => {
-          const b: Box = t.badge;
-          const c: Box = t.box;
-          const next = i < m.tabs.length - 1 ? m.tabs[i + 1].box : m.funnel;
-          if (i < m.tabs.length - 1) {
-            expect(next.left - c.right, "a visible gap between chips").toBeGreaterThanOrEqual(6);
-          }
-          expect(t.badgeCut, "the count whole").toBe(false);
-          expect(b.right - c.right, "badge overhangs the chip's right edge").toBeGreaterThanOrEqual(0);
-          expect(b.right - c.right).toBeLessThanOrEqual(10);
-          expect(c.top - b.top, "badge rises above the chip's top edge").toBeGreaterThanOrEqual(4);
-          expect(b.bottom, "badge straddles the top edge").toBeGreaterThan(c.top);
-          expect(b.bottom, "badge above the chip's middle").toBeLessThan(mid(c));
-          expect(b.left, "badge in the chip's right half").toBeGreaterThan((c.left + c.right) / 2);
-          expect(
-            b.bottom <= t.textBox.top + 0.5 || b.left >= t.textBox.right,
-            `badge clear of 「${t.text}」`
-          ).toBe(true);
-          expect(b.right, "badge clear of what comes next").toBeLessThan(next.left);
-        });
-
         expect(m.headText).not.toContain(language === "zh" ? "開卡時間" : "Opened");
 
-        await cmp.getByTestId("replies-tab-answered").click();
-        const h = await cmp.evaluate((root: HTMLElement) => {
-          const r = (el: Element) => {
-            const b = el.getBoundingClientRect();
-            return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
-          };
-          const hint = root.querySelector('[data-testid="replies-answered-window"]') as HTMLElement;
-          const range = document.createRange();
-          range.selectNodeContents(hint);
-          return {
-            hint: r(hint),
-            lines: new Set(Array.from(range.getClientRects()).map((x) => Math.round(x.top))).size,
-            list: r(root.querySelector('[role="tablist"]')!),
-            funnel: r(root.querySelector('[data-testid="replies-filter-toggle"]')!),
-            display: r(root.querySelector('[data-testid="display-options"]')!),
-            panel: r(root.querySelector('[role="tabpanel"]')!),
-            page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-          };
-        });
-        expect(h.page, "page horizontal overflow with the note shown").toBeLessThanOrEqual(0);
-        expect(h.lines, "the note on one line").toBe(1);
-        expect(h.hint.left).toBeGreaterThanOrEqual(m.column.left - 0.5);
-        expect(h.hint.right).toBeLessThanOrEqual(m.column.right + 0.5);
-        expect(h.hint.bottom, "the note above the list").toBeLessThanOrEqual(h.panel.top);
-        expect(Math.abs(h.funnel.top - m.funnel.top), "the note moves no button").toBeLessThanOrEqual(0.5);
-        expect(Math.abs(h.display.left - m.display.left), "the note moves no button").toBeLessThanOrEqual(0.5);
-        if (width > 720) {
-          expect(Math.abs(mid(h.hint) - mid(h.list)), "the note beside the labels").toBeLessThanOrEqual(2);
-          expect(h.hint.left, "the note after the labels").toBeGreaterThanOrEqual(h.list.right);
-        } else {
-          expect(h.hint.top, "the note under the row").toBeGreaterThanOrEqual(Math.max(h.list.bottom, h.funnel.bottom));
+        const views = ["waiting", "snoozed", "answered"] as const;
+        let firstLine: Box | null = null;
+        for (const [i, v] of views.entries()) {
+          await cmp.getByTestId(`replies-tab-${v}`).click();
+          await expect(cmp.getByTestId("replies-count-line")).toHaveText(COUNT_LINE[language](cards[i], v === "answered"));
+          const c = await cmp.evaluate((root: HTMLElement) => {
+            const r = (el: Element) => {
+              const b = el.getBoundingClientRect();
+              return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, width: b.width, height: b.height };
+            };
+            const line = root.querySelector('[data-testid="replies-count-line"]') as HTMLElement;
+            const range = document.createRange();
+            range.selectNodeContents(line);
+            return {
+              line: r(line),
+              lines: new Set(Array.from(range.getClientRects()).map((x) => Math.round(x.top))).size,
+              cut: line.scrollWidth > line.clientWidth + 0.5,
+              fontSize: getComputedStyle(line).fontSize,
+              color: getComputedStyle(line).color,
+              muted: (() => {
+                const probe = document.createElement("span");
+                probe.style.color = "var(--color-text-muted)";
+                root.appendChild(probe);
+                const col = getComputedStyle(probe).color;
+                probe.remove();
+                return col;
+              })(),
+              list: r(root.querySelector('[role="tablist"]')!),
+              funnel: r(root.querySelector('[data-testid="replies-filter-toggle"]')!),
+              display: r(root.querySelector('[data-testid="display-options"]')!),
+              panel: r(root.querySelector('[role="tabpanel"]')!),
+              page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            };
+          });
+          expect(c.page, `${v}: page horizontal overflow`).toBeLessThanOrEqual(0);
+          expect(c.lines, `${v}: the count on one line`).toBe(1);
+          expect(c.cut, `${v}: the count whole`).toBe(false);
+          expect(c.fontSize, "the 任務 page's count size").toBe("12.5px");
+          expect(c.color, "muted like the 任務 page's count").toBe(c.muted);
+          expect(Math.abs(c.line.left - m.column.left), `${v}: the count at the column's left`).toBeLessThanOrEqual(0.5);
+          expect(c.line.right).toBeLessThanOrEqual(m.column.right + 0.5);
+          expect(c.line.top, `${v}: the count under the row`).toBeGreaterThanOrEqual(Math.max(c.list.bottom, c.funnel.bottom));
+          expect(c.line.bottom, `${v}: the count above the list`).toBeLessThanOrEqual(c.panel.top);
+          expect(Math.abs(c.funnel.top - m.funnel.top), "the line moves no button").toBeLessThanOrEqual(0.5);
+          expect(Math.abs(c.display.left - m.display.left), "the line moves no button").toBeLessThanOrEqual(0.5);
+          if (firstLine) {
+            expect(Math.abs(c.line.top - firstLine.top), "the line stays put across labels").toBeLessThanOrEqual(0.5);
+            expect(Math.abs(c.line.height - firstLine.height)).toBeLessThanOrEqual(0.5);
+          } else firstLine = c.line;
         }
       });
     }
@@ -524,45 +516,41 @@ for (const cards of [[4, 1, 3], [99, 18, 23]] as const) {
 }
 
 for (const language of ["zh", "en"] as const) {
-  test(`390, ${language}: before any count is known each chip holds a placeholder the size and place of a one-digit badge, and the counts arriving move nothing`, async ({
+  test(`390, ${language}: before any count is known the line under the row is empty but holds its height, and the count arriving moves neither the row nor the list`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 900 });
     await page.evaluate((lang) => localStorage.setItem("oc.language", lang), language);
     const cmp = await mount(<RepliesPageStory theme="office" cards={[4, 1, 3]} holdCounts />);
-    await expect(cmp.getByTestId("replies-tab-pending-answered")).toBeVisible();
-    const measure = (sel: string) =>
-      cmp.evaluate((root: HTMLElement, sel: string) => {
+    await expect(cmp.getByRole("tab")).toHaveCount(3);
+    await expect(cmp.getByTestId("replies-count-line")).toHaveText("");
+    const measure = () =>
+      cmp.evaluate((root: HTMLElement) => {
         const r = (el: Element) => {
           const b = el.getBoundingClientRect();
           return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, width: b.width, height: b.height };
         };
-        return Array.from(root.querySelectorAll('[role="tab"]')).map((tab) => ({
-          tab: r(tab),
-          badge: tab.querySelector(sel) ? r(tab.querySelector(sel)!) : null,
+        return {
+          line: r(root.querySelector('[data-testid="replies-count-line"]')!),
+          panel: r(root.querySelector('[role="tabpanel"]')!),
           funnel: r(root.querySelector('[data-testid="replies-filter-toggle"]')!),
-        }));
-      }, sel);
-    const before = await measure(".replies__tab-pending");
+          tabs: Array.from(root.querySelectorAll('[role="tab"]')).map(r),
+        };
+      });
+    const before = await measure();
+    expect(before.line.height, "the empty line keeps its height").toBeGreaterThan(10);
     await page.evaluate(() => (window as unknown as { __releaseReplyCounts: () => void }).__releaseReplyCounts());
-    await expect(cmp.getByTestId("replies-tab-count-answered")).toHaveText("3");
-    const after = await measure(".replies__tab-count");
-    before.forEach((b, i) => {
-      const a = after[i];
-      expect(b.badge, "a placeholder in every chip").not.toBeNull();
-      expect(a.badge).not.toBeNull();
-      for (const k of ["width", "height"] as const) {
-        expect(b.badge![k], `placeholder ${k}`).toBeCloseTo(a.badge![k], 0);
-      }
-      for (const k of ["top", "right"] as const) {
-        expect(b.badge![k] - b.tab[k], `placeholder ${k} offset`).toBeCloseTo(a.badge![k] - a.tab[k], 0);
-      }
-      for (const k of ["left", "right", "top", "bottom"] as const) {
-        expect(a.tab[k], `chip ${k} unmoved`).toBeCloseTo(b.tab[k], 0);
-        expect(a.funnel[k], `funnel ${k} unmoved`).toBeCloseTo(b.funnel[k], 0);
-      }
-    });
+    await expect(cmp.getByTestId("replies-count-line")).toHaveText(COUNT_LINE[language](4, false));
+    const after = await measure();
+    for (const k of ["top", "height"] as const) {
+      expect(after.line[k], `line ${k} unmoved`).toBeCloseTo(before.line[k], 0);
+    }
+    expect(after.panel.top, "the list unmoved").toBeCloseTo(before.panel.top, 0);
+    for (const k of ["left", "right", "top", "bottom"] as const) {
+      expect(after.funnel[k], `funnel ${k} unmoved`).toBeCloseTo(before.funnel[k], 0);
+      before.tabs.forEach((b, i) => expect(after.tabs[i][k], `chip ${k} unmoved`).toBeCloseTo(b[k], 0));
+    }
   });
 }
 

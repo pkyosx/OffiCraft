@@ -119,7 +119,7 @@ describe("OfficePage chat header 請示卡 jump", () => {
     await waitFor(() => expect(cards()).toHaveLength(count));
     expect(cards().every((c) => c.getAttribute("data-testid") === "waiting-card")).toBe(true);
     expect(screen.getByTestId("replies-tab-waiting").getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByTestId("replies-tab-count-waiting").textContent).toBe(String(count));
+    expect(screen.getByTestId("replies-count").textContent).toBe(`${count} 張請示卡`);
     expect(screen.getByTestId("replies-filter-count").textContent).toBe("1");
   });
 });

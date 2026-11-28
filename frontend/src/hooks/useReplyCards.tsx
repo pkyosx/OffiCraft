@@ -286,7 +286,8 @@ function useReplyCardsState(): UseReplyCards {
       setWaiting(next);
       setClock(Date.now() / 1000);
       setNextChangeTs(counts.waitingNextChangeTs ?? null);
-      setHandledCount(counts.answered + counts.expired);
+      // A held-back card was read before our write, so this count predates it too.
+      setHandledCount(counts.answered + counts.expired + heldBack.length);
       waitingRef.current = next;
       setError(false);
     } catch (e) {
@@ -461,6 +462,7 @@ function useReplyCardsState(): UseReplyCards {
       const next = prev.filter((c) => c.id !== receipt.id);
       waitingRef.current = next;
       setWaiting(next);
+      if (!handledLoadedRef.current) setHandledCount((n) => (n === null ? n : n + 1));
     }
     // Keep the handled lists coherent too, but only while they are actually
     // loaded — a collapsed, never-expanded pane stays unfetched (the same gate

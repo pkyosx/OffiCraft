@@ -423,7 +423,7 @@ describe("請示 ID 篩選 (T-118)", () => {
     expect(getByTestId("replies-tab-answered").getAttribute("aria-selected")).toBe("true");
   });
 
-  it("a link to a handled card selects 近期已回覆 and shows it stamped 已回覆; under another label it is the filtered-empty with its label counting 1", async () => {
+  it("a link to a handled card selects 近期已回覆 and shows it stamped 已回覆; under another label it is the filtered-empty counting 0", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(
       mkCard({
@@ -443,13 +443,12 @@ describe("請示 ID 篩選 (T-118)", () => {
     expect(card.dataset.replyCardId).toBe("rc-handled");
     expect(card.querySelector(".reply-card__answered-at")?.textContent).toMatch(/^已回覆 \d/);
     expect(getByTestId("replies-tab-answered").getAttribute("aria-selected")).toBe("true");
-    expect(getByTestId("replies-tab-count-answered").textContent).toBe("1");
+    expect(getByTestId("replies-count-line").textContent).toBe("1 張請示卡 · 近 24 小時");
     expect(listSpy.mock.calls.map(([status]) => status)).not.toContain("answered");
 
     await selectRepliesTab("waiting");
     expect(getByTestId("replies-empty").textContent).toBe("沒有符合篩選條件的請示");
-    expect(getByTestId("replies-tab-count-waiting").textContent).toBe("0");
-    expect(getByTestId("replies-tab-count-answered").textContent).toBe("1");
+    expect(getByTestId("replies-count-line").textContent).toBe("0 張請示卡");
   });
 });
 
@@ -866,31 +865,41 @@ describe("請示卡 任務優先序／任務到期 篩選", () => {
         task: null,
       })
     );
-    const { findAllByTestId, getByTestId } = renderPage();
+    const { findAllByTestId, queryByTestId } = renderPage();
     await waitFor(async () => expect(await findAllByTestId("waiting-card")).toHaveLength(5));
-    const counts = () =>
-      ["waiting", "snoozed", "answered"].map(
-        (v) => getByTestId(`replies-tab-${v}`).querySelector(".replies__tab-count")?.textContent ?? null
-      );
-    expect(counts()).toEqual(["5", "2", "3"]);
+    const count = () => queryByTestId("replies-count")?.textContent ?? null;
+    const counts = async () => {
+      const out: (string | null)[] = [];
+      for (const v of ["waiting", "snoozed", "answered"] as const) {
+        await selectRepliesTab(v);
+        out.push(count());
+      }
+      return out;
+    };
+    expect(count()).toBe("5 張請示卡");
+    await selectRepliesTab("snoozed");
+    expect(count()).toBe("2 張請示卡");
+    await selectRepliesTab("waiting");
 
     tick("filter-priority", "high");
     await waitFor(() => expect(shownIds()).toEqual(["rc-high-over"]));
-    expect(counts()).toEqual(["1", "1", null]);
+    expect(count()).toBe("1 張請示卡");
     await selectRepliesTab("snoozed");
     expect(shownIds()).toEqual(["rc-snoozed-high"]);
+    expect(count()).toBe("1 張請示卡");
     await selectRepliesTab("answered");
+    expect(count(), "the count read knows nothing of the filter").toBeNull();
     await waitFor(() => expect(shownIds()).toEqual(["rc-done-high", "rc-done-kyle-high"]));
-    expect(counts()).toEqual(["1", "1", "2"]);
+    expect(count()).toBe("2 張請示卡");
 
     tick("filter-opener", "kyle");
     await waitFor(() => expect(shownIds()).toEqual(["rc-done-kyle-high"]));
-    expect(counts()).toEqual(["0", "0", "1"]);
+    expect(await counts()).toEqual(["0 張請示卡", "0 張請示卡", "1 張請示卡"]);
     tick("filter-opener", "kyle");
     tick("filter-priority", "high");
     tick("filter-due", "overdue");
     await waitFor(() => expect(shownIds()).toEqual(["rc-done-high"]));
-    expect(counts()).toEqual(["1", "0", "1"]);
+    expect(await counts()).toEqual(["1 張請示卡", "0 張請示卡", "1 張請示卡"]);
   });
 
   it("清除篩選 lifts 任務優先序 and 任務到期 as well", async () => {
@@ -964,13 +973,13 @@ describe("請示卡 聊天 header 跳轉 (#replies/opener/<id>)", () => {
     expect(section("replies-filter-clear")).toBeNull();
   });
 
-  it("the route lands on 等待回覆 with that opener: their waiting cards, as many as the label counts, with 清除篩選", async () => {
+  it("the route lands on 等待回覆 with that opener: their waiting cards, as many as the count line says, with 清除篩選", async () => {
     seed();
     window.location.hash = "#replies/opener/mira";
     renderRouted();
     await waitFor(() => expect(shownIds()).toEqual(["rc-wait-mira", "rc-wait-mira2"]));
     expect(selectedTab()).toBe("replies-tab-waiting");
-    expect(section("replies-tab-count-waiting")!.textContent).toBe("2");
+    expect(section("replies-count")!.textContent).toBe("2 張請示卡");
     expect(section("replies-filter-count")!.textContent).toBe("1");
     expect(openerTrigger().textContent).toBe("Mira");
     expect(section("replies-filter-clear")).not.toBeNull();

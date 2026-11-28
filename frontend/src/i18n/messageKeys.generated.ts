@@ -1164,6 +1164,8 @@ export const MESSAGE_KEYS: readonly string[] = [
   "replies.filterPriorityNoun",
   "replies.inputPlaceholder",
   "replies.jumpToChat",
+  "replies.listedCountMany",
+  "replies.listedCountOne",
   "replies.loadError",
   "replies.lookupFailed",
   "replies.lookupLoading",

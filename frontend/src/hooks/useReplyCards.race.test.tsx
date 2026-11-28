@@ -31,6 +31,9 @@ const h = vi.hoisted(() => ({
   listReplyCards: vi.fn<(status: string) => Promise<ReplyCard[]>>(),
   getReplyCardCount: vi.fn(),
   snoozeReplyCard: vi.fn(),
+  answerReplyCard: vi.fn(),
+  expireReplyCard: vi.fn(),
+  reanswerReplyCard: vi.fn(),
   sseHandler: null as ((topic: string) => void) | null,
 }));
 
@@ -39,6 +42,9 @@ vi.mock("../api", () => ({
     listReplyCards: h.listReplyCards,
     getReplyCardCount: h.getReplyCardCount,
     snoozeReplyCard: h.snoozeReplyCard,
+    answerReplyCard: h.answerReplyCard,
+    expireReplyCard: h.expireReplyCard,
+    reanswerReplyCard: h.reanswerReplyCard,
     subscribeEvents: (cb: (topic: string) => void) => {
       h.sseHandler = cb;
       return () => {
@@ -81,11 +87,13 @@ function deferred<T>() {
 // One probe renders BOTH the page's waiting list and the badge's count off the
 // shared provider, so a single DOM read compares the two sources.
 let snoozeFromProbe: ((id: string, untilTs: number | null) => Promise<void>) | null = null;
+let writesFromProbe: Pick<ReturnType<typeof useReplyCards>, "answer" | "expire" | "reanswer"> | null = null;
 
 function Probe() {
-  const { waiting, snoozed, snooze, handledCount, handledLoaded } = useReplyCards();
+  const { waiting, snoozed, snooze, handledCount, handledLoaded, answer, expire, reanswer } = useReplyCards();
   const badge = useReplyCardWaitingCount();
   snoozeFromProbe = snooze;
+  writesFromProbe = { answer, expire, reanswer };
   return (
     <div>
       <span data-testid="list-ids">{waiting.map((c) => c.id).join(",")}</span>
@@ -114,6 +122,9 @@ beforeEach(() => {
     expired: 0,
   });
   h.snoozeReplyCard.mockReset();
+  h.reanswerReplyCard.mockReset();
+  h.expireReplyCard.mockReset();
+  h.answerReplyCard.mockReset();
   h.sseHandler = null;
 });
 
@@ -213,6 +224,48 @@ describe("useReplyCards state race (T-e862)", () => {
     h.getReplyCardCount.mockResolvedValue({ waiting: 0, answered: 6, expired: 2 });
     emit("reply_card");
     await waitFor(() => expect(screen.getByTestId("handled-count").textContent).toBe("8"));
+  });
+
+  it("answering or expiring a waiting card raises handledCount at once with no event, a pre-write read in flight does not take it back, and a 重新決定 of a handled card does not raise it", async () => {
+    const receipt = (id: string, status: "answered" | "expired") => ({
+      id,
+      status,
+      answer: null,
+      answeredTs: status === "answered" ? 2000 : null,
+      expiredTs: status === "expired" ? 2000 : null,
+    });
+    h.listReplyCards.mockResolvedValue([card("A"), card("B"), card("C")]);
+    h.getReplyCardCount.mockResolvedValue({ waiting: 3, answered: 1, expired: 0 });
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId("handled-count").textContent).toBe("1"));
+
+    h.answerReplyCard.mockResolvedValue(receipt("A", "answered"));
+    await act(async () => {
+      await writesFromProbe!.answer("A", { optionIdxs: [0], text: "" } as never);
+    });
+    expect(screen.getByTestId("list-ids").textContent).toBe("B,C");
+    expect(screen.getByTestId("handled-count").textContent).toBe("2");
+
+    const stale = deferred<ReplyCard[]>();
+    h.listReplyCards.mockReturnValueOnce(stale.promise);
+    h.getReplyCardCount.mockResolvedValue({ waiting: 2, answered: 2, expired: 0 });
+    emit("reply_card");
+    h.expireReplyCard.mockResolvedValue(receipt("B", "expired"));
+    await act(async () => {
+      await writesFromProbe!.expire("B");
+    });
+    expect(screen.getByTestId("handled-count").textContent).toBe("3");
+    await act(async () => {
+      stale.resolve([card("B"), card("C")]);
+    });
+    expect(screen.getByTestId("list-ids").textContent).toBe("C");
+    expect(screen.getByTestId("handled-count").textContent).toBe("3");
+
+    h.reanswerReplyCard.mockResolvedValue(receipt("A", "answered"));
+    await act(async () => {
+      await writesFromProbe!.reanswer("A", { optionIdxs: [0], text: "" } as never);
+    });
+    expect(screen.getByTestId("handled-count").textContent).toBe("3");
   });
 });
 

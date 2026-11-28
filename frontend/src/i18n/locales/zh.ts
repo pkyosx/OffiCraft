@@ -703,6 +703,8 @@ export const zh = {
     tabSnoozedShort: "稍後",
     tabAnsweredShort: "已回覆",
     tabAnsweredHint: "近 24 小時",
+    listedCountOne: "張請示卡",
+    listedCountMany: "張請示卡",
     // 全部處理完的空狀態
     empty: "✓ 目前沒有待處理的請示",
     // 篩掉之後什麼都不剩的空狀態。跟上面那句是兩件事:上面是「你回完了」,

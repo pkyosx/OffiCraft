@@ -25,12 +25,11 @@ import { fileURLToPath } from "node:url";
 
 const RING_TOKEN = "--color-danger-badge-ring";
 
-/** The badge classes, and the file whose rule defines each. */
+/** The three badge classes, and the file whose rule defines each. */
 const BADGE_RULES: Array<{ cls: string; sheet: string }> = [
   { cls: "nav-tab__badge", sheet: "chrome.css" },
   { cls: "office__tab-badge", sheet: "office.css" },
   { cls: "member-card__unread", sheet: "office.css" },
-  { cls: "replies__tab-count--hot", sheet: "replies.css" },
 ];
 
 // Every render site: the audit (T-d593 node 1) plus the chat header 請示卡 jump.

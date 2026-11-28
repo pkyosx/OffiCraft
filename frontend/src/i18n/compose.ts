@@ -72,6 +72,7 @@ export interface Messages {
   loginThrottled: (secs: number) => string;
   passkeyIpHint: (url: string) => string;
   // ── replies ──
+  replyListedCount: (n: number) => string;
   replyWaited: (elapsed: string) => string;
   replyWaitedFull: (seconds: number) => string;
   replyOpenedAt: (time: string) => string;
@@ -431,6 +432,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     taskDuplicateOf: (taskNo) => `${tasks.duplicateOfLabel} ${taskNo}`,
     taskReassignTitle: (taskNo) => `${tasks.reassignTitleLabel} ${taskNo}`,
 
+    replyListedCount: (n) => countedNum(n, replies.listedCountOne, replies.listedCountMany),
     replyWaited: (elapsed) => `${replies.waitedLabel} ${elapsed}`,
     // 「已等你 23 小時 59 分」/「Waiting 23 hours 59 minutes」: every non-zero
     // part, so the desktop pill's single unit loses nothing for whoever asks.

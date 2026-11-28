@@ -743,7 +743,7 @@ describe("RepliesPage", () => {
     expect(workersSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("opens on 等待回覆 with each label's count, lists only that label's cards (handled ones stamped 已回覆／已過期 in the head), and fetches the handled lists only once 近期已回覆 is selected", async () => {
+  it("opens on 等待回覆 with the selected label's count on the line under the toolbar and no number on any label, lists only that label's cards (handled ones stamped 已回覆／已過期 in the head), and fetches the handled lists only once 近期已回覆 is selected", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(mkCard({ id: "rc-wait", createdTs: now - 60 }));
     __injectMockReplyCard(mkCard({ id: "rc-later", createdTs: now - 30, snoozedUntilTs: now + 3600 }));
@@ -770,12 +770,13 @@ describe("RepliesPage", () => {
       );
     const tab = (v: string) => getByTestId(`replies-tab-${v}`);
     const label = (v: string) => tab(v).querySelector<HTMLElement>(".replies__tab-label")!.title;
-    const count = (v: string) => getByTestId(`replies-tab-count-${v}`).textContent;
+    const line = () => getByTestId("replies-count-line").textContent;
     expect(tab("waiting").getAttribute("aria-selected")).toBe("true");
     expect([label("waiting"), label("snoozed"), label("answered")]).toEqual(["等待回覆", "稍後再看", "近期已回覆"]);
-    expect(count("waiting")).toBe("1");
-    expect(count("snoozed")).toBe("1");
-    expect(count("answered"), "the count read's answered + expired, before the list is loaded").toBe("7");
+    for (const v of ["waiting", "snoozed", "answered"]) {
+      expect(tab(v).textContent, "the labels carry no count").not.toMatch(/\d/);
+    }
+    expect(line()).toBe("1 張請示卡");
     expect(shown()).toEqual([["rc-wait", null]]);
     expect(queryByTestId("replies-answered-window")).toBeNull();
     expect(listSpy.mock.calls.map(([status]) => status)).not.toContain("answered");
@@ -785,20 +786,22 @@ describe("RepliesPage", () => {
     expect(tab("snoozed").getAttribute("aria-selected")).toBe("true");
     expect(tab("waiting").getAttribute("aria-selected")).toBe("false");
     expect(shown()).toEqual([["rc-later", null]]);
+    expect(line()).toBe("1 張請示卡");
     expect(listSpy.mock.calls.map(([status]) => status)).not.toContain("answered");
 
     await selectRepliesTab("answered");
+    expect(line(), "the count read's answered + expired, before the list is loaded").toBe("7 張請示卡 · 近 24 小時");
     await waitFor(() =>
       expect(shown()).toEqual([
         ["rc-gone", "已過期"],
         ["rc-done", "已回覆"],
       ])
     );
-    expect(count("answered"), "the loaded list's length from then on").toBe("2");
+    expect(line(), "the loaded list's length from then on").toBe("2 張請示卡 · 近 24 小時");
     expect(getByTestId("replies-answered-window").textContent).toBe("近 24 小時");
   });
 
-  it("a count not known yet holds a placeholder in its badge's place: every count while the first read is out, and 近期已回覆's under a filter until its list is loaded", async () => {
+  it("a count not known yet is left off the line under the toolbar, which stays in place: while the first read is out, and 近期已回覆's under a filter until its list is loaded", async () => {
     __injectMockReplyCard(mkCard({ id: "rc-wait", task: { id: "T-1", typeKey: "", title: "t", priority: "high" } }));
     __injectMockReplyCard(
       mkCard({
@@ -814,26 +817,24 @@ describe("RepliesPage", () => {
       () => new Promise((resolve) => (releaseCount = () => resolve(realCount())))
     );
     const { findAllByTestId, getByTestId, queryByTestId } = renderPage();
-    for (const v of ["waiting", "snoozed", "answered"]) {
-      await waitFor(() => expect(getByTestId(`replies-tab-pending-${v}`)).toBeTruthy());
-      expect(queryByTestId(`replies-tab-count-${v}`)).toBeNull();
-    }
+    const line = () => getByTestId("replies-count-line").textContent;
+    await waitFor(() => expect(getByTestId("replies-count-line")).toBeTruthy());
+    expect(line()).toBe("");
+    expect(queryByTestId("replies-count")).toBeNull();
 
     await act(async () => releaseCount());
     await findAllByTestId("waiting-card");
-    for (const [v, n] of [["waiting", "1"], ["snoozed", "0"], ["answered", "1"]]) {
-      expect(getByTestId(`replies-tab-count-${v}`).textContent).toBe(n);
-      expect(queryByTestId(`replies-tab-pending-${v}`)).toBeNull();
-    }
+    expect(line()).toBe("1 張請示卡");
+    await selectRepliesTab("snoozed");
+    expect(line()).toBe("0 張請示卡");
+    await selectRepliesTab("waiting");
 
     toggleFilter("filter-priority", "high");
-    expect(getByTestId("replies-tab-count-waiting").textContent).toBe("1");
-    expect(getByTestId("replies-tab-pending-answered")).toBeTruthy();
-    expect(queryByTestId("replies-tab-count-answered")).toBeNull();
+    expect(line()).toBe("1 張請示卡");
 
     await selectRepliesTab("answered");
-    await waitFor(() => expect(getByTestId("replies-tab-count-answered").textContent).toBe("0"));
-    expect(queryByTestId("replies-tab-pending-answered")).toBeNull();
+    expect(line(), "the count read knows nothing of the filter").toBe("近 24 小時");
+    await waitFor(() => expect(line()).toBe("0 張請示卡 · 近 24 小時"));
   });
 
   it("the labels are one tab stop; arrow keys, Home and End move the selection and the focus", async () => {
@@ -885,13 +886,14 @@ describe("RepliesPage", () => {
     for (const v of ["waiting", "snoozed", "answered"] as const) {
       await selectRepliesTab(v);
       expect(getByTestId("replies-empty").textContent).toBe("沒有符合篩選條件的請示");
-      expect(getByTestId(`replies-tab-count-${v}`).textContent).toBe("0");
+      expect(getByTestId("replies-count").textContent).toBe("0 張請示卡");
     }
 
     fireEvent.click(getByTestId("replies-filter-clear"));
     expect(queryByTestId("replies-filter-count")).toBeNull();
     expect(getByTestId("replies-tab-answered").getAttribute("aria-selected")).toBe("true");
-    expect(getByTestId("replies-tab-count-waiting").textContent).toBe("1");
+    await selectRepliesTab("waiting");
+    expect(getByTestId("replies-count").textContent).toBe("1 張請示卡");
   });
 
   it("查看當初選項 expands the original options with the standing pick marked", async () => {
@@ -1376,7 +1378,7 @@ describe("RepliesPage", () => {
       answered.querySelector(".reply-card__answered-at")?.textContent
     ).toMatch(/^已回覆 (?:\d{4}\/)?\d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
     expect(getByTestId("replies-tab-waiting").getAttribute("aria-selected")).toBe("true");
-    expect(getByTestId("replies-tab-count-waiting").textContent).toBe("0");
+    expect(getByTestId("replies-count").textContent).toBe("0 張請示卡");
     await selectRepliesTab("answered");
     expect(await findByTestId("handled-load-error")).toBeTruthy();
     expect(document.querySelector('[data-testid="answered-card"]')).toBe(answered);
@@ -1424,7 +1426,7 @@ describe("RepliesPage", () => {
       expired.querySelector(".reply-card__answered-at")?.textContent
     ).toMatch(/^已過期 (?:\d{4}\/)?\d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
     expect(getByTestId("replies-tab-waiting").getAttribute("aria-selected")).toBe("true");
-    expect(getByTestId("replies-tab-count-waiting").textContent).toBe("0");
+    expect(getByTestId("replies-count").textContent).toBe("0 張請示卡");
     await selectRepliesTab("answered");
     expect(await findByTestId("handled-load-error")).toBeTruthy();
     expect(document.querySelector('[data-testid="expired-card"]')).toBe(expired);
@@ -1672,9 +1674,10 @@ describe("RepliesPage", () => {
     expect(snoozeSpy).toHaveBeenCalledWith("rc-2", THU_10AM + 3 * 3600);
     expect(queryByTestId("snooze-menu-rc-2")).toBeNull();
     expect(getByTestId("nav-badge").textContent).toBe("1");
-    expect(getByTestId("replies-tab-count-snoozed").textContent).toBe("1");
+    expect(getByTestId("replies-count").textContent).toBe("1 張請示卡");
     await selectRepliesTab("snoozed");
     expect(paneIds("snoozed-card")).toEqual(["rc-2"]);
+    expect(getByTestId("replies-count").textContent).toBe("1 張請示卡");
     const snoozedCard = document.querySelector('[data-testid="snoozed-card"]')!;
     expect(snoozedCard.querySelector('[data-testid="snoozed-pill"]')!.getAttribute("title")).toBe("2026/11/5（四） 13:00 回來");
     expect(
@@ -1737,18 +1740,20 @@ describe("RepliesPage", () => {
     await waitFor(() => expect(shown(), "an open card leaves 稍後再看").toBeNull());
     expect(snoozeSpy).toHaveBeenCalledWith("rc-1", null);
     expect(getByTestId("nav-badge").textContent).toBe("1");
-    expect(getByTestId("replies-tab-count-waiting").textContent).toBe("1");
+    expect(getByTestId("replies-count").textContent).toBe("0 張請示卡");
     await selectRepliesTab("waiting");
     expect(paneIds("waiting-card")).toEqual(["rc-1"]);
+    expect(getByTestId("replies-count").textContent).toBe("1 張請示卡");
 
     await openCard();
     fireEvent.click(getByTestId("snooze-card"));
     await findByTestId("snooze-menu-rc-1");
     fireEvent.click(getByTestId("snooze-preset-3h"));
     await waitFor(() => expect(shown(), "an open card leaves 等待回覆").toBeNull());
-    expect(getByTestId("replies-tab-count-snoozed").textContent).toBe("1");
+    expect(getByTestId("replies-count").textContent).toBe("0 張請示卡");
     await selectRepliesTab("snoozed");
     expect(paneIds("snoozed-card")).toEqual(["rc-1"]);
+    expect(getByTestId("replies-count").textContent).toBe("1 張請示卡");
   });
 
   it("a snoozed card can still be opened and answered, or expired, from 稍後再看", async () => {
@@ -2169,7 +2174,7 @@ describe("RepliesPage", () => {
     await bodyOf();
 
     await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1"]), { timeout: 3000 });
-    expect(getByTestId("replies-tab-count-waiting").textContent).toBe("2");
+    expect(getByTestId("nav-badge").textContent).toBe("2");
     expect(cardEl()!.classList.contains("reply-card--selecting")).toBe(true);
     const body = await bodyOf();
     fireEvent.pointerDown(body);

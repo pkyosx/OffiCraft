@@ -1165,6 +1165,8 @@ var messageKeys = map[string]bool{
 	"replies.filterPriorityNoun":                       true,
 	"replies.inputPlaceholder":                         true,
 	"replies.jumpToChat":                               true,
+	"replies.listedCountMany":                          true,
+	"replies.listedCountOne":                           true,
 	"replies.loadError":                                true,
 	"replies.lookupFailed":                             true,
 	"replies.lookupLoading":                            true,

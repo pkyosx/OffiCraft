@@ -34,17 +34,15 @@
   flex-direction: column;
   gap: 14px;
 }
-/* The three list labels, then the selected list's note (近期已回覆's 24h
- * window) and the filter / 顯示方式 buttons — always one row: on a phone the
- * labels take whatever the buttons leave (flex-basis 0, so the row never
- * wraps to make room for them) and the note drops to its own line under it.
- * padding-top is the room the corner badges overhang into. */
+/* The three list labels and the filter / 顯示方式 buttons — always one row: on
+ * a phone the labels take whatever the buttons leave (flex-basis 0, so the row
+ * never wraps to make room for them) — then the count line on its own line. */
 .replies__head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 14px;
-  padding-top: 10px;
+  padding-top: 6px;
 }
 .replies__head-tools {
   flex: none;
@@ -67,16 +65,20 @@
   flex-direction: column;
   gap: 14px;
 }
-.replies__section-hint {
+/* Same look as the 任務 page's count (.filter-panel__summary); the height is
+ * held while the count is unknown so the list does not move when it lands. */
+.replies__count-line {
+  flex: 1 0 100%;
   min-width: 0;
+  min-height: 1.4em;
+  line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
   color: var(--color-text-muted);
 }
-/* Separate chips, each with its count as a corner badge — the nav tab's pill
- * (.nav-tab__badge) moved to the top-right corner. */
 .replies__tabs {
   display: flex;
   flex: 0 1 auto;
@@ -84,7 +86,6 @@
   gap: 10px;
 }
 .replies__tab {
-  position: relative;
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
@@ -118,54 +119,19 @@
 }
 .replies__tab-label {
   min-width: 0;
-  /* Short enough that the corner badge clears the text's line box. */
-  line-height: 15px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .replies__tab-label-short {
   display: none;
 }
-.replies__tab-count,
-.replies__tab-pending {
-  position: absolute;
-  top: -10px;
-  right: -7px;
-  box-sizing: border-box;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--color-text-muted) 22%, var(--color-bg));
-  color: var(--color-text);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  outline: 1px solid var(--color-bg);
-}
-/* 等待回覆 is the number the nav's 請示 badge shows, in the same red pill. */
-.replies__tab-count--hot {
-  background: var(--color-danger-badge);
-  color: var(--color-on-danger);
-  outline: 1px solid var(--color-danger-badge-ring);
-}
-.replies__tab-count--zero {
-  color: var(--color-text-muted);
-}
 @media (max-width: 720px) {
   .replies__head {
     column-gap: 8px;
   }
-  .replies__section-hint {
-    order: 1;
-    flex: 1 0 100%;
-  }
   .replies__tabs {
     flex: 1 1 0;
+    gap: 6px;
   }
   .replies__tab {
     flex: 1 1 auto;
@@ -173,8 +139,8 @@
   }
 }
 /* Short labels below the width where the full ones stop fitting beside the
- * buttons with a few px to spare (measured in CT: zh full from 375, en from 400). */
-@media (max-width: 374px) {
+ * buttons with 2px to spare (measured in CT: zh full from 345, en from 387). */
+@media (max-width: 344px) {
   .replies__tabs[data-locale="zh"] .replies__tab-label-full {
     display: none;
   }
@@ -182,7 +148,7 @@
     display: inline;
   }
 }
-@media (max-width: 399px) {
+@media (max-width: 386px) {
   .replies__tabs[data-locale="en"] .replies__tab-label-full {
     display: none;
   }
