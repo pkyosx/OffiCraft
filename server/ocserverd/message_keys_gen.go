@@ -1137,7 +1137,6 @@ var messageKeys = map[string]bool{
 	"replies.aiPick":                                   true,
 	"replies.answerError":                              true,
 	"replies.answerStale":                              true,
-	"replies.askerTaskLabel":                           true,
 	"replies.clearFilters":                             true,
 	"replies.collapseCard":                             true,
 	"replies.collapseOptions":                          true,

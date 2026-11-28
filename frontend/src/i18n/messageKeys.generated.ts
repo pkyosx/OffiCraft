@@ -1136,7 +1136,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "replies.aiPick",
   "replies.answerError",
   "replies.answerStale",
-  "replies.askerTaskLabel",
   "replies.clearFilters",
   "replies.collapseCard",
   "replies.collapseOptions",

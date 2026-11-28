@@ -1,5 +1,5 @@
-// CT story: the asking outsource worker's CURRENT TASK, the 目前任務 row under
-// the 請示卡's 開卡人 row.
+// CT story: the asking outsource worker's CURRENT TASK under the 請示卡's
+// 開卡人 chip.
 //
 // Same philosophy as ReplyCardOpenerStory: RepliesPage owns live hooks this
 // story does not wire up, so it reproduces the REAL DOM skeleton
@@ -50,20 +50,17 @@ export function ReplyCardWorkerTaskStory() {
             <button type="button" className="card-meta__chip card-meta__chip--link">
               <span className="card-meta__chip-name">O-30</span>
             </button>
-            <div className="card-meta__row reply-card__worker-task">
-              <span className="card-meta__label">目前任務</span>
-              <span className="reply-card__worker-task-value">
-                <OutsourceTaskLine
-                  worker={worker}
-                  onOpenTask={() => {}}
-                  idPrefix="reply-card-rc-1"
-                />
-                <CurrentTaskTitle
-                  title={VERY_LONG_TITLE}
-                  clamp
-                  testid="reply-card-task-title-rc-1"
-                />
-              </span>
+            <div className="reply-card__worker-task">
+              <OutsourceTaskLine
+                worker={worker}
+                onOpenTask={() => {}}
+                idPrefix="reply-card-rc-1"
+              />
+              <CurrentTaskTitle
+                title={VERY_LONG_TITLE}
+                clamp
+                testid="reply-card-task-title-rc-1"
+              />
             </div>
           </div>
         </article>

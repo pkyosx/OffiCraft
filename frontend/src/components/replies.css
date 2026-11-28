@@ -238,23 +238,21 @@
 .reply-card__fold--open svg {
   transform: rotate(90deg);
 }
-/* The asking outsource worker's CURRENT TASK, the 目前任務 row under 開卡人:
- * the rail's task line, then the title. The two lines inside are the office rail's own `.outsource-row__task-line` and
+/* The asking outsource worker's CURRENT TASK under the 開卡人 chip, in the value
+ * column with no label of its own (owner: like the office rail's outsource
+ * row): the rail's task line, then the title. The two lines inside are the office rail's own `.outsource-row__task-line` and
  * `.current-task-title`, drawn by the rail's components and styled by the rail's
  * rules in office.css — including the `+` rule that spaces them. This block only
  * stacks them; it must never restate their appearance, or the two surfaces drift
  * on the next change to either. The two exceptions are about cutting, not
  * looks: the task line becomes one line of text that ends in 「…」 (the rule
  * below), and a phone cuts the title to one line (the ≤720px block). */
-.reply-card__worker-task-value {
+.reply-card__worker-task {
+  grid-column: 2;
   display: flex;
   flex-direction: column;
   min-width: 0;
   font-size: 12px;
-}
-/* Two lines of value: the label stays on the task line, not between them. */
-.reply-card__worker-task > * {
-  align-self: baseline;
 }
 /* The rail's task line (chip + type) in the value column, which on a
  * narrow head is far narrower than on the rail. As a flex row its chip, an

@@ -1405,22 +1405,19 @@ export function RepliesPage({
     // above, one field later.
     const bound = Boolean(worker.taskNo);
     return (
-      <div className="card-meta__row reply-card__worker-task">
-        <span className="card-meta__label">{t.replies.askerTaskLabel}</span>
-        <span className="reply-card__worker-task-value">
-          {bound && (
-            <OutsourceTaskLine
-              worker={worker}
-              onOpenTask={(taskId) => setRoute({ page: "tasks", taskId })}
-              idPrefix={`reply-card-${row.id}`}
-            />
-          )}
-          <CurrentTaskTitle
-            title={worker.taskTitle ?? ""}
-            clamp
-            testid={`reply-card-task-title-${row.id}`}
+      <div className="reply-card__worker-task">
+        {bound && (
+          <OutsourceTaskLine
+            worker={worker}
+            onOpenTask={(taskId) => setRoute({ page: "tasks", taskId })}
+            idPrefix={`reply-card-${row.id}`}
           />
-        </span>
+        )}
+        <CurrentTaskTitle
+          title={worker.taskTitle ?? ""}
+          clamp
+          testid={`reply-card-task-title-${row.id}`}
+        />
       </div>
     );
   }
@@ -1483,8 +1480,8 @@ export function RepliesPage({
     );
   }
 
-  /** 開卡人, an outsource asker's 目前任務, and on a settled card when it was
-   * answered or expired. */
+  /** 開卡人 (an outsource asker's current task under the chip, as on the office
+   * rail), and on a settled card when it was answered or expired. */
   function renderMeta(row: ReplyCardRow, handled?: ReactNode) {
     const who = whoOf(row);
     const asker = members.find((x) => x.id === row.from);

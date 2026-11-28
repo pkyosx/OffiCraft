@@ -777,7 +777,6 @@ export const zh = {
     taskDueLabel: "到期",
     openerLabel: "開卡人",
     messageOpener: "傳訊息給開卡人",
-    askerTaskLabel: "目前任務",
     openTask: "查看任務",
     expandCard: "展開這張請示卡",
     collapseCard: "收合這張請示卡",

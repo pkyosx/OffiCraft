@@ -161,7 +161,7 @@ async function expectHeadLine(card: Locator, what: string, mode: "touch" | "mous
   const meta = card.locator(".card-meta");
   const rows = await box(meta);
   expect(inside(rows, c), `${what}: the meta rows inside the card`).toBe(true);
-  for (const part of await meta.locator("[data-testid='reply-card-opener'], .reply-card__worker-task-value").all()) {
+  for (const part of await meta.locator("[data-testid='reply-card-opener'], .reply-card__worker-task").all()) {
     expect(inside(await box(part), rows), `${what}: ${await part.textContent()} inside the meta rows`).toBe(true);
   }
   const phone = (await card.page().viewportSize())!.width <= 720;

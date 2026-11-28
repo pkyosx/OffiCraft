@@ -1,5 +1,5 @@
 /* card-meta.css — the label/value rows of every card: 任務卡 (負責人／到期日…),
- * 請示卡 (開卡人／目前任務／處理時間), 金鑰卡, 檔案庫卡 and 傳承卡. One sheet
+ * 請示卡 (開卡人／處理時間), 金鑰卡, 檔案庫卡 and 傳承卡. One sheet
  * so the five cannot drift apart: a label sits on the same column, in the same
  * colour, centred on its value, on every card. Each component that draws these
  * rows imports this file itself.

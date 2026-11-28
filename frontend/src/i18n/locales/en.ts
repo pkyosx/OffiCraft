@@ -742,7 +742,6 @@ export const en: Dict = {
     taskDueLabel: "Due",
     openerLabel: "Asked by",
     messageOpener: "Message the asker",
-    askerTaskLabel: "Working on",
     openTask: "View task",
     expandCard: "Expand this ask",
     collapseCard: "Collapse this ask",
