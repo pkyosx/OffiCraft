@@ -80,8 +80,7 @@ export interface HashRoute {
    * T-93: this SEEDS the page's ID 篩選 — the list narrows to that one card and
    * stays narrowed, which is the effect. The scroll-and-focus that used to be
    * the whole of it is now secondary and happens AFTER the filter: it only
-   * saves the reader a scroll when the hit sits in the collapsed 近期已處理
-   * pane. Do not describe this as a locate mechanism; without it the filter
+   * saves the reader a scroll when the hit sits further down the list. Do not describe this as a locate mechanism; without it the filter
    * still works, and the owner's way out is 清除篩選, not the hash clearing
    * itself. */
   replyCardId?: string;

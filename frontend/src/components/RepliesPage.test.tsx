@@ -1029,7 +1029,7 @@ describe("RepliesPage", () => {
     expect(avatarBtn.getAttribute("aria-label")).toBe(zh.office.viewProfile);
   });
 
-  it("標為過期 double-confirms, closes the card without an answer, and lists it as 已過期 once that status is ticked", async () => {
+  it("標為過期 double-confirms, closes the card without an answer, and lists it as 已過期 under 近期已回覆", async () => {
     __injectMockReplyCard(mkCard({}));
     const { findByTestId, findAllByTestId, queryAllByTestId, queryByTestId } =
       renderPage();
@@ -1047,7 +1047,7 @@ describe("RepliesPage", () => {
     expect(queryAllByTestId("waiting-card")).toHaveLength(1);
 
     // Confirm actually expires: the card leaves 待回覆 and shows 已過期 (grey
-    // terminal — no chips to pick, no 重新決定) in 近期已處理.
+    // terminal — no chips to pick, no 重新決定) under 近期已回覆.
     fireEvent.click(card.querySelector('[data-testid="expire-card"]')!);
     fireEvent.click(await findByTestId("expire-confirm-btn"));
     await waitFor(() =>
@@ -1349,12 +1349,21 @@ describe("RepliesPage", () => {
     ).toHaveLength(2);
   });
 
-  it("an expiry read from the server stays where it was opened until the label changes, and under 近期已回覆 after 24h even when that list cannot load", async () => {
+  it("when 近期已回覆 cannot load it shows only the error; an expiry read from the server stays where it was opened until the label changes, and under 近期已回覆 after 24h", async () => {
     const staleTs = Date.now() / 1000 - 25 * 3600;
     const serverCard = mkCard({ id: "rc-expired", body: "寄出後無法撤回", createdTs: staleTs });
     __injectMockReplyCard(serverCard);
     const listSpy = failHandledListReads();
     const { findAllByTestId, findByTestId, queryAllByTestId, getByTestId } = renderPage();
+    await findAllByTestId("waiting-card");
+
+    await selectRepliesTab("answered");
+    expect(await findByTestId("handled-load-error")).toBeTruthy();
+    expect(
+      document.querySelector('[data-testid="replies-empty"]'),
+      "no 「沒有已回覆」 claim about a list that never loaded"
+    ).toBeNull();
+    await selectRepliesTab("waiting");
     const [card] = await findAllByTestId("waiting-card");
 
     serverCard.status = "expired";
@@ -1658,22 +1667,39 @@ describe("RepliesPage", () => {
     expect(snoozeSpy).toHaveBeenCalledWith("rc-1", THU_10AM + 90 * 86400);
   });
 
-  it("取消延後 → the card is back in 等待回覆 and in the badge at once", async () => {
+  it("取消延後 → the card is back in 等待回覆 and in the badge at once, even while it is open; 稍後再看 on an open card moves it back just as fast", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(mkCard({ id: "rc-1", snoozedUntilTs: now + 3600 }));
     const snoozeSpy = vi.spyOn(api, "snoozeReplyCard");
-    const { getByTestId } = renderPage();
+    const { getByTestId, findByTestId } = renderPage();
     await selectRepliesTab("snoozed");
     await waitFor(() => expect(paneIds("snoozed-card")).toEqual(["rc-1"]));
     expect(getByTestId("nav-badge").textContent).toBe("0");
 
+    const openCard = async () => {
+      const card = document.querySelector<HTMLElement>('[data-reply-card-id="rc-1"]')!;
+      if (card.getAttribute("aria-expanded") === "true") fireEvent.click(card);
+      fireEvent.click(card);
+      await waitFor(() => expect(card.querySelectorAll(".reply-option").length).toBe(2));
+    };
+    const shown = () => document.querySelector('[data-reply-card-id="rc-1"]');
+    await openCard();
     fireEvent.click(getByTestId("unsnooze-card"));
-    await waitFor(() => expect(paneIds("snoozed-card")).toEqual([]));
+    await waitFor(() => expect(shown(), "an open card leaves 稍後再看").toBeNull());
     expect(snoozeSpy).toHaveBeenCalledWith("rc-1", null);
     expect(getByTestId("nav-badge").textContent).toBe("1");
     expect(getByTestId("replies-tab-count-waiting").textContent).toBe("1");
     await selectRepliesTab("waiting");
     expect(paneIds("waiting-card")).toEqual(["rc-1"]);
+
+    await openCard();
+    fireEvent.click(getByTestId("snooze-card"));
+    await findByTestId("snooze-menu-rc-1");
+    fireEvent.click(getByTestId("snooze-preset-3h"));
+    await waitFor(() => expect(shown(), "an open card leaves 等待回覆").toBeNull());
+    expect(getByTestId("replies-tab-count-snoozed").textContent).toBe("1");
+    await selectRepliesTab("snoozed");
+    expect(paneIds("snoozed-card")).toEqual(["rc-1"]);
   });
 
   it("a snoozed card can still be opened and answered, or expired, from 稍後再看", async () => {

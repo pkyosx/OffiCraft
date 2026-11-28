@@ -445,6 +445,10 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // with the digit spaced off the han characters exactly as en writes
     // "Selected 2 options", so this is not one of the joins that differ by
     // language and must not be routed through the variable that says they do.
+    replySelectedCount: (n) =>
+      `${replies.selectedCountLead} ${n} ${
+        n === 1 ? replies.selectedCountTailOne : replies.selectedCountTailMany
+      }`,
     // en has no lead word, so empty fragments drop out instead of leaving a space.
     filterAppliedCount: (n) =>
       [
@@ -454,10 +458,6 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       ]
         .filter(Boolean)
         .join(" "),
-    replySelectedCount: (n) =>
-      `${replies.selectedCountLead} ${n} ${
-        n === 1 ? replies.selectedCountTailOne : replies.selectedCountTailMany
-      }`,
     // Every circled option on one line (the collapsed task-card row). Joined by
     // the locale's own list separator — the same one every other list in this
     // file uses, so a multi-select decision is punctuated like a list and not

@@ -189,7 +189,6 @@ function leadAmountText(minutes: number, unit: LeadUnit): string {
   return String(Number.isInteger(amount) ? amount : Number(amount.toFixed(2)));
 }
 
-/** True when the 識別鍵 value is a link → the badge renders target=_blank. */
 const STATUS_ICONS: Record<string, (p: { size: number }) => React.JSX.Element> = {
   not_started: CircleDashedIcon,
   in_progress: CirclePlayIcon,
@@ -206,6 +205,7 @@ function TaskStatusIcon({ status, size }: { status: string; size: number }) {
   return <Icon size={size} />;
 }
 
+/** True when the 識別鍵 value is a link → the badge renders target=_blank. */
 function isUrl(v: string): boolean {
   return /^https?:\/\//i.test(v);
 }
@@ -398,10 +398,10 @@ export function TaskCard({
     return docCommentRecipient(id, name, !isUnlisted(id), rosterSettled);
   };
 
-  // 類型 chip text: the manual's display name (T-fa76), falling back to the
-  // raw key (deleted manual / legacy type), then the ad-hoc word.
   const statusName = t.tasks.status[task.status] ?? task.status;
 
+  // 類型 chip text: the manual's display name, falling back to the raw key
+  // (deleted manual / legacy type), then the ad-hoc word.
   const typeLabel = task.typeKey
     ? typeNames?.get(task.typeKey) || task.typeKey
     : t.tasks.adhoc;

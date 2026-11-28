@@ -3,9 +3,9 @@
 // always-live pane (mount + every "reply_card" SSE delta), fetched alongside
 // the cheap counts. The HANDLED list (answered + expired, merged newest-first
 // by their handled stamp) is DEFERRED (owner 已回覆卡預設不載): the lists are
-// pulled only when the page asks for 已回覆 or 已過期 (loadHandled). Reconcile-by-refetch (contract B): a
+// pulled only once the page selects 近期已回覆 (loadHandled). Reconcile-by-refetch (contract B): a
 // delta REFETCHES — the waiting list + counts always, and the handled lists
-// only when currently loaded (expanded) — never merges an event payload. The
+// only once loaded — never merges an event payload. The
 // answer/re-answer/expire actions do NOT refetch directly — see T-a3e4 step 8
 // below.
 //
@@ -85,8 +85,9 @@
 // nothing here walks the pane hydrating rows.
 //
 // 🔴 IT IS A FIXED NUMBER OF REQUESTS PER PANE, NOT "one request for the whole
-// screen". This provider still makes its own count/status reads, and an EXPANDED
-// 近期已處理 pane is three list requests (waiting + answered + expired), not one.
+// screen". This provider still makes its own count/status reads, and once
+// 近期已回覆 has been selected it is three list requests (waiting + answered +
+// expired), not one.
 // On top of that sits one `getReplyCard` per card the OWNER opens — a number the
 // owner controls, not the pane size.
 
@@ -290,7 +291,7 @@ function useReplyCardsState(): UseReplyCards {
     }
   }, []);
 
-  // The deferred handled fetch: only ever runs once the pane is expanded
+  // The deferred handled fetch: only ever runs once 近期已回覆 is selected
   // (loadHandled), then re-runs on deltas while it stays loaded.
   const refetchHandled = useCallback(async () => {
     const gen = ++handledGenRef.current;
@@ -301,12 +302,11 @@ function useReplyCardsState(): UseReplyCards {
     // Same generation guard as the waiting list — drop a superseded snapshot.
     if (gen !== handledGenRef.current) return;
     const merged = [...answered, ...expired];
-    // ③ The handled half of the same hazard. Once the owner has expanded this
-    // pane, EVERY delta refetches it for the rest of the visit
-    // (`handledLoadedRef` is not reset on collapse, and the deep-link path calls
-    // loadHandled() without a click at all) — so a read can be in flight when
-    // the owner answers, and a pre-write snapshot would take the card they just
-    // handled back OUT of 近期已處理.
+    // ③ The handled half of the same hazard. Once the owner has selected
+    // 近期已回覆, EVERY delta refetches it for the rest of the visit
+    // (`handledLoadedRef` is not reset when he switches label) — so a read can
+    // be in flight when the owner answers, and a pre-write snapshot would take
+    // the card they just handled back OUT of 近期已回覆.
     //
     // ⚠️ Confirmation here is the OPPOSITE evidence to the waiting pane's, and
     // mere presence is not enough: a 重新決定 re-stamps answeredTs, so a

@@ -537,8 +537,8 @@ export function RepliesPage({
   }, [loadHandled]);
 
   // Owner 已回覆卡預設不載: the answered/expired lists are fetched only once
-  // one of those statuses is selected. A failed load is retried by selecting
-  // again, not in a loop.
+  // 近期已回覆 is selected. A failed load is retried by switching to another
+  // label and back, not in a loop.
   useEffect(() => {
     if (wantsHandled && !handledLoaded) void loadHandledForPage();
   }, [wantsHandled, handledLoaded, loadHandledForPage]);
@@ -1868,7 +1868,7 @@ export function RepliesPage({
               {t.replies.loadError}
             </div>
           )}
-          {!loading && !error && listItems.length === 0 ? (
+          {!loading && !error && listItems.length === 0 && !(wantsHandled && handledLoadError) ? (
             /* THREE, and the split that survives is 「we have an answer」 vs
              * 「we do not」. An empty page and an empty RESULT stay separate —
              * saying 「目前沒有待處理的請示」 while six cards sit behind a filter

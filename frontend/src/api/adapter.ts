@@ -536,9 +536,7 @@ export interface ReplyCardAnswerInput {
 }
 
 /** Mirrors `ReplyCardCountDTO`. `waiting` drives the nav badge; `answered` +
- * `expired` are the recently-answered / recently-expired (24h) counts the
- * 等我回覆 page sums to render its collapsed 近期已處理 header without
- * fetching the lists. */
+ * `expired` are the recently-answered / recently-expired (24h) counts. */
 export interface ReplyCardCounts {
   waiting: number;
   answered: number;

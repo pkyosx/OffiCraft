@@ -616,7 +616,7 @@
   flex-shrink: 0;
 }
 /* The expired terminal (T-1aa4): a grey tag — deliberately NOT green (an
- * expiry is not an answer) — shared by the 近期已處理 pane row and the inline
+ * expiry is not an answer) — shared by the 近期已回覆 card and the inline
  * chat/task collapsed stubs. */
 .reply-tag--expired {
   color: var(--color-text-muted);

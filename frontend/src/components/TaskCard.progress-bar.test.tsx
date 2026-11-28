@@ -199,6 +199,7 @@ describe("進度條看得見 — the bar is unconditional", () => {
   });
 
   it("every status renders a bar with the same fill, its status carried by the head icon alone", () => {
+    const fills = new Set<string>();
     for (const status of [
       "not_started",
       "in_progress",
@@ -212,8 +213,9 @@ describe("進度條看得見 — the bar is unconditional", () => {
       );
       expect(bar(container), `bar missing for ${status}`).not.toBeNull();
       expect(fill(container)!.style.width, `fill wrong for ${status}`).toBe("40%");
-      expect(fill(container)!.className).toBe("task-card__progress-fill");
+      fills.add(fill(container)!.outerHTML);
       unmount();
     }
+    expect([...fills], "the fill must not vary by status").toHaveLength(1);
   });
 });

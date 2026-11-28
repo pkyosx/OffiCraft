@@ -10,7 +10,8 @@
  * other. What was copied, and from where:
  *
  *   .lore-badge              ← tasks.css .task-badge
- *   .lore-row__status(-chip) ← .task-card__status / button.task-card__status-chip
+ *   .lore-row__status(-chip) ← .task-card__status (the task card's status chip it
+ *                              copied is now an icon; this copy keeps the chip)
  *   .lore-row__menu-pop      ← .task-card__menu-pop
  *   .lore-row__menu-item     ← .task-card__menu-item (+ --active = accent/700)
  *   .lore-row__meta / __meta-label
@@ -811,7 +812,7 @@ button.lore-row__revert:focus-visible {
   outline-offset: 1px;
 }
 
-/* ── badge → state menu (copy of .task-card__status / __status-chip) ── */
+/* ── badge → state menu (copy of .task-card__status and its former chip) ── */
 .lore-row__status {
   position: relative;
   flex: none;

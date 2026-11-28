@@ -25,8 +25,8 @@
 // the moment of ticking.
 //
 // The 請示卡 開卡人 axis is where that difference became visible, because its
-// options ARRIVE LATE: 近期已處理 is fetched on first unfold, so a reader could
-// tick every opener while the pane was collapsed, see 「所有開卡人」, unfold, and
+// options ARRIVE LATE: 近期已回覆 is fetched only once it is selected, so a
+// reader could tick every opener before that, see 「所有開卡人」, select it, and
 // have the newly-loaded opener silently excluded — a person they never
 // unticked, on an axis that claimed to be showing everyone. The 任務頁 axes are
 // the same mechanism; 負責人 can reach it too (its options follow the server's
