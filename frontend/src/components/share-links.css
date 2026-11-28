@@ -154,7 +154,7 @@
 }
 .share-page__row {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) 7em 8em 22px;
+  grid-template-columns: 20px minmax(0, 1fr) 7em 10em 22px;
   align-items: center;
   gap: 10px;
   min-height: 44px;
@@ -164,9 +164,12 @@
 .share-page__row--head {
   min-height: 36px;
   border-top: none;
-  font-size: 12px;
   font-weight: 600;
   color: var(--color-text-muted);
+}
+/* On the cells, not the row: the em columns must resolve against the rows' 13px. */
+.share-page__row--head > span {
+  font-size: 12px;
 }
 .share-page__kind {
   display: inline-flex;
