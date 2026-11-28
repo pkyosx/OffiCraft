@@ -1,0 +1,33 @@
+/* The icon sits inline after a title, in the muted text colour; ::after widens
+ * the tap target to 24×24 without moving the icon or the hint anchored to it. */
+.info-hint {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  vertical-align: -2px;
+  color: var(--color-text-muted);
+  font-weight: 400;
+  cursor: help;
+  border-radius: 50%;
+}
+
+.info-hint::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+}
+
+.info-hint:hover,
+.info-hint[aria-describedby] {
+  color: var(--color-text);
+}
+
+.info-hint:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.info-hint__glue {
+  white-space: nowrap;
+}

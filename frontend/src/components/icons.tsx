@@ -692,6 +692,16 @@ export function AlertCircleIcon({ size = 16, className }: IconProps) {
   );
 }
 
+export function InfoIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-4" />
+      <path d="M12 8h.01" />
+    </svg>
+  );
+}
+
 export function KeyIcon({ size = 16, className }: IconProps) {
   return (
     <svg {...base(size)} className={className}>

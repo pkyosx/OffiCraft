@@ -1,6 +1,20 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
+import { useRef } from "react";
 import { InstantHint } from "./InstantHint";
+import { useEscapeLayer } from "../lib/useEscapeLayer";
+
+function DialogWithHint({ onEscape }: { onEscape: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEscapeLayer(onEscape, ref);
+  return (
+    <div ref={ref} role="dialog">
+      <InstantHint hint="說明" data-testid="trigger">
+        i
+      </InstantHint>
+    </div>
+  );
+}
 
 function renderHint(hint: string) {
   render(
@@ -220,5 +234,34 @@ describe("InstantHint", () => {
     stubRects({ top: 100, bottom: 116, left: 1000 }, { width: 200, height: 40 });
     fireEvent.mouseEnter(renderHint("Claude 未登入"));
     expect(screen.getByRole("tooltip").style.left).toBe("816px");
+  });
+
+  it("under Escape inside a dialog, only the pinned hint closes; the next Escape reaches the dialog", () => {
+    const onEscape = vi.fn();
+    render(<DialogWithHint onEscape={onEscape} />);
+    fireEvent.click(screen.getByTestId("trigger"));
+    expect(screen.getByRole("tooltip").textContent).toBe("說明");
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    expect(onEscape).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onEscape).toHaveBeenCalledTimes(1);
+  });
+
+  it("under a click on a trigger inside a label, the label's control is not focused", () => {
+    render(
+      <label>
+        名稱
+        <InstantHint hint="說明" data-testid="trigger">
+          i
+        </InstantHint>
+        <input data-testid="field" />
+      </label>,
+    );
+    fireEvent.click(screen.getByTestId("trigger"));
+    expect(screen.getByRole("tooltip").textContent).toBe("說明");
+    expect(document.activeElement).not.toBe(screen.getByTestId("field"));
   });
 });

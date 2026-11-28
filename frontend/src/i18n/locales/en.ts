@@ -21,6 +21,8 @@ export const en: Dict = {
     filterAppliedTailOne: "filter applied",
     filterAppliedTailMany: "filters applied",
     textShowAll: "Show all",
+    infoAboutLead: "About ",
+    infoAboutTail: "",
     textShowLess: "Show less",
   },
   diff: {

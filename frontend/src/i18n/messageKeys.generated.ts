@@ -210,6 +210,8 @@ export const MESSAGE_KEYS: readonly string[] = [
   "common.filterAppliedTailOne",
   "common.filterButton",
   "common.filterDone",
+  "common.infoAboutLead",
+  "common.infoAboutTail",
   "common.textShowAll",
   "common.textShowLess",
   "connection.ariaLabel",

@@ -43,6 +43,8 @@ paths:
   - "src/components/TaskArtifactVersions*"
   - "src/components/task-artifact-versions.css"
   - "src/lib/escapeLayers.ts"
+  - "src/components/InstantHint*"
+  - "src/components/InfoHint*"
   - "src/lib/useEscapeLayer.ts"
   - "src/lib/escapeLayerOwnership.test.ts"
   - "src/lib/lineDiff.ts"
@@ -88,6 +90,8 @@ url 模式的 markdown 文件把獨立成行的圖片畫出來，走的就是使
 ## Esc 分層
 
 只有 lib/escapeLayers.ts 綁 window keydown。useEscapeLayer(onEscape, ref, active) 以 DOM 包含關係找最內層；互不包含的面以後註冊者為 tie-break。被包住的面一定傳自己的 root ref，關閉中的常駐面以 active=false 退出。
+
+InstantHint（含 ⓘ）也是一層，以觸發點為 ref：提示開著時 Esc 只收提示，再按一次才輪到它所在的對話框。document 上的 keydown 也不要綁。
 
 層內要吞 Esc 就在 handler 判斷；input 自己的 Escape handler 也要 preventDefault，否則取消編輯會再關掉宿主面。這套 layer 不是 focus trap；不要在每個 modal 另綁 window listener。
 

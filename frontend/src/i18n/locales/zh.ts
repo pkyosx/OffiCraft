@@ -12,6 +12,8 @@ export const zh = {
     filterAppliedTailOne: "個條件",
     filterAppliedTailMany: "個條件",
     textShowAll: "展開全文",
+    infoAboutLead: "關於 ",
+    infoAboutTail: "",
     textShowLess: "收起",
   },
   // ── 逐行比對（components/DiffView）——版本紀錄的差異呈現 ──

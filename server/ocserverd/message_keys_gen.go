@@ -211,6 +211,8 @@ var messageKeys = map[string]bool{
 	"common.filterAppliedTailOne":                      true,
 	"common.filterButton":                              true,
 	"common.filterDone":                                true,
+	"common.infoAboutLead":                             true,
+	"common.infoAboutTail":                             true,
 	"common.textShowAll":                               true,
 	"common.textShowLess":                              true,
 	"connection.ariaLabel":                             true,

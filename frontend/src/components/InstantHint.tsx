@@ -13,6 +13,7 @@ import {
   type HTMLAttributes,
 } from "react";
 import { createPortal } from "react-dom";
+import { useEscapeLayer } from "../lib/useEscapeLayer";
 import "./instant-hint.css";
 
 const GAP = 6;
@@ -83,6 +84,7 @@ export function InstantHint({
   if (hint === "" && state !== "closed") setState("closed");
   const open = state !== "closed" && hint !== "";
   const [closeSelf] = useState(() => () => setState("closed"));
+  useEscapeLayer(closeSelf, triggerRef, open);
 
   useEffect(() => {
     if (!open) return;
@@ -120,21 +122,16 @@ export function InstantHint({
       if (triggerRef.current?.contains(target) || hintRef.current?.contains(target)) return;
       close();
     };
-    const closeOnEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
-    };
     // A fixed hint does not follow its trigger when something scrolls.
     window.addEventListener("scroll", close, true);
     window.addEventListener("resize", close);
     // Capture phase: another hint's trigger stops its click from bubbling, so a
     // bubbling listener would leave this one open beside the next.
     document.addEventListener("click", closeOutside, true);
-    document.addEventListener("keydown", closeOnEscape);
     return () => {
       window.removeEventListener("scroll", close, true);
       window.removeEventListener("resize", close);
       document.removeEventListener("click", closeOutside, true);
-      document.removeEventListener("keydown", closeOnEscape);
     };
   }, [open]);
 
@@ -163,6 +160,8 @@ export function InstantHint({
     },
     onClick: (e: ReactMouseEvent<HTMLElement>) => {
       e.stopPropagation();
+      // Inside a <label> the click would otherwise also focus or toggle its control.
+      if (!onActivate && e.currentTarget.closest("label")) e.preventDefault();
       // A phone has no hover, so a tap on a `data-hint-pin` part of a button
       // trigger pins the hint instead of activating.
       const pinPart = (e.target as Element).closest("[data-hint-pin]");
