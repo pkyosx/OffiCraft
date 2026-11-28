@@ -1072,14 +1072,17 @@ button.task-card__status-icon svg {
 button.task-card__status-icon--in_progress {
   color: var(--color-accent);
 }
+button.task-card__status-icon--not_started {
+  color: var(--color-step-pending);
+}
 button.task-card__status-icon--done {
-  color: var(--color-success);
+  color: var(--color-step-done);
 }
 button.task-card__status-icon--waiting_owner {
-  color: var(--color-dot-waking);
+  color: var(--color-step-waiting-owner);
 }
 button.task-card__status-icon--waiting_external {
-  color: var(--color-wait-external);
+  color: var(--color-step-waiting-external);
 }
 button.task-card__status-icon--ready_for_done {
   color: var(--color-ready-for-done);
@@ -1846,8 +1849,7 @@ button.task-card__waiting--dep:focus-visible {
 /* One colour per step status drives the timeline icon and the box tint. */
 .task-timeline__marker--pending,
 .task-step--pending {
-  --task-step-status: var(--color-text-muted);
-  --task-step-tint: var(--color-dot-offline);
+  --task-step-status: var(--color-step-pending);
 }
 .task-timeline__marker--in_progress,
 .task-step--in_progress {
@@ -1855,22 +1857,19 @@ button.task-card__waiting--dep:focus-visible {
 }
 .task-timeline__marker--waiting_owner,
 .task-step--waiting_owner {
-  --task-step-status: var(--color-dot-waking);
+  --task-step-status: var(--color-step-waiting-owner);
 }
 .task-timeline__marker--waiting_external,
 .task-step--waiting_external {
-  --task-step-status: var(--color-wait-external);
+  --task-step-status: var(--color-step-waiting-external);
 }
 .task-timeline__marker--done,
 .task-step--done {
-  --task-step-status: var(--color-success);
+  --task-step-status: var(--color-step-done);
 }
 .task-timeline__marker--superseded,
 .task-step--superseded {
-  --task-step-status: var(--color-status-duplicated);
-}
-.task-timeline__marker--superseded {
-  color: color-mix(in srgb, var(--color-status-duplicated) 68%, var(--color-card));
+  --task-step-status: var(--color-step-superseded);
 }
 
 .task-step {
@@ -1881,12 +1880,8 @@ button.task-card__waiting--dep:focus-visible {
   padding: 11px 13px;
   border-radius: 10px;
   border: 1px solid
-    color-mix(in srgb, var(--task-step-tint, var(--task-step-status)) 30%, transparent);
-  background: color-mix(
-    in srgb,
-    var(--task-step-tint, var(--task-step-status)) 7%,
-    var(--color-card)
-  );
+    color-mix(in srgb, var(--task-step-status) 30%, transparent);
+  background: color-mix(in srgb, var(--task-step-status) 7%, var(--color-card));
 }
 /* superseded step — 已取代 frozen replan history, read as archive.
    🔴 .68 is the lowest opacity at which the title still clears 4.5:1 in every
@@ -2024,7 +2019,7 @@ button.task-card__waiting--dep:focus-visible {
 .task-step__waiting > svg {
   flex: none;
   margin-top: 2px;
-  color: var(--color-wait-external);
+  color: var(--color-step-waiting-external);
 }
 .task-step__waiting-label {
   flex: none;

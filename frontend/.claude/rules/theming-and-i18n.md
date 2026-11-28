@@ -54,7 +54,7 @@ wording 值逐字保存，只對「是否為空」做 trim 判斷；句子片段
 
 用詞清單必須一次 render 全部列，不做 virtualization、overscan 或只渲染 N 列的上限。這保留鍵盤 Tab/讀屏順序、瀏覽器 Cmd+F、整頁複製與列印。清單本身仍是固定高度 scroll box；aria-setsize/posinset 依目前搜尋結果更新。大清單測試要縮小 query scope，不要改用 id 查詢而失去 label 綁定的驗證。
 
-匯出主題時跳過仍是裸 alias 的 token，避免把內建跟隨值烘成固定值；alias 名單由 theme token generator 推導，不手抄。
+匯出主題時跳過仍是裸 alias 的 token，避免把內建跟隨值烘成固定值；alias 名單由 theme token generator 推導，不手抄。主題包本來就可以只填部分 token（沒填的吃 office `:root` 的值，那是深色值）；新增一個「主題可以不填」的 token 時，在 `themes/office.theme.json` 把它寫成純 `var(--既有 token)` alias（例如 `--color-step-*` 跟隨各狀態原本借用的 token），沒填的主題包就跟著自己的那個 token 走，不會吃到 office 的深色實值。
 
 ## 內建主題的來源
 
