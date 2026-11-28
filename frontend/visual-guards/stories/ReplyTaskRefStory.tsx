@@ -20,7 +20,7 @@
 // hand it the full viewport and the overflow would simply not happen.
 import { useEffect, useState } from "react";
 import { I18nProvider } from "../../src/i18n";
-import { ReplyCardTaskRef } from "../../src/components/ReplyCardBody";
+import { ReplyCardTaskBox } from "../../src/components/ReplyCardBody";
 import { ChatReplyCard } from "../../src/components/ChatReplyCard";
 import { __resetMock, __injectMockReplyCard } from "../../src/api/mock";
 import type { ReplyCard } from "../../src/api/adapter";
@@ -39,15 +39,17 @@ export function ReplyTaskRefStory() {
     <I18nProvider>
       <div className="replies">
         <article className="reply-card" data-testid="card-long">
-          <ReplyCardTaskRef
+          <ReplyCardTaskBox
             task={{ id: "t-long", typeKey: "review-pr", title: LONG_TITLE }}
             onJump={() => {}}
+            workspaceLeadMinutes={24 * 60}
           />
         </article>
         <article className="reply-card" data-testid="card-short">
-          <ReplyCardTaskRef
+          <ReplyCardTaskBox
             task={{ id: "t-short", typeKey: "", title: SHORT_TITLE }}
             onJump={() => {}}
+            workspaceLeadMinutes={24 * 60}
           />
         </article>
       </div>

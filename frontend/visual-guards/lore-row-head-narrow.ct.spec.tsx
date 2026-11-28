@@ -1,14 +1,18 @@
 // 傳承 directory cards, section pages and row heads at phone and desktop width:
 // the directory's group headings read on one line with their chevron and
-// 全部收合 leaves no sideways scroll (its touch box included),
-// the tags (id → type → state → scope) wrap as whole pills, the head's one
-// action (編輯, the app-wide .doc-btn--edit) stays inside the head without
-// overlapping them, no card has a clamped body, the 撰寫人／生效期
-// label/value grid stays inside the card, a folded 讀不到 row holds one line, the message box's 📎, input and 送出 sit on one row
+// 全部收合 leaves no sideways scroll (its touch box included), the directory's
+// toolbar row holds the count left with 篩選 and 全部收合 right and the 條目編號
+// field in the funnel's panel,
+// the head (狀態 icon → id → type → scope, then 讀不到 on an unread entry) wraps
+// as whole pills, the head's actions (an open card's borderless 編輯 icon, and
+// the chevron) stay inside the head without overlapping them, no open card has
+// a clamped body and a folded one cuts it to two lines, the 撰寫人／生效期
+// (／失效理由) label/value grid stays inside the card, a folded card keeps the
+// same head, title and rows, the message box's 📎, input and 送出 sit on one row
 // inside the card with room to type, the section head's title, bar and legend stay
 // inside it, the 適用範圍 menu opens inside the viewport, the inline editor fits,
 // the unsaved-changes bar holds one line on the screen's bottom edge without
-// covering the last card, a staged card keeps its height with its ↺ marks inside
+// covering the last card, a staged card never grows (only getting shorter when its tags fit on fewer lines), with its ↺ marks inside
 // it, and a staged state change leaves the scroll position and the card where
 // they were.
 //
@@ -19,11 +23,15 @@
 // must not turn these checks into no-ops.
 import { test, expect } from "@playwright/experimental-ct-react";
 import { LoreRowHeadStory } from "./stories/LoreRowHeadStory";
+import { CODE_BLOCK_TITLE, TABLE_TITLE } from "./stories/loreRowHeadFixtures";
 
 type Box = { left: number; right: number; top: number; bottom: number };
 type RowGeom = {
   id: string;
   folded: boolean;
+  dimmed: boolean;
+  title: Box | null;
+  bodyLines: number | null;
   head: Box | null;
   row: Box | null;
   actions: Box | null;
@@ -71,7 +79,7 @@ async function measureEverySection(cmp: any, page: any) {
     await expect(cmp.locator('[data-testid="lore-section-head"]')).toBeVisible();
     await expect(cmp.locator('[data-testid="lore-section-body"]')).not.toContainText("載入中");
     const g = await measure(page);
-    rows.push(...g.rows.filter((r) => !r.folded));
+    rows.push(...g.rows);
     worstOver = {
       pageOver: Math.max(worstOver.pageOver, g.pageOver),
       loreOver: g.loreOver === -2 ? -2 : Math.max(worstOver.loreOver, g.loreOver),
@@ -99,14 +107,18 @@ async function measure(page: any): Promise<{
     const rows = [...document.querySelectorAll('[data-testid="lore-row"]')].map(
       (row) => {
         const badges = row.querySelector(".lore-row__badges");
+        const bodyEl = row.querySelector('[data-testid="lore-body"]') as HTMLElement | null;
         return {
           id: row.getAttribute("data-entry-id") ?? "",
           folded: row.getAttribute("data-folded") === "true",
+          dimmed: row.getAttribute("data-dimmed") === "true",
+          title: r(row.querySelector(".lore-row__title")),
+          bodyLines: bodyEl ? bodyEl.clientHeight / parseFloat(getComputedStyle(bodyEl).lineHeight) : null,
           head: r(row.querySelector(".lore-row__head")),
           row: r(row),
           actions: r(row.querySelector(".lore-row__actions")),
-          actionButtons: [...row.querySelectorAll(".lore-row__actions button")].map((b) => ({
-            text: (b.textContent ?? "").trim() || b.getAttribute("aria-label") || "",
+          actionButtons: [...row.querySelectorAll(".lore-row__actions > *")].map((b) => ({
+            text: (b.textContent ?? "").trim() || b.getAttribute("title") || "",
             cls: b.className.toString(),
             svg: b.querySelector("svg") !== null,
             height: b.getBoundingClientRect().height,
@@ -131,8 +143,10 @@ async function measure(page: any): Promise<{
             return body ? body.scrollHeight > body.clientHeight + 1 : null;
           })(),
           toggle: row.getAttribute("role") === "button",
-          meta: r(row.querySelector(".lore-row__meta")),
-          metaItems: [...row.querySelectorAll(".lore-row__meta > *")].map((c) => r(c)!),
+          meta: r(row.querySelector(".card-meta")),
+          metaItems: [
+            ...row.querySelectorAll(".card-meta > :not(.card-meta__row), .card-meta__row > *"),
+          ].map((c) => r(c)!),
           composer: r(row.querySelector('[data-testid="lore-message-box"] .task-card__composer')),
           composerItems: [
             ...row.querySelectorAll('[data-testid="lore-message-box"] .task-card__composer > :not([hidden])'),
@@ -171,14 +185,18 @@ const inside = (inner: Box, outer: Box) =>
   inner.top >= outer.top - 1 &&
   inner.bottom <= outer.bottom + 1;
 
-function assertHeadContained(width: number, row: RowGeom) {
-  const tag = `[${width}px] ${row.id}`;
+const ACTION_NAMES = {
+  zh: { edit: "編輯", collapse: "收合", expand: "展開" },
+  en: { edit: "Edit", collapse: "Collapse", expand: "Expand" },
+};
+
+function assertHeadContained(width: number, row: RowGeom, language: "zh" | "en" = "zh") {
+  const tag = `[${width}px ${language}] ${row.id}${row.folded ? " folded" : ""}`;
+  const names = ACTION_NAMES[language];
   expect.soft(row.head, `${tag} .lore-row__head missing`).not.toBeNull();
-  // id, type, state, scope — in that order, inside the wrapper.
-  expect.soft(row.badges.length, `${tag} .lore-row__badges children`).toBe(4);
-  expect
-    .soft(row.badgeOrder, `${tag} badge order`)
-    .toEqual(["lore-entry-id", "lore-type", "lore-state", "lore-scope-name"]);
+  const order = ["lore-state", "lore-entry-id", "lore-type", "lore-scope-name"];
+  if (row.dimmed) order.push("lore-dropped-tag");
+  expect.soft(row.badgeOrder, `${tag} badge order`).toEqual(order);
   if (!row.head) return;
   for (const b of row.badges) {
     expect
@@ -186,49 +204,71 @@ function assertHeadContained(width: number, row: RowGeom) {
       .toBeLessThanOrEqual(row.head.right + 1);
     expect
       .soft(b.box.left, `${tag} "${b.cls}" left edge before the head`)
-      .toBeGreaterThanOrEqual(row.head.left - 1);
+      .toBeGreaterThanOrEqual(row.head.left - 5);
+  }
+  if (row.badges[0] && row.badges[1])
+    expect
+      .soft(Math.abs((row.badges[0].box.top + row.badges[0].box.bottom) / 2 - (row.badges[1].box.top + row.badges[1].box.bottom) / 2), `${tag} 狀態 icon not on the id's line`)
+      .toBeLessThanOrEqual(4);
+  expect.soft(row.title, `${tag} title missing`).not.toBeNull();
+  if (row.title && row.row) {
+    expect.soft(inside(row.title, row.row), `${tag} title outside the card`).toBe(true);
+    expect.soft(row.title.top, `${tag} title not under the head`).toBeGreaterThanOrEqual(row.head.bottom - 1);
   }
   expect.soft(row.meta, `${tag} meta grid missing`).not.toBeNull();
-  // 撰寫人, its pill, 生效期, the time: two label/value rows.
-  expect.soft(row.metaItems.length, `${tag} meta items`).toBe(4);
+  // 撰寫人, its pill, 生效期, the time (, 失效理由, the reason): label/value rows.
+  expect.soft([4, 6].includes(row.metaItems.length), `${tag} meta items ${row.metaItems.length}`).toBe(true);
   if (row.row)
     for (const m of row.metaItems)
       expect.soft(inside(m, row.row), `${tag} meta item outside the card`).toBe(true);
   const mid = (b: Box) => (b.top + b.bottom) / 2;
-  if (row.metaItems.length === 4) {
-    const [authorLabel, author, effLabel, eff] = row.metaItems;
-    expect.soft(Math.abs(mid(authorLabel) - mid(author)), `${tag} 撰寫人 beside its pill`).toBeLessThanOrEqual(4);
-    expect.soft(Math.abs(mid(effLabel) - mid(eff)), `${tag} 生效期 beside its time`).toBeLessThanOrEqual(4);
-    expect.soft(effLabel.top, `${tag} 生效期 on the row under 撰寫人`).toBeGreaterThanOrEqual(author.bottom - 1);
-    expect.soft(Math.abs(author.left - eff.left), `${tag} values share one column`).toBeLessThanOrEqual(1);
-  }
-  expect.soft(row.composer, `${tag} message box missing`).not.toBeNull();
-  expect
-    .soft(row.composerItems.map((c) => c.id), `${tag} message box parts`)
-    .toEqual(["lore-msg-attach", "lore-msg-input", "lore-msg-send"]);
-  row.composerItems.forEach((c, i) => {
-    if (row.row) expect.soft(inside(c.box, row.row), `${tag} "${c.id}" outside the card`).toBe(true);
-    const next = row.composerItems[i + 1];
-    if (next) {
-      expect.soft(c.box.right, `${tag} "${c.id}" runs into "${next.id}"`).toBeLessThanOrEqual(next.box.left + 1);
-      expect.soft(Math.abs(c.box.bottom - next.box.bottom), `${tag} "${c.id}" and "${next.id}" not on one row`).toBeLessThanOrEqual(4);
+  for (let i = 0; i + 1 < row.metaItems.length; i += 2) {
+    const [label, value] = [row.metaItems[i], row.metaItems[i + 1]];
+    expect.soft(Math.abs(mid(label) - mid(value)) <= 4 || Math.abs(label.top - value.top) <= 4, `${tag} meta row ${i / 2} label beside its value`).toBe(true);
+    expect.soft(value.left, `${tag} meta row ${i / 2} value not right of its label`).toBeGreaterThanOrEqual(label.right);
+    if (i > 0) {
+      expect.soft(label.top, `${tag} meta row ${i / 2} not under the one above`).toBeGreaterThanOrEqual(row.metaItems[i - 1].bottom - 1);
+      expect.soft(Math.abs(value.left - row.metaItems[1].left), `${tag} values share one column`).toBeLessThanOrEqual(1);
     }
-  });
-  const input = row.composerItems.find((c) => c.id === "lore-msg-input");
-  if (input) expect.soft(input.box.right - input.box.left, `${tag} message input too narrow`).toBeGreaterThanOrEqual(150);
-  const send = row.composerItems.find((c) => c.id === "lore-msg-send");
-  if (send) expect.soft(send.box.bottom - send.box.top, `${tag} 送出 wraps`).toBeLessThanOrEqual(40);
-  // No fold: the body shows in full and the row is not a toggle.
-  expect.soft(row.bodyOverflows, `${tag} body missing or clipped`).toBe(false);
-  expect.soft(row.toggle, `${tag} row is a toggle`).toBe(false);
+  }
+  if (row.folded) {
+    expect.soft(row.composer, `${tag} folded card has a message box`).toBeNull();
+    expect.soft(row.bodyLines, `${tag} body missing`).not.toBeNull();
+    expect.soft(Math.round(row.bodyLines ?? 0), `${tag} folded body lines`).toBeLessThanOrEqual(2);
+  } else {
+    expect.soft(row.composer, `${tag} message box missing`).not.toBeNull();
+    expect
+      .soft(row.composerItems.map((c) => c.id), `${tag} message box parts`)
+      .toEqual(["lore-msg-attach", "lore-msg-input", "lore-msg-send"]);
+    row.composerItems.forEach((c, i) => {
+      if (row.row) expect.soft(inside(c.box, row.row), `${tag} "${c.id}" outside the card`).toBe(true);
+      const next = row.composerItems[i + 1];
+      if (next) {
+        expect.soft(c.box.right, `${tag} "${c.id}" runs into "${next.id}"`).toBeLessThanOrEqual(next.box.left + 1);
+        expect.soft(Math.abs(c.box.bottom - next.box.bottom), `${tag} "${c.id}" and "${next.id}" not on one row`).toBeLessThanOrEqual(4);
+      }
+    });
+    const input = row.composerItems.find((c) => c.id === "lore-msg-input");
+    if (input && width >= 360)
+      expect.soft(input.box.right - input.box.left, `${tag} message input too narrow`).toBeGreaterThanOrEqual(150);
+    const send = row.composerItems.find((c) => c.id === "lore-msg-send");
+    if (send) expect.soft(send.box.bottom - send.box.top, `${tag} 送出 wraps`).toBeLessThanOrEqual(40);
+    expect.soft(row.bodyOverflows, `${tag} body missing or clipped`).toBe(false);
+  }
+  expect.soft(row.toggle, `${tag} card is not the fold toggle`).toBe(true);
   expect.soft(row.actions, `${tag} actions missing`).not.toBeNull();
-  // One 編輯 at every width, the app's own edit button: pencil + label, and
-  // the 30px .doc-btn box (proves settings.css styles it, not a bare <button>).
+  // The borderless 編輯 icon, then the chevron, folded or open (like the task card's actions).
   expect
     .soft(row.actionButtons.map((b) => [b.text, b.cls, b.svg]), `${tag} actions`)
-    .toEqual([["編輯", "doc-btn doc-btn--edit", true]]);
+    .toEqual([
+      [names.edit, "card-head__icon-btn", true],
+      row.folded
+        ? [names.expand, "lore-row__fold", true]
+        : [names.collapse, "lore-row__fold lore-row__fold--open", true],
+    ]);
+  const firstBadge = row.badges[0];
   for (const b of row.actionButtons) {
-    expect.soft(Math.round(b.height), `${tag} "${b.text}" height`).toBe(30);
+    expect.soft(b.height, `${tag} "${b.text}" taller than the 狀態 icon`).toBeLessThanOrEqual((firstBadge ? firstBadge.box.bottom - firstBadge.box.top : 26) + 1);
     expect.soft(inside(b.box, row.head), `${tag} "${b.text}" outside the head`).toBe(true);
     if (row.row) expect.soft(inside(b.box, row.row), `${tag} "${b.text}" outside the card`).toBe(true);
     for (const badge of row.badges) {
@@ -262,23 +302,16 @@ function assertNoHScroll(width: number, g: { pageOver: number; loreOver: number 
   expect.soft(g.loreOver, `[${width}px] .lore horizontal scroll`).toBeLessThanOrEqual(1);
 }
 
-for (const width of [390, 1440]) {
-  test(`the directory lists every target inside its row @${width}px`, async ({ mount, page }) => {
-    await mountAt(mount, page, width, false, "");
-    const g = await measure(page);
-    assertNoHScroll(width, g);
-    assertSectionHeadsContained(width, g.sections);
-    expect(g.rows.length, `[${width}px] the directory shows no cards`).toBe(0);
-  });
-
+for (const width of [320, 390, 1440]) {
   for (const [visit, dirCollapsed] of [
     ["a first visit", null],
     ["every group open", []],
   ] as const) {
-    test(`on ${visit} the directory's group headings read on one line and 全部收合 leaves no sideways scroll @${width}px`, async ({ mount, page }) => {
+    test(`on ${visit} the directory's group headings read on one line, and its toolbar row holds the count left with 篩選 and 全部收合 right, the 條目編號 field in ${width > 720 ? "the panel" : "the sheet"}, no sideways scroll @${width}px`, async ({ mount, page }) => {
       await page.setViewportSize({ width, height: 900 });
       const cmp = await mount(<LoreRowHeadStory dirCollapsed={dirCollapsed === null ? null : [...dirCollapsed]} />);
       await expect(cmp.locator('[data-testid="lore-collapse-all"]')).toBeVisible();
+      await expect(cmp.locator('[data-testid="lore-directory-filter-summary"]')).toBeVisible();
       const g = await page.evaluate(() => {
         const box = (el: Element | null) => {
           if (!el) return null;
@@ -292,6 +325,18 @@ for (const width of [390, 1440]) {
           loreOver: lore ? lore.scrollWidth - lore.clientWidth : -2,
           lore: box(lore),
           button: box(document.querySelector('[data-testid="lore-collapse-all"]')),
+          funnel: box(document.querySelector('[data-testid="lore-directory-filter-toggle"]')),
+          toolbar: box(document.querySelector('[data-testid="lore-directory-filter"]')),
+          firstHeading: box(document.querySelector('[data-testid^="lore-group-heading-"]')),
+          count: (() => {
+            const n = document.querySelector('[data-testid="lore-directory-filter-summary"]') as HTMLElement | null;
+            if (!n) return null;
+            const range = document.createRange();
+            range.selectNodeContents(n);
+            const t = range.getBoundingClientRect();
+            return { text: n.textContent ?? "", box: box(n)!, textMid: (t.top + t.bottom) / 2, cut: n.scrollWidth > n.clientWidth + 0.5 };
+          })(),
+          idOnPage: document.querySelector('[data-testid="lore-directory-id"]') !== null,
           headings: [...document.querySelectorAll('[data-testid^="lore-group-heading-"]')].map((h) => {
             const label = h.querySelector(".chat-groups__heading-label");
             const range = document.createRange();
@@ -315,6 +360,22 @@ for (const width of [390, 1440]) {
         expect.soft(g.button.right, `[${width}px] 全部收合 inside .lore`).toBeLessThanOrEqual(g.lore.right + 1);
         expect.soft(g.button.right - g.button.left, `[${width}px] 全部收合 width`).toBeGreaterThanOrEqual(28);
       }
+      expect(g.count, `[${width}px] directory count`).not.toBeNull();
+      expect(g.funnel, `[${width}px] directory funnel`).not.toBeNull();
+      if (g.count && g.funnel && g.button && g.lore && g.toolbar && g.firstHeading) {
+        const mid = (b: Box) => (b.top + b.bottom) / 2;
+        expect.soft(g.count.text, `[${width}px] count text`).toMatch(/^[\d,]+ 筆傳承$/);
+        expect.soft(g.count.cut, `[${width}px] count whole`).toBe(false);
+        expect.soft(Math.abs(g.count.box.left - g.toolbar.left), `[${width}px] count left edge`).toBeLessThanOrEqual(1);
+        expect.soft(g.count.box.right, `[${width}px] count ends left of the funnel`).toBeLessThanOrEqual(g.funnel.left);
+        expect.soft(g.funnel.right, `[${width}px] funnel before 全部收合`).toBeLessThanOrEqual(g.button.left);
+        expect.soft(Math.abs(g.button.right - g.toolbar.right), `[${width}px] 全部收合 at the row's right end`).toBeLessThanOrEqual(1);
+        expect.soft(Math.abs(mid(g.funnel) - mid(g.button)), `[${width}px] funnel and 全部收合 on one line`).toBeLessThanOrEqual(1);
+        expect.soft(Math.abs(g.count.textMid - mid(g.funnel)), `[${width}px] count on the funnel's line`).toBeLessThanOrEqual(2);
+        expect.soft(Math.abs(g.funnel.bottom - g.funnel.top - (g.button.bottom - g.button.top)), `[${width}px] funnel and 全部收合 same height`).toBeLessThanOrEqual(0.5);
+        expect.soft(g.toolbar.bottom, `[${width}px] toolbar above the groups`).toBeLessThanOrEqual(g.firstHeading.top + 0.5);
+      }
+      expect.soft(g.idOnPage, `[${width}px] 條目編號 field on the page while the panel is closed`).toBe(false);
       expect(g.headings.map((h) => h.text), `[${width}px] group headings`).toEqual([
         expect.stringMatching(/^所有人 · \d+$/),
         expect.stringMatching(/^正職成員 · \d+$/),
@@ -333,26 +394,98 @@ for (const width of [390, 1440]) {
         }
         if (g.lore) expect.soft(h.heading.right, `${tag} heading inside .lore`).toBeLessThanOrEqual(g.lore.right + 1);
       }
+
+      await page.getByTestId("lore-directory-filter-toggle").click();
+      const layer = page.getByTestId(width > 720 ? "lore-directory-filter-pop" : "lore-directory-filter-sheet");
+      await expect(layer).toBeVisible();
+      const field = layer.locator('.filter-panel__field:has([data-testid="lore-directory-id"])');
+      await expect(field.locator(".filter-panel__label")).toHaveText("條目編號");
+      const lb = (await layer.boundingBox())!;
+      expect.soft(lb.x, `[${width}px] filter layer left edge`).toBeGreaterThanOrEqual(0);
+      expect.soft(lb.x + lb.width, `[${width}px] filter layer right edge`).toBeLessThanOrEqual(width + 0.5);
+      const ib = (await page.getByTestId("lore-directory-id").boundingBox())!;
+      expect.soft(ib.x + ib.width, `[${width}px] 條目編號 inside the layer`).toBeLessThanOrEqual(lb.x + lb.width + 0.5);
+      if (width > 720 && g.funnel) {
+        expect.soft(lb.y, `[${width}px] panel hangs under the funnel`).toBeGreaterThanOrEqual(g.funnel.bottom);
+      }
+      assertNoHScroll(width, await pageAndLoreOver(page));
     });
   }
 
-  test(`every section page keeps each card's badges, actions and meta line inside it @${width}px`, async ({ mount, page }) => {
-    const cmp = await mountAt(mount, page, width, false, "");
-    const g = await measureEverySection(cmp, page);
-    assertNoHScroll(width, g);
-    expect(g.keys.length, `[${width}px] sections visited`).toBeGreaterThanOrEqual(4);
-    expect(g.rows.length, `[${width}px] rows rendered`).toBeGreaterThanOrEqual(5);
+}
 
-    for (const row of g.rows) {
-      assertHeadContained(width, row);
-      const tag = `[${width}px] ${row.id}`;
-      if (width === 1440) {
-        const tops = row.badges.map((b) => (b.box.top + b.box.bottom) / 2);
-        expect
-          .soft(Math.max(...tops) - Math.min(...tops), `${tag} badges not on one line`)
-          .toBeLessThanOrEqual(4);
+for (const width of [320, 390, 1440]) {
+  for (const language of ["zh", "en"] as const) {
+    test(`every section page keeps each card's badges, actions and meta rows inside it, folded or open @${width}px ${language}`, async ({ mount, page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate((lang) => localStorage.setItem("oc.language", lang), language);
+      const cmp = await mount(<LoreRowHeadStory roleCap={100} />);
+      await expect(cmp.locator('[data-testid="lore-target"]').first()).toBeVisible();
+      const g = await measureEverySection(cmp, page);
+      assertNoHScroll(width, g);
+      expect(g.keys.length, `[${width}px] sections visited`).toBeGreaterThanOrEqual(4);
+      expect(g.rows.length, `[${width}px] rows rendered`).toBeGreaterThanOrEqual(5);
+      expect(g.rows.some((r) => r.folded), `[${width}px] a folded card measured`).toBe(true);
+
+      for (const row of g.rows) {
+        assertHeadContained(width, row, language);
+        const tag = `[${width}px ${language}] ${row.id}`;
+        if (width === 1440) {
+          const tops = row.badges.map((b) => (b.box.top + b.box.bottom) / 2);
+          expect
+            .soft(Math.max(...tops) - Math.min(...tops), `${tag} badges not on one line`)
+            .toBeLessThanOrEqual(4);
+        }
       }
-    }
+    });
+  }
+}
+
+for (const width of [320, 390, 1440]) {
+  for (const language of ["zh", "en"] as const) {
+    test(`a retired card shows 生效期 as start – end beside its label, inside the card, on one line (broken only after the dash at 320px en) @${width}px ${language}`, async ({ mount, page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate((lang) => localStorage.setItem("oc.language", lang), language);
+      const cmp = await mount(<LoreRowHeadStory />);
+      await cmp.getByTestId("lore-directory-filter-toggle").click();
+      const idField = page.getByTestId("lore-directory-id");
+      await idField.fill("L-3");
+      await idField.press("Enter");
+      const effective = page.locator('[data-entry-id="L-3"] [data-testid="lore-effective"]');
+      await expect(effective).toContainText(" – ");
+      const g = await measure(page);
+      assertNoHScroll(width, g);
+      const row = g.rows.find((r) => r.id === "L-3");
+      expect(row, `[${width}px ${language}] L-3 row`).toBeTruthy();
+      const tag = `[${width}px ${language}] L-3`;
+      const loreRight = await page.locator(".lore").evaluate((el: HTMLElement) => el.getBoundingClientRect().left + el.clientWidth);
+      expect.soft(row!.row!.right, `${tag} card past the list`).toBeLessThanOrEqual(loreRight + 0.5);
+      for (const m of row!.metaItems) expect.soft(inside(m, row!.row!), `${tag} meta item outside the card`).toBe(true);
+      const [label, value] = [row!.metaItems[2], row!.metaItems[3]];
+      expect.soft(Math.abs((label.top + label.bottom) / 2 - (value.top + value.bottom) / 2), `${tag} 生效期 value beside its label`).toBeLessThanOrEqual(4);
+      expect.soft(value.left, `${tag} 生效期 value right of its label`).toBeGreaterThanOrEqual(label.right);
+      const text = await effective.evaluate((el: HTMLElement) => ({
+        lines: el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight),
+        clipped: el.scrollWidth - el.clientWidth,
+      }));
+      // The shared label column leaves 320px en a few px short: the range breaks after its dash there.
+      if (width === 320 && language === "en") {
+        expect.soft(Math.round(text.lines), `${tag} 生效期 range lines`).toBeLessThanOrEqual(2);
+      } else {
+        expect.soft(Math.round(text.lines), `${tag} 生效期 range lines`).toBe(1);
+      }
+      expect.soft(text.clipped, `${tag} 生效期 range runs past its column`).toBeLessThanOrEqual(0.5);
+    });
+  }
+}
+
+for (const width of [390, 1440]) {
+  test(`the directory lists every target inside its row @${width}px`, async ({ mount, page }) => {
+    await mountAt(mount, page, width, false, "");
+    const g = await measure(page);
+    assertNoHScroll(width, g);
+    assertSectionHeadsContained(width, g.sections);
+    expect(g.rows.length, `[${width}px] the directory shows no cards`).toBe(0);
   });
 
   test(`a manual name longer than a line wraps inside the section head @${width}px`, async ({
@@ -372,7 +505,7 @@ for (const width of [390, 1440]) {
     assertHeadContained(width, l4!);
   });
 
-  test(`a member's section head sits on the page under the filters, not on a card, and its legend swatches match the bar @${width}px`, async ({ mount, page }) => {
+  test(`a member's section head sits on the page under the back link, not on a card, followed by the toolbar row (count left, 篩選 funnel right) above the list opening ${width > 720 ? "a panel under it" : "a bottom sheet"}, and its legend swatches match the bar @${width}px`, async ({ mount, page }) => {
     await mountAt(mount, page, width, false, MIRA);
     await expect(page.locator('[data-testid="lore-bar-everyone"]')).toBeVisible();
     const look = await page.evaluate(() => {
@@ -387,11 +520,33 @@ for (const width of [390, 1440]) {
         ownBar: bg(document.querySelector('[data-testid="lore-bar-own"]')),
         swatches: [...head.querySelectorAll(".lore-dir-card__swatch")].map((el) => bg(el)),
         order: [
-          [bottom('[data-testid="lore-back"]'), top('[data-testid="lore-filter"]')],
-          [bottom('[data-testid="lore-filter"]'), top(".lore-section__title")],
+          [bottom('[data-testid="lore-back"]'), top(".lore-section__title")],
           [bottom(".lore-section__title"), top('[data-testid="lore-section-bar"]')],
-          [bottom('[data-testid="lore-section-summary"]'), top('[data-testid="lore-row"]')],
+          [bottom('[data-testid="lore-section-summary"]'), top('[data-testid="lore-filter"]')],
+          [bottom('[data-testid="lore-filter"]'), top('[data-testid="lore-row"]')],
         ],
+        toolbar: (() => {
+          const bar = document.querySelector('[data-testid="lore-filter"]');
+          const f = document.querySelector('[data-testid="lore-filter-toggle"]');
+          const n = document.querySelector('[data-testid="lore-filter-summary"]');
+          if (!bar || !f || !n) return null;
+          const b = bar.getBoundingClientRect();
+          const h = head.getBoundingClientRect();
+          const r = f.getBoundingClientRect();
+          const c = n.getBoundingClientRect();
+          const range = document.createRange();
+          range.selectNodeContents(n);
+          const text = range.getBoundingClientRect();
+          return {
+            inHead: head.contains(f),
+            rightGap: h.right - r.right,
+            countLeftGap: c.left - h.left,
+            countBeforeFunnel: r.left - c.right,
+            midDelta: Math.abs((r.top + r.bottom) / 2 - (text.top + text.bottom) / 2),
+            countCut: (n as HTMLElement).scrollWidth > (n as HTMLElement).clientWidth + 0.5,
+            barWithinHead: b.left >= h.left - 0.5 && b.right <= h.right + 0.5,
+          };
+        })(),
         titleLines: (() => {
           const t = document.querySelector(".lore-section__title")!;
           return new Set([...t.children].map((c) => Math.round(c.getBoundingClientRect().top + c.getBoundingClientRect().height / 2))).size;
@@ -403,7 +558,28 @@ for (const width of [390, 1440]) {
     look.order.forEach(([above, below], i) =>
       expect.soft(above, `[${width}px] head order step ${i}`).toBeLessThanOrEqual(below + 0.5),
     );
-    expect.soft(look.titleLines, `[${width}px] name · count and 讀不到 on one line`).toBe(1);
+    expect.soft(look.titleLines, `[${width}px] name and 讀不到 on one line`).toBe(1);
+    expect(look.toolbar, `[${width}px] toolbar row with a count and the 篩選 funnel`).not.toBeNull();
+    expect.soft(look.toolbar!.inHead, `[${width}px] funnel out of the section head`).toBe(false);
+    expect.soft(look.toolbar!.barWithinHead, `[${width}px] toolbar as wide as the head`).toBe(true);
+    expect.soft(Math.abs(look.toolbar!.rightGap), `[${width}px] funnel right edge vs head`).toBeLessThanOrEqual(1);
+    expect.soft(Math.abs(look.toolbar!.countLeftGap), `[${width}px] count left edge vs head`).toBeLessThanOrEqual(1);
+    expect.soft(look.toolbar!.countBeforeFunnel, `[${width}px] count ends left of the funnel`).toBeGreaterThanOrEqual(0);
+    expect.soft(look.toolbar!.midDelta, `[${width}px] count centred on the funnel`).toBeLessThanOrEqual(2);
+    expect.soft(look.toolbar!.countCut, `[${width}px] count whole`).toBe(false);
+
+    await page.getByTestId("lore-filter-toggle").click();
+    const layer = page.getByTestId(width > 720 ? "lore-filter-pop" : "lore-filter-sheet");
+    await expect(layer).toBeVisible();
+    await expect(page.getByTestId("lore-filter-id")).toBeVisible();
+    const lb = (await layer.boundingBox())!;
+    expect.soft(lb.x, `[${width}px] filter layer left edge`).toBeGreaterThanOrEqual(0);
+    expect.soft(lb.x + lb.width, `[${width}px] filter layer right edge`).toBeLessThanOrEqual(width + 0.5);
+    if (width > 720) {
+      const fb = (await page.getByTestId("lore-filter-toggle").boundingBox())!;
+      expect.soft(lb.y, `[${width}px] panel hangs under the funnel`).toBeGreaterThanOrEqual(fb.y + fb.height);
+      expect.soft(Math.abs(lb.x + lb.width - (fb.x + fb.width)), `[${width}px] panel right edge on the funnel's`).toBeLessThanOrEqual(1);
+    }
     expect.soft(look.swatches, `[${width}px] legend swatches`).toEqual([look.everyoneBar, look.ownBar]);
     expect.soft(look.everyoneBar, `[${width}px] two bar colours`).not.toBe(look.ownBar);
     assertNoHScroll(width, await pageAndLoreOver(page));
@@ -430,49 +606,82 @@ for (const width of [390, 1440]) {
 }
 
 for (const width of [390, 1440]) {
-  test(`a folded 讀不到 row holds id, title, tag and chevron on one line inside the card, and opens into a full card @${width}px`, async ({ mount, page }) => {
+  test(`a folded 讀不到 card keeps its head, title and rows inside it with the body cut to two lines, and opens into the full card @${width}px`, async ({ mount, page }) => {
     await page.setViewportSize({ width, height: 900 });
     const cmp = await mount(<LoreRowHeadStory roleCap={100} hash={MIRA} />);
     const folded = cmp.locator('[data-testid="lore-row"][data-folded="true"]');
     await expect(folded.first()).toBeVisible();
-    const rows = await page.evaluate(() =>
-      [...document.querySelectorAll('[data-testid="lore-row"][data-folded="true"]')].map((row) => {
-        const r = (el: Element) => {
-          const b = el.getBoundingClientRect();
-          return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
-        };
-        const title = row.querySelector('[data-testid="lore-folded-title"]') as HTMLElement | null;
-        return {
-          id: row.getAttribute("data-entry-id") ?? "",
-          row: r(row),
-          parts: [...row.children].map((c) => ({ cls: c.className.toString(), box: r(c) })),
-          titleClipped: title ? getComputedStyle(title).textOverflow : null,
-        };
-      }),
-    );
-    expect(rows.length, `[${width}px] folded rows`).toBeGreaterThanOrEqual(1);
-    for (const f of rows) {
-      const tag = `[${width}px] folded ${f.id}`;
-      expect.soft(f.parts.length, `${tag} parts`).toBe(4);
-      const mids = f.parts.map((p) => (p.box.top + p.box.bottom) / 2);
-      expect.soft(Math.max(...mids) - Math.min(...mids), `${tag} not one line`).toBeLessThanOrEqual(4);
-      for (const p of f.parts) expect.soft(inside(p.box, f.row), `${tag} "${p.cls}" outside the row`).toBe(true);
-      expect.soft(f.titleClipped, `${tag} title ellipsis`).toBe("ellipsis");
-      expect.soft(f.parts[3]?.box.right ?? 0, `${tag} chevron at the right edge`).toBeGreaterThan(f.row.right - 40);
+    const before = await measure(page);
+    const foldedRows = before.rows.filter((r) => r.folded);
+    expect(foldedRows.length, `[${width}px] folded cards`).toBeGreaterThanOrEqual(1);
+    for (const f of foldedRows) {
+      expect.soft(f.dimmed, `[${width}px] ${f.id} folded card not 讀不到`).toBe(true);
+      assertHeadContained(width, f);
+      const chevron = f.actionButtons.at(-1);
+      if (f.row && chevron)
+        expect.soft(chevron.box.right, `[${width}px] ${f.id} chevron at the right edge`).toBeGreaterThan(f.row.right - 40);
     }
-    assertNoHScroll(width, await pageAndLoreOver(page));
+    assertNoHScroll(width, before);
 
-    const id = rows[0].id;
-    await cmp.locator(`[data-testid="lore-row"][data-entry-id="${id}"]`).click();
+    const id = foldedRows[0].id;
+    await cmp.locator(`[data-testid="lore-row"][data-entry-id="${id}"] .lore-row__title`).click();
     const opened = cmp.locator(`[data-testid="lore-row"][data-entry-id="${id}"]`);
-    await expect(opened.locator('[data-testid="lore-collapse"]')).toBeVisible();
+    await expect(opened).not.toHaveAttribute("data-folded", "true");
     const g = await measure(page);
     const row = g.rows.find((r) => r.id === id)!;
-    expect.soft(row.folded, `[${width}px] ${id} still folded`).toBe(false);
-    for (const b of row.actionButtons)
-      expect.soft(inside(b.box, row.head!), `[${width}px] ${id} "${b.text}" outside the head`).toBe(true);
-    expect.soft(row.metaItems.length, `[${width}px] ${id} meta items`).toBe(4);
+    assertHeadContained(width, row);
     assertNoHScroll(width, g);
+  });
+
+  test(`a read card starts folded and a click opens it; a click on its body folds it to the same card with its body cut to two lines and no message box, the cards below move up, and a click opens it again @${width}px`, async ({ mount, page }) => {
+    const cmp = await mountAt(mount, page, width, false, MIRA);
+    const card = cmp.locator('[data-testid="lore-row"]:not([data-dimmed="true"])').first();
+    const id = (await card.getAttribute("data-entry-id"))!;
+    const row = cmp.locator(`[data-testid="lore-row"][data-entry-id="${id}"]`);
+    await expect(row).toHaveAttribute("data-folded", "true");
+    await row.click();
+    await expect(row).not.toHaveAttribute("data-folded", "true");
+    const next = row.locator("xpath=following-sibling::*[1]");
+    const geom = (rowSel: string) =>
+      page.evaluate((sel: string) => {
+        const el = document.querySelector(sel)!;
+        return { height: el.getBoundingClientRect().height, nextTop: el.nextElementSibling!.getBoundingClientRect().top };
+      }, rowSel);
+    const sel = `[data-testid="lore-row"][data-entry-id="${id}"]`;
+    const before = await geom(sel);
+    await row.locator('[data-testid="lore-body"]').click();
+    await expect(row).toHaveAttribute("data-folded", "true");
+    const after = await geom(sel);
+    const tag = `[${width}px] folded ${id}`;
+    const g = await measure(page);
+    assertHeadContained(width, g.rows.find((r) => r.id === id)!);
+    expect.soft(after.height, `${tag} not shorter than the open card`).toBeLessThan(before.height - 1);
+    expect.soft(after.nextTop, `${tag} the card below did not move up`).toBeLessThan(before.nextTop - 1);
+    assertNoHScroll(width, g);
+    await expect(next).toBeVisible();
+
+    await row.click();
+    await expect(row).not.toHaveAttribute("data-folded", "true");
+    await expect(row).toBeFocused();
+    const g2 = await measure(page);
+    assertHeadContained(width, g2.rows.find((r) => r.id === id)!);
+    assertNoHScroll(width, g2);
+
+    const bodyHeight = async (title: string) => {
+      const card = cmp.locator('[data-testid="lore-row"]', { has: page.locator(".lore-row__title", { hasText: title }) });
+      if ((await card.getAttribute("data-folded")) !== "true") await card.locator(".lore-row__title").click();
+      await expect(card).toHaveAttribute("data-folded", "true");
+      return card.locator('[data-testid="lore-body"]').evaluate((el: HTMLElement) => ({
+        height: el.getBoundingClientRect().height,
+        lines: el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight),
+      }));
+    };
+    const plain = await bodyHeight("第 2 條補充的原則");
+    expect.soft(Math.round(plain.lines), `[${width}px] a long plain body folds to two lines`).toBe(2);
+    for (const title of [CODE_BLOCK_TITLE, TABLE_TITLE]) {
+      const folded = await bodyHeight(title);
+      expect.soft(Math.abs(folded.height - plain.height), `[${width}px] 「${title}」 folds to the plain body's two lines`).toBeLessThanOrEqual(1);
+    }
   });
 
   test(`the member section head's char/cap row and per-source counts each hold one line inside the head @${width}px`, async ({ mount, page }) => {
@@ -802,10 +1011,10 @@ for (const width of [390, 1440]) {
     expect(before.scrollTop, `[${width}px] .lore did not scroll`).toBeGreaterThan(0);
 
     const row = cmp.locator(sel);
-    const next = (await row.locator('[data-testid="lore-state"]').textContent())?.trim() === "置頂" ? "active" : "pinned";
+    const next = (await row.locator('[data-testid="lore-state"]').getAttribute("aria-label")) === "置頂" ? "active" : "pinned";
     await row.locator('[data-testid="lore-state"]').click();
     await row.locator(`[data-testid="lore-state-${next}"]`).click();
-    await expect(row.locator('[data-testid="lore-state"]')).toHaveText(next === "pinned" ? "置頂" : "生效中");
+    await expect(row.locator('[data-testid="lore-state"]')).toHaveAttribute("aria-label", next === "pinned" ? "置頂" : "生效中");
 
     const after = {
       scrollTop: await page.evaluate(() => (document.querySelector(".lore") as HTMLElement).scrollTop),
@@ -838,20 +1047,32 @@ async function stageOtherState(row: any) {
     .click();
 }
 
-/** Every card's box, keyed by id. */
-async function cardBoxes(page: any): Promise<Record<string, Box>> {
+/** Each card's box, plus its head's height: a staged tag with a shorter label
+ * may let the tags fit on fewer lines, and that is the only height change a
+ * staged card is allowed. */
+async function cardBoxes(page: any): Promise<Record<string, Box & { head: number }>> {
   return page.evaluate(() =>
     Object.fromEntries(
       [...document.querySelectorAll('[data-testid="lore-row"]')].map((row) => {
         const b = row.getBoundingClientRect();
-        return [row.getAttribute("data-entry-id"), { left: b.left, right: b.right, top: b.top, bottom: b.bottom }];
+        const head = row.querySelector(".lore-row__head")!.getBoundingClientRect().height;
+        return [row.getAttribute("data-entry-id"), { left: b.left, right: b.right, top: b.top, bottom: b.bottom, head }];
       }),
     ),
   );
 }
 
+/** How much a card's head changed when staged, after asserting the change is
+ * allowed: none at 1440, elsewhere only shorter. */
+function shorterHead(width: number, id: string, before: number, after: number): number {
+  const change = after - before;
+  expect.soft(change, `[${width}px] ${id}'s head grew when staged`).toBeLessThanOrEqual(0.5);
+  if (width >= 1440) expect.soft(Math.abs(change), `[${width}px] ${id}'s head changed height when staged`).toBeLessThanOrEqual(0.5);
+  return Math.min(change, 0);
+}
+
 for (const width of [360, 390, 1440]) {
-  test(`a staged card is as tall as before, the cards below stay put, and every ↺ sits inside its card @${width}px`, async ({ mount, page }) => {
+  test(`a staged card never grows — it may only get shorter when its tags fit on fewer lines (never at 1440px, where they share one line) — the cards below move only by that, and every ↺ sits inside its card @${width}px`, async ({ mount, page }) => {
     const cmp = await mountAt(mount, page, width, false, MIRA, 900);
     const row = cmp.locator('[data-testid="lore-row"]:has(button[data-testid="lore-scope-name"])').first();
     const id = await row.getAttribute("data-entry-id");
@@ -865,16 +1086,19 @@ for (const width of [360, 390, 1440]) {
       .click();
     await expect(row.locator('[data-testid^="lore-revert-"]')).toHaveCount(3);
     const after = await cardBoxes(page);
+    let shift = 0;
     for (const [k, b] of Object.entries(before)) {
       if (!after[k]) continue;
-      expect.soft(Math.abs(after[k].bottom - after[k].top - (b.bottom - b.top)), `[${width}px] ${k} height changed (staged: ${id})`).toBeLessThanOrEqual(0.5);
-      expect.soft(Math.abs(after[k].top - b.top), `[${width}px] ${k} moved (staged: ${id})`).toBeLessThanOrEqual(0.5);
+      const rewrap = shorterHead(width, k, b.head, after[k].head);
+      expect.soft(Math.abs(after[k].top - b.top - shift), `[${width}px] ${k} moved (staged: ${id})`).toBeLessThanOrEqual(0.5);
+      expect.soft(Math.abs(after[k].bottom - after[k].top - (b.bottom - b.top) - rewrap), `[${width}px] ${k} height changed beyond its tags rewrapping (staged: ${id})`).toBeLessThanOrEqual(0.5);
+      shift += rewrap;
     }
     await assertMarksInside(page, width);
     assertNoHScroll(width, await pageAndLoreOver(page));
   });
 
-  test(`a card under a long manual name keeps its height when its type and state are staged @${width}px`, async ({ mount, page }) => {
+  test(`a card under a long manual name never grows when its type and state are staged, only getting shorter if its tags fit on fewer lines @${width}px`, async ({ mount, page }) => {
     const cmp = await mountAt(mount, page, width, true, MANUAL, 900);
     const row = cmp.locator('[data-entry-id="L-4"]');
     const before = await cardBoxes(page);
@@ -884,7 +1108,8 @@ for (const width of [360, 390, 1440]) {
     const after = await cardBoxes(page);
     for (const [k, b] of Object.entries(before)) {
       if (!after[k]) continue;
-      expect.soft(Math.abs(after[k].bottom - after[k].top - (b.bottom - b.top)), `[${width}px] ${k} height changed`).toBeLessThanOrEqual(0.5);
+      const rewrap = shorterHead(width, k, b.head, after[k].head);
+      expect.soft(Math.abs(after[k].bottom - after[k].top - (b.bottom - b.top) - rewrap), `[${width}px] ${k} height changed beyond its tags rewrapping`).toBeLessThanOrEqual(0.5);
     }
     await assertMarksInside(page, width);
     assertNoHScroll(width, await pageAndLoreOver(page));

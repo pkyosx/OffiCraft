@@ -66,7 +66,7 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("T-c21e S1 重複原票列的編號", () => {
-  it("names the original by its id", () => {
+  it("names the original by its id, led by the jump icon", () => {
     const dupe = mkTask({
       title: "重複票",
       status: "duplicated",
@@ -79,5 +79,11 @@ describe("T-c21e S1 重複原票列的編號", () => {
     // deleted rather than relaxed: with the number equal to the id it directly
     // contradicts the first half and could only pass on an empty row.
     expect(text).toContain(LONG_ID);
+    const link = container.querySelector('[data-testid="task-duplicate-link"]')!;
+    expect(
+      Array.from(link.children).map((el) =>
+        el.tagName === "svg" ? el.querySelector("polyline")?.getAttribute("points") : el.textContent,
+      ),
+    ).toEqual(["15 3 21 3 21 9", `重複於 #${LONG_ID}`]);
   });
 });

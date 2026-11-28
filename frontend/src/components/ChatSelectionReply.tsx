@@ -429,8 +429,27 @@ export function ChatSelectionModeBar({
     ro?.observe(bar);
     ro?.observe(row);
     ro?.observe(thread);
+    // A row that moves in the list (a card snoozed from elsewhere goes to the
+    // end) keeps its size, so only its place in the list says so. Other
+    // changes to the list leave the reader where they are.
+    const placeOf = () => {
+      const current = thread.querySelector<HTMLElement>(rowSelector) ?? row;
+      return current.getBoundingClientRect().top - thread.getBoundingClientRect().top + thread.scrollTop;
+    };
+    let place = placeOf();
+    const mo =
+      typeof MutationObserver === "undefined"
+        ? null
+        : new MutationObserver(() => {
+            const next = placeOf();
+            if (Math.abs(next - place) <= 1) return;
+            place = next;
+            fit();
+          });
+    mo?.observe(thread, { childList: true, subtree: true });
     return () => {
       ro?.disconnect();
+      mo?.disconnect();
       pane.style.removeProperty(BAR_RESERVE_VAR);
     };
   }, [root, rowSelector]);

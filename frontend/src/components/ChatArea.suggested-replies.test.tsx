@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent, screen, waitFor } from "@testing-library/react";
+import { render, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { ChatArea } from "./ChatArea";
 import type { Member } from "../types";
@@ -357,7 +357,7 @@ describe("ChatArea 建議回覆", () => {
       fireEvent.click(button);
     };
 
-    it("deleting the only row hands focus to the add button, and Tab still circles inside", () => {
+    it("deleting the only row hands focus to the add button, and Tab still circles inside through the ⓘ", () => {
       render(<SavingChat initial={["a"]} />);
       openDialog();
       const dialog = screen.getByTestId("chat-suggested-replies-dialog");
@@ -366,6 +366,8 @@ describe("ChatArea 建議回覆", () => {
       const add = screen.getByRole("button", { name: "新增一句" });
       expect(document.activeElement).toBe(add);
       fireEvent.keyDown(add, { key: "Tab" });
+      expect(document.activeElement).toBe(within(dialog).getByTestId("info-hint"));
+      fireEvent.keyDown(document.activeElement as HTMLElement, { key: "Tab" });
       expect(document.activeElement).toBe(screen.getByRole("button", { name: "關閉" }));
     });
 

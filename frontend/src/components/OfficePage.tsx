@@ -32,6 +32,7 @@ import { WorkerDetailPanel } from "./WorkerDetailPanel";
 import { OutsourcePanel, OutsourceTaskLine } from "./OutsourcePanel";
 import { OfficeSidebarTabs } from "./OfficeSidebarTabs";
 import { OutsourceCapPopover } from "./OutsourceCapPopover";
+import { isInHint } from "./InstantHint";
 import { ChatGroupPanel } from "./ChatGroupPanel";
 import { UNGROUPED } from "./ChatGroupList";
 import { ChevronLeftIcon, PersonPlusIcon } from "./icons";
@@ -334,7 +335,7 @@ export function OfficePage({
   useEffect(() => {
     if (!capOpen) return;
     function onDown(e: MouseEvent) {
-      if (!recruitRef.current?.contains(e.target as Node)) setCapOpen(false);
+      if (!recruitRef.current?.contains(e.target as Node) && !isInHint(e.target)) setCapOpen(false);
     }
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);

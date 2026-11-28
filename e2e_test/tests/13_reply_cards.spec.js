@@ -87,6 +87,11 @@ const {
   uniqueName,
 } = require('../lib/fixtures');
 
+/** Select the 近期已回覆 label above the list. */
+async function showAnswered(page) {
+  await page.getByTestId('replies-tab-answered').click();
+}
+
 // Build the wire `options` array. `aiPickAt` is the index that carries the
 // recommendation — the caller ALWAYS passes one that is not 0, on purpose (see
 // the header); pass -1 for a card that recommends nothing.
@@ -356,8 +361,8 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
         message: 'the tap alone must have answered it server-side',
       })
       .toBe(baseWaiting + 1);
-    // 近期已處理 collapses by default and loads lazily — expand it first.
-    await page.getByTestId('answered-toggle').click();
+    // Answered cards live under 近期已回覆 and load lazily — select it first.
+    await showAnswered(page);
     const answeredA = page
       .getByTestId('answered-card')
       .filter({ hasText: summaryA });
@@ -508,14 +513,14 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
     await expect(
       page.getByTestId('waiting-card').filter({ hasText: summaryB }),
     ).toHaveCount(0);
-    // Fresh visit → 近期已處理 starts collapsed again; expand to see B.
-    await page.getByTestId('answered-toggle').click();
-    await expect(
-      page.getByTestId('answered-card').filter({ hasText: summaryB }),
-    ).toBeVisible();
     if (baseWaiting === 0) {
       await expect(page.getByTestId('replies-empty')).toBeVisible();
     }
+    // Fresh visit → back on 等待回覆; select 近期已回覆 to see B.
+    await showAnswered(page);
+    await expect(
+      page.getByTestId('answered-card').filter({ hasText: summaryB }),
+    ).toBeVisible();
   });
 
   test('多選卡 — 勾兩個 + 打一段字, 一顆送出鍵送成同一份答覆', async ({
@@ -613,7 +618,7 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
 
     // Both circled options render on the final row — showing only the first
     // would silently drop half the decision.
-    await page.getByTestId('answered-toggle').click();
+    await showAnswered(page);
     const answered = page
       .getByTestId('answered-card')
       .filter({ hasText: summary });
@@ -741,8 +746,8 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
     await openPageCard(waiting);
     await tapOption(waiting, 0);
     await expect(waiting).toHaveCount(0);
-    // 近期已處理 collapses by default and loads lazily — expand it first.
-    await page.getByTestId('answered-toggle').click();
+    // Answered cards live under 近期已回覆 and load lazily — select it first.
+    await showAnswered(page);
     await expect(
       page.getByTestId('answered-card').filter({ hasText: summary }),
     ).toBeVisible();

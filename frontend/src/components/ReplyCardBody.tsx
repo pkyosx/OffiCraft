@@ -63,8 +63,13 @@ import { ReplyComposer } from "./ReplyComposer";
 import { useReplyCardQuoteTarget } from "./ChatSelectionReply";
 import { MentionText } from "./MentionText";
 import { useMentionRosterContext } from "../hooks/useMentionComposer";
-import { ChevronRightIcon } from "./icons";
+import { ChevronRightIcon, CircleCheckIcon, UserClockIcon } from "./icons";
+import { ExpireActionIcon, SnoozeActionIcon } from "./replyCardActionIcons";
+import { CopyIdChip } from "./IdChips";
+import { TaskDueChip, TaskIdChip, TaskPriorityBadge } from "./TaskChips";
+import { effectiveLeadMinutes } from "../lib/dueDate";
 import "./replies.css";
+import "./card-meta.css";
 import { autosizeTextarea } from "../lib/autosize";
 import { SecretValueInput } from "./SecretValueInput";
 import {
@@ -318,48 +323,102 @@ export function ReplyCardQuestionAttachments({
   );
 }
 
-/** §3.6 請示 → 任務: the task row an ask that names a task wears — the task's
- * own TITLE and the jump to it. A pure chat ask (task absent/null) renders
- * NOTHING: an empty slot reads as "this ask has no task", which is a different
- * claim from "it has one and we would not say which".
- *
- * ONE HOME for both surfaces (the 請示 page and the inline ChatReplyCard), so
- * the title is written once. The 請示 page passes `lead` — the task number,
- * priority and due chips; the chat card shows the title alone. The jump has no
- * visible label so that the title keeps the row's width. The typeKey is never
- * shown. The jump is a callback so this stays presentational (each surface owns
- * its own router). */
-export function ReplyCardTaskRef({
+/** The card's own id as its first-line chip: six characters after `rc-`, a
+ * click copies the whole id. */
+export function ReplyCardIdChip({ id }: { id: string }) {
+  const { t, msg } = useI18n();
+  return (
+    <CopyIdChip
+      value={id}
+      text={id.startsWith("rc-") ? id.slice(0, 9) : id}
+      label={msg.replyCopyId(id)}
+      copiedLabel={t.replies.idCopied}
+      className="reply-card__id"
+      testId="reply-card-id"
+      copiedTestId="reply-card-id-copied"
+    />
+  );
+}
+
+/** 處理時間, as a label/value row of `.card-meta`. Whether the card was
+ * answered or expired is the first line's status icon (owner). A secret card
+ * shows no time (owner), so it has no such row. */
+export function ReplyCardHandledRow({ time }: { time: string }) {
+  const { t } = useI18n();
+  return (
+    <div className="card-meta__row reply-card__handled-at" data-testid="reply-card-handled-at">
+      <span className="card-meta__label">{t.replies.handledAtLabel}</span>{" "}
+      <span className="reply-card__meta-time">{time}</span>
+    </div>
+  );
+}
+
+export type ReplyCardState = "waiting" | "snoozed" | "answered" | "expired";
+
+/** The icon that leads the first line and says where the card stands. */
+export function ReplyCardStatusIcon({ state }: { state: ReplyCardState }) {
+  const { t } = useI18n();
+  const label = {
+    waiting: t.tasks.replyWaitingTag,
+    snoozed: t.tasks.replySnoozedTag,
+    answered: t.tasks.replyAnsweredTag,
+    expired: t.replies.expiredTag,
+  }[state];
+  return (
+    <span
+      className={`reply-card__status-icon reply-card__status-icon--${state}`}
+      role="img"
+      aria-label={label}
+      title={label}
+      data-testid="reply-status-icon"
+      data-state={state}
+    >
+      {state === "waiting" ? (
+        <UserClockIcon size={16} />
+      ) : state === "snoozed" ? (
+        <SnoozeActionIcon size={16} />
+      ) : state === "answered" ? (
+        <CircleCheckIcon size={16} />
+      ) : (
+        <ExpireActionIcon size={16} />
+      )}
+    </span>
+  );
+}
+
+/** The task a card asks about, in a faint box under the first line: its id
+ * (the box's only control, it jumps to the task) and priority, then its title
+ * on one line, then its due date. */
+export function ReplyCardTaskBox({
   task,
   onJump,
-  lead,
+  workspaceLeadMinutes,
 }: {
   task: NonNullable<ReplyCard["task"]>;
   onJump: () => void;
-  lead?: ReactNode;
+  workspaceLeadMinutes: number;
 }) {
   const { t } = useI18n();
   return (
-    <div
-      className={`reply-card__task${lead ? " reply-card__task--row" : ""}`}
-      data-testid="reply-task-ref"
-    >
-      {lead}
+    <div className="reply-card__task" data-testid="reply-task-ref">
+      <div className="reply-card__task-line">
+        <TaskIdChip taskNo={task.id} label={t.replies.openTask} onOpen={onJump} testId="reply-task-no" />
+        {task.priority && <TaskPriorityBadge priority={task.priority} testId="reply-task-priority" />}
+      </div>
       {task.title && (
-        <span className="reply-card__task-title" title={task.title}>
+        <div className="reply-card__task-title" title={task.title} data-testid="reply-task-title">
           {task.title}
-        </span>
+        </div>
       )}
-      <button
-        type="button"
-        className="reply-card__task-jump"
-        data-testid="reply-task-jump"
-        aria-label={t.replies.openTask}
-        title={t.replies.openTask}
-        onClick={onJump}
-      >
-        <ChevronRightIcon size={14} />
-      </button>
+      {task.dueTs != null && (
+        <div className="reply-card__task-due">
+          <TaskDueChip
+            dueTs={task.dueTs}
+            leadMinutes={effectiveLeadMinutes(task.dueSoonLeadMinutes, workspaceLeadMinutes)}
+            testId="reply-task-due"
+          />
+        </div>
+      )}
     </div>
   );
 }

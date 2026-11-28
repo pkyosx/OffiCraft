@@ -710,9 +710,7 @@ export function toReplyCardWriteReceipt(
 }
 
 /** Map one wire task step → `TaskStepView`. Honest passthrough — defaulted-away
- * wire fields read as their wire defaults ("" / false / 0), never fabricated;
- * the gate projection (announced vs armed) is carried verbatim by
- * `isGate` + `replyCardId` and derived only in the component. */
+ * wire fields read as their wire defaults ("" / false / 0), never fabricated. */
 export function toTaskStep(w: WireTaskStep): TaskStepView {
   return {
     id: w.id,
@@ -2441,6 +2439,7 @@ export function toLoreEntry(
     sourceTaskId: w.source_task_id,
     state: toLoreEntryState(w.state),
     retireReason: w.retire_reason,
+    ...(w.retired_ts == null ? {} : { retiredTs: w.retired_ts }),
     effectiveTs: w.effective_ts,
     createdTs: w.created_ts,
     updatedTs: w.updated_ts,
@@ -2474,6 +2473,7 @@ export function toLoreEntryPage(
     entries: (w.entries ?? []).map(toLoreEntry),
     limit: w.limit,
     offset: w.offset,
+    total: w.total,
     capChars: w.cap_chars,
     firstDroppedId: w.first_dropped_id,
     usedChars: w.used_chars ?? 0,

@@ -31,7 +31,7 @@ const CARD: ReplyCard = {
   answer: null,
 };
 
-function ChatCardMessage() {
+function ChatCardMessage({ status }: { status: ReplyCard["status"] }) {
   return (
     <div className="chat__msg chat__msg--card" data-testid="chat-card-row">
       <div className="chat__msg-meta">
@@ -42,7 +42,7 @@ function ChatCardMessage() {
           <ChatReplyCard
             replyCardId={CARD.id}
             fallbackSummary={SUMMARY_LINE}
-            initialStatus="waiting"
+            initialStatus={status}
           />
         </div>
         <div className="chat__msg-sidemeta">
@@ -55,15 +55,25 @@ function ChatCardMessage() {
   );
 }
 
-export function ChatCardTimestampStory() {
+/** `answered`: the same card, answered ten minutes ago. */
+export function ChatCardTimestampStory({ answered = false }: { answered?: boolean }) {
   const [seeded, setSeeded] = useState(false);
   const messagesRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     __resetMock();
-    __injectMockReplyCard(CARD);
+    __injectMockReplyCard(
+      answered
+        ? {
+            ...CARD,
+            status: "answered",
+            answeredTs: Date.now() / 1000 - 600,
+            answer: { optionIdxs: [0], text: "", attachments: [] },
+          }
+        : CARD,
+    );
     setSeeded(true);
-  }, []);
+  }, [answered]);
 
   if (!seeded) return null;
 
@@ -83,7 +93,7 @@ export function ChatCardTimestampStory() {
                       data-testid="chat-messages"
                       ref={messagesRef}
                     >
-                      <ChatCardMessage />
+                      <ChatCardMessage status={answered ? "answered" : "waiting"} />
                     </div>
                   </div>
                 </ReplyCardQuoteProvider>

@@ -28,7 +28,8 @@ interface IdFilterInputProps {
    * round (「每次都要全部都撈回來才濾不合理」). Wiring this to `onChange` would
    * look like a tidy-up and would be that rejection, restored. */
   onCommit: (next: string) => void;
-  /** aria-label AND placeholder — the field carries no separate visible label. */
+  /** The input's aria-label. The visible caption is the host's FilterField
+   * label; owner 2026-11-28: no placeholder repeating it inside the box. */
   label: string;
   testId: string;
   /** How many CHARACTERS the ID this field holds is — not a look. owner
@@ -36,20 +37,6 @@ interface IdFilterInputProps {
    * reference to what goes in it, while 請示卡 ids are a FIXED length
    * (`api_replycards.go:283` mints "rc-" + 12 hex ⇒ always 15 characters). So
    * the width is DERIVED: pass the id length and the field sizes to it.
-   *
-   * 🔴 THE ID IS ONLY HALF OF WHAT HAS TO FIT. `label` below is this field's
-   * ONLY label — there is no caption beside it — so the box must also hold the
-   * placeholder, and on 任務頁 the label is the WIDER of the two. owner
-   * 2026-09-07 `rc-e2edbb0fff01` circled 「標籤維持『任務編號』，寬度取編號跟標籤
-   * 的較大者」 rather than shortening the label.
-   *
-   * 🔴 THE LARGER OF THE TWO IS MEASURED, NOT WRITTEN DOWN. idFilter.css sizes
-   * the field off a hidden copy of the label carrying `min-width: <this>ch`, so
-   * the browser takes the max in the field's own font. Writing a number here for
-   * the label would be one more picked constant — the exact thing owner has now
-   * objected to twice on this field (2026-09-06 「200px」, 2026-09-07 「ID寬度
-   * 要合理」) — and it would be wrong in the other locale, where the labels are
-   * "Task ID" and "Reply-card id" rather than four and five CJK glyphs.
    *
    * 任務 ids are `T-` + an integer (`dal_task_id_seq.go`; ids minted before that
    * change are "t-" + 12 hex and were NOT migrated, so both shapes still exist
@@ -68,9 +55,8 @@ export function IdFilterInput({
   widthCh,
 }: IdFilterInputProps) {
   return (
-    // The box is sized by the SIZER below, not by the input: the width has to be
-    // the larger of「the id」and「the label」, and only the browser knows how wide
-    // the label renders. Both live in one grid cell; the cell takes the wider.
+    // The box is sized by the SIZER below, not by the input: both live in one
+    // grid cell, and the sizer carries the id count as its min-width.
     <span
       className="id-filter-field"
       // A custom property, not a width: idFilter.css owns the box model (it has
@@ -81,9 +67,7 @@ export function IdFilterInput({
       // pixel count that was only ever right for one of them.
       style={{ "--id-filter-ch": widthCh } as CSSProperties}
     >
-      <span className="id-filter-sizer" aria-hidden="true">
-        {label}
-      </span>
+      <span className="id-filter-sizer" aria-hidden="true" />
       <input
         type="text"
         className="id-filter"
@@ -98,7 +82,6 @@ export function IdFilterInput({
         size={1}
         data-testid={testId}
         aria-label={label}
-        placeholder={label}
         value={value}
         spellCheck={false}
         autoComplete="off"

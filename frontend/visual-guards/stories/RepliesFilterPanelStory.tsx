@@ -8,17 +8,6 @@
 // panel here comes from `RepliesPage`, exactly as the owner meets it: delete the
 // `<FilterPanel>` from that page and this guard has nothing to measure.
 //
-// 🔁 WHAT T-118 CHANGED IN THIS FILE. owner 2026-09-06 20:07 (c-c3d681fe05da),
-// restated 20:19 (c-38c7759e6377):「不要多filter那一層了,全部拉出來…也不用再顯示
-// 14筆已篩選跟那一行跟案件那個子標了,案件跟請示卡都一樣」. `FilterPanel` now
-// takes ONLY `testId` + `children` — `title`/`count`/`open`/`onOpenChange`/
-// `chips`/`onClearAll`/`onApply`/`onCancel` are gone, and so is the `FilterChip`
-// type. The second export used to dictate a four-CHIP 已篩選 strip; there is no
-// strip any more, so it dictates the four-FIELD row instead — the same question
-// (does the shared shell WRAP its contents at a phone width, or run them out of
-// the column?) asked about the thing that still exists. `IdFilterInput` also
-// gained a required `onCommit`, so both exports pass one.
-//
 // What is stand-in is only the DATA: CT builds with the mock api seam
 // (`src/api/index.ts`, USE_MOCK defaults on), so the cards behind the panel are
 // the mock's. That is the right trade — the question here is "does this panel
@@ -26,7 +15,7 @@
 // rather than in the fetch.
 //
 // ⚠️ THE ANCESTOR CHAIN IS LOAD-BEARING (a lesson inherited from the story this
-// replaces, and the reason it is repeated in both exports). A bare `width: 100%`
+// replaces, and the reason it is repeated in each story). A bare `width: 100%`
 // mount lets the container grow to its content, so NO width mutant can ever
 // overflow it and the whole guard goes green-by-construction. `.app > .app__main`
 // with chrome.css loaded is where the 1040px cap and the 22px gutters live.
@@ -36,13 +25,9 @@
 // so the guard can ask the same question under each built-in without the story
 // re-implementing theming.
 import { I18nProvider } from "../../src/i18n";
-import { zh } from "../../src/i18n/locales/zh";
 import { RepliesPage } from "../../src/components/RepliesPage";
 import App from "../../src/App";
 import { ReplyCardsProvider } from "../../src/hooks/useReplyCards";
-import { FilterPanel } from "../../src/components/FilterPanel";
-import { IdFilterInput } from "../../src/components/IdFilterInput";
-import { MultiSelectFilter } from "../../src/components/MultiSelectFilter";
 import { LS_THEME } from "../../src/lib/themePaint";
 import type { BuiltinThemeId } from "../../src/lib/themeBundleCore";
 import "../../src/components/chrome.css"; // .app / .app__main — the real width cap
@@ -50,18 +35,78 @@ import "../../src/components/chrome.css"; // .app / .app__main — the real widt
 // stylesheet of its own — it relies on its host (`TasksPage`) having imported
 // `tasks.css`. That is a live exception to frontend/.claude/rules/
 // css-layout-traps.md 「用了哪份 CSS 的 class,就要自己 import 那份 CSS」, and it
-// is why this line exists: without it the second export's dropdowns render with
+// is why this line exists: without it the 請示頁 story's dropdowns render with
 // UA styling and the wrapping guard would measure boxes the product never
 // paints — the exact green-by-construction failure this file was rewritten to
 // end. If that component ever imports its own CSS, delete this line rather than
 // leaving two importers.
 import "../../src/components/tasks.css";
+import { api } from "../../src/api";
+import { __injectMockReplyCard } from "../../src/api/mock";
+import type { ReplyCard } from "../../src/api/adapter";
+
+let seeded = false;
+let held = false;
+function seedCards([waiting, snoozed, answered]: readonly [number, number, number]) {
+  if (seeded) return;
+  seeded = true;
+  const now = Date.now() / 1000;
+  const card = (i: number, over: Partial<ReplyCard>): ReplyCard => ({
+    id: `rc-tabs-${i}`,
+    from: "mira",
+    kind: "decision",
+    summary: `請示 ${i}`,
+    body: "",
+    options: [{ text: "好", aiPick: true }],
+    selectMode: "single",
+    status: "waiting",
+    attachments: [],
+    createdTs: now - 600 - i,
+    answeredTs: null,
+    chatMessageId: `msg-tabs-${i}`,
+    answer: null,
+    task: null,
+    ...over,
+  });
+  let i = 0;
+  for (let n = 0; n < waiting; n++) __injectMockReplyCard(card(i++, {}));
+  for (let n = 0; n < snoozed; n++) __injectMockReplyCard(card(i++, { snoozedUntilTs: now + 3600 }));
+  for (let n = 0; n < answered; n++) {
+    __injectMockReplyCard(
+      card(i++, {
+        status: "answered",
+        answeredTs: now - 300 - n,
+        answer: { optionIdxs: [0], text: "", attachments: [] },
+      })
+    );
+  }
+}
 
 /** The 請示 page itself, in the app's content column. The panel, its field and
- * every label the guard measures come from the shipped page. */
-export function RepliesPageStory({ theme }: { theme: BuiltinThemeId }) {
+ * every label the guard measures come from the shipped page. `cards` seeds
+ * that many waiting / snoozed / answered cards; `holdCounts` holds the
+ * count read until the page calls `window.__releaseReplyCounts()`, so no count
+ * is known before then. */
+export function RepliesPageStory({
+  theme,
+  cards,
+  holdCounts = false,
+}: {
+  theme: BuiltinThemeId;
+  cards?: readonly [number, number, number];
+  holdCounts?: boolean;
+}) {
   window.localStorage.setItem(LS_THEME, theme);
   document.documentElement.setAttribute("data-theme", theme);
+  if (cards) seedCards(cards);
+  if (holdCounts && !held) {
+    held = true;
+    const real = api.getReplyCardCount.bind(api);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    (window as unknown as { __releaseReplyCounts: () => void }).__releaseReplyCounts = release;
+    api.getReplyCardCount = () => gate.then(real);
+  }
   return (
     <I18nProvider>
       <div className="app" style={{ width: "100vw", maxWidth: "100vw" }}>
@@ -78,91 +123,26 @@ export function RepliesPageStory({ theme }: { theme: BuiltinThemeId }) {
 }
 
 /** The production shell with the requested page selected, including topbar and
- * nav. The width preference is set before I18nProvider reads it. */
+ * nav. The width preference is set before I18nProvider reads it. `lore` opens
+ * Mira's section page. */
 export function AppPageStory({
   page,
   theme,
   wide = false,
 }: {
-  page: "tasks" | "replies";
+  page: "tasks" | "replies" | "lore";
   theme: BuiltinThemeId;
   wide?: boolean;
 }) {
   window.localStorage.setItem(LS_THEME, theme);
   document.documentElement.setAttribute("data-theme", theme);
   window.localStorage.setItem("oc.wide", wide ? "true" : "false");
-  window.location.hash = `#${page}`;
+  window.location.hash = page === "lore" ? "#lore/agent/mira" : `#${page}`;
   return (
     <I18nProvider>
       <ReplyCardsProvider>
         <App onLogout={() => {}} />
       </ReplyCardsProvider>
-    </I18nProvider>
-  );
-}
-
-/** The SHARED shell alone, wearing the 任務頁's FOUR-field row.
- *
- * 🔁 REPLACES `FilterChipsStory`, which mounted the same shell with a dictated
- * list of 已篩選 chips. OVERTURNED BY owner 2026-09-06 (c-c3d681fe05da): the
- * strip and its chips no longer exist, so there is nothing left to lay one out
- * from. The QUESTION survives unchanged — several conditions on one shared row,
- * at the narrowest phone width, must WRAP inside the column rather than run out
- * of it — and the thing that now carries several conditions is the FIELDS.
- *
- * Why this exists beside the real page: driving several dropdowns through a
- * real list page would make a wrapping guard depend on that page's data. Both
- * components are the shipped ones; only the option lists are dictated. */
-export function FilterFieldsStory({ theme }: { theme: BuiltinThemeId }) {
-  window.localStorage.setItem(LS_THEME, theme);
-  document.documentElement.setAttribute("data-theme", theme);
-  const noop = () => undefined;
-  return (
-    <I18nProvider>
-      <div className="app" style={{ width: "100vw", maxWidth: "100vw" }}>
-        <main className="app__main">
-          <FilterPanel
-            testId="replies-filter"
-            clearLabel={zh.replies.clearFilters}
-          >
-            <IdFilterInput
-              value=""
-              onChange={noop}
-              onCommit={noop}
-              label="任務編號"
-              testId="filter-task-id"
-              widthCh={10}
-            />
-            <MultiSelectFilter
-              noun="負責人"
-              allLabel="所有負責人"
-              options={[
-                { value: "mira", label: "陳小明" },
-                { value: "kyle", label: "林大華" },
-              ]}
-              selected={new Set(["mira"])}
-              onChange={noop}
-              testId="filter-executor"
-            />
-            <MultiSelectFilter
-              noun="類型"
-              allLabel="所有類型"
-              options={[{ value: "feature", label: "功能開發" }]}
-              selected={new Set(["feature"])}
-              onChange={noop}
-              testId="filter-type"
-            />
-            <MultiSelectFilter
-              noun="狀態"
-              allLabel="所有狀態"
-              options={[{ value: "in_progress", label: "進行中" }]}
-              selected={new Set(["in_progress"])}
-              onChange={noop}
-              testId="filter-status"
-            />
-          </FilterPanel>
-        </main>
-      </div>
     </I18nProvider>
   );
 }

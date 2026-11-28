@@ -11,19 +11,64 @@ import { zh } from "../i18n/locales/zh";
 import { SettingsPage } from "./SettingsPage";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
+import { infoHintText } from "../test/infoHint";
 
 const s = zh.settings;
 
-/** Render Settings and navigate landing → 參數調整 (async settings load). */
-async function openParams() {
+const GENERAL_ROWS = [
+  "請示卡建議回覆",
+  "任務訊息建議回覆",
+  "傳承訊息建議回覆",
+  "聊天室建議回覆",
+  "快到期提醒",
+];
+const ADVANCED_ROWS = [
+  "登入有效期",
+  "成員登入有效期",
+  "Claude 第一次通知",
+  "Claude 最後通牒",
+  "Codex 第一次通知",
+  "Codex 最後通牒回合",
+  "加速停止秒數",
+  "轉派交接逾時秒數",
+  "機器憑證壽命",
+  "登入檢查間隔",
+  "未登入時重查間隔",
+  "磁碟用量量測間隔",
+  "監控刷新間隔",
+  "職責字數上限",
+  "Insight 字數上限",
+  "任務手冊 SOP 字數上限",
+  "任務步驟備註字數上限",
+  "Secret 請示卡的等待取得時間",
+  "Secret 請示卡的取得後保留時間",
+  "喚醒聊天字數預算",
+  "成員傳承字數上限",
+  "任務傳承字數上限",
+  "傳承標題字數上限",
+  "傳承內容字數上限",
+  "備份保留份數",
+  "開發者模式",
+];
+
+/** Render Settings and open 一般設定 or 進階設定 (async settings load). */
+async function openParams(page: "general" | "advanced" = "advanced") {
   const utils = render(
     <I18nProvider>
       <SettingsPage />
     </I18nProvider>
   );
-  fireEvent.click(utils.getByTestId("settings-params-entry"));
-  await utils.findByLabelText(s.sessionTtl); // settings loaded
+  fireEvent.click(
+    utils.getByTestId(page === "general" ? "settings-params-entry" : "settings-advanced-entry")
+  );
+  await utils.findByLabelText(page === "general" ? s.dueSoonLead : s.sessionTtl);
   return utils;
+}
+
+function rowNames(container: HTMLElement): string[] {
+  return Array.from(container.querySelectorAll(".param-card .param-row__name")).map(
+    (el) => el.textContent ?? ""
+  );
 }
 
 beforeEach(() => {
@@ -39,6 +84,7 @@ describe("SettingsPage · 參數調整", () => {
     );
     const text = utils.container.textContent ?? "";
     expect(text.indexOf(s.params)).toBeGreaterThan(text.indexOf(s.roles));
+    expect(text.indexOf(s.advanced)).toBeGreaterThan(text.indexOf(s.params));
   });
 
   it("shows the current settings once the view opens", async () => {
@@ -69,10 +115,21 @@ describe("SettingsPage · 參數調整", () => {
     const diskUsage = utils.getByLabelText(s.diskUsageInterval) as HTMLInputElement;
     expect(diskUsage.value).toBe("3600");
     expect(rows.indexOf(diskUsage)).toBe(rows.indexOf(loginRecheck) + 1);
-    expect((utils.getByLabelText(s.dueSoonLead) as HTMLInputElement).value).toBe("1");
-    const leadUnit = utils.getByLabelText(zh.tasks.dueLeadUnitLabel) as HTMLSelectElement;
+  });
+
+  it("一般設定 holds only the suggested replies and the due-soon reminder, and 進階設定 every other knob", async () => {
+    const general = await openParams("general");
+    expect(general.getByRole("heading", { level: 1 }).textContent).toBe("一般設定");
+    expect(rowNames(general.container)).toEqual(GENERAL_ROWS);
+    expect((general.getByLabelText(s.dueSoonLead) as HTMLInputElement).value).toBe("1");
+    const leadUnit = general.getByLabelText(zh.tasks.dueLeadUnitLabel) as HTMLSelectElement;
     expect(leadUnit.value).toBe("day");
     expect(leadUnit.nextElementSibling!.textContent).toBe("前");
+    general.unmount();
+
+    const advanced = await openParams("advanced");
+    expect(advanced.getByRole("heading", { level: 1 }).textContent).toBe("進階設定");
+    expect(rowNames(advanced.container)).toEqual(ADVANCED_ROWS);
   });
 
   it("changing the login TTL patches the server immediately", async () => {
@@ -249,7 +306,7 @@ describe("SettingsPage · 參數調整", () => {
 
   it("persists the 快到期提醒 as minutes through its unit and shows it back in the largest exact unit", async () => {
     const patch = vi.spyOn(api, "patchServerSettings");
-    const utils = await openParams();
+    const utils = await openParams("general");
     const amount = utils.getByLabelText(s.dueSoonLead) as HTMLInputElement;
     const unit = utils.getByLabelText(zh.tasks.dueLeadUnitLabel) as HTMLSelectElement;
     const saved = async (minutes: number) => {
@@ -285,7 +342,7 @@ describe("SettingsPage · 參數調整", () => {
 
   it("snaps the 快到期提醒 back without a write outside 1 minute..30 days or when not a whole number", async () => {
     const patch = vi.spyOn(api, "patchServerSettings");
-    const utils = await openParams();
+    const utils = await openParams("general");
     const amount = utils.getByLabelText(s.dueSoonLead) as HTMLInputElement;
     const unit = utils.getByLabelText(zh.tasks.dueLeadUnitLabel) as HTMLSelectElement;
     for (const [value, unitValue] of [["0", "minute"], ["43201", "minute"], ["31", "day"], ["2.5", "hour"], ["", "day"]]) {
@@ -300,16 +357,34 @@ describe("SettingsPage · 參數調整", () => {
     patch.mockRestore();
   });
 
-  it("ends the General card with 開發者模式, carrying its label and help text, off by default", async () => {
+  it.each([
+    [s.reassignHandoverTimeout, "會被回收", "每次更新任務都會重新計時"],
+    [s.wardenCredentialLifetime, "要重新安裝", "會在到期前自動換新"],
+    [s.secretCardUnretrievedTtl, "內容就會刪除，這張卡失效", "等成員取得的時間"],
+    [s.secretCardRetention, "填 0 是第一次取得當下就刪除", "這段時間內成員可以再取得"],
+    [s.loreCapRole, "不會被讀到", "開機時最多讀多少字"],
+    [s.loreCapTitle, "超過的寫入會被拒絕", "調低只擋接下來的寫入"],
+    [s.loreCapBody, "超過的寫入會被拒絕", "已經存好的條目不受影響"],
+  ])("「%s」keeps its consequence under the title and only the explanation behind ⓘ", async (label, consequence, explanation) => {
+    const utils = await openParams();
+    const row = utils.getByLabelText(label).closest(".param-row") as HTMLElement;
+    expect(row.querySelector(".param-row__sub")?.textContent).toContain(consequence);
+    const info = infoHintText(row);
+    expect(info).toContain(explanation);
+    expect(info).not.toContain(consequence);
+  });
+
+  it("ends the 進階設定 card with 開發者模式, carrying its label and help text, off by default", async () => {
     const utils = await openParams();
     const toggle = utils.getByRole("switch", { name: s.developerMode });
     expect(toggle).toBe(utils.getByTestId("settings-developer-mode"));
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     const row = toggle.closest(".param-row") as HTMLElement;
     expect(row.querySelector(".param-row__name")?.textContent).toBe("開發者模式");
-    expect(row.querySelector(".param-row__sub")?.textContent).toBe(
+    expect(infoHintText(row)).toBe(
       "打開後可以修改全域情境裡的開機文件。使用者語言與使用者自訂隨時都能修改。"
     );
+    expect(row.querySelector(".param-row__sub")).toBeNull();
     const card = utils.getByLabelText(s.sessionTtl).closest(".param-card") as HTMLElement;
     const rows = card.querySelectorAll(":scope > .param-row");
     expect(rows[rows.length - 1]).toBe(row);

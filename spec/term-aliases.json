@@ -100,8 +100,16 @@
     "en": "General"
   },
   {
+    "zh": "進階設定",
+    "en": "Advanced"
+  },
+  {
     "zh": "系統更新與備份",
     "en": "System update & backup"
+  },
+  {
+    "zh": "安全性",
+    "en": "Security"
   },
   {
     "zh": "主題",

@@ -20,6 +20,7 @@ import { ChevronRightIcon, CloseIcon, TrashIcon } from "./icons";
 import { ConfirmModal } from "./ConfirmModal";
 import officeTheme from "../../../themes/office.theme.json" with { type: "json" };
 import officeLightTheme from "../../../themes/office-light.theme.json" with { type: "json" };
+import { TitleWithInfo } from "./InfoHint";
 import "./confirm-modal.css";
 import "./settings.css";
 import "./theme-settings.css";
@@ -397,8 +398,9 @@ function ThemeAppearance({
 
       <div className="param-row">
         <div className="param-row__body">
-          <span className="param-row__name">{t.settings.themeBgMotion}</span>
-          <div className="param-row__sub">{t.settings.themeBgMotionSub}</div>
+          <span className="param-row__name">
+            <TitleWithInfo title={t.settings.themeBgMotion} hint={t.settings.themeBgMotionSub} />
+          </span>
         </div>
         <select
           className="param-select"

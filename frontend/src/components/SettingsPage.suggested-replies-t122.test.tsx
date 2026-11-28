@@ -36,7 +36,7 @@ async function openParamsPage() {
     </I18nProvider>
   );
   fireEvent.click(utils.getByTestId("settings-params-entry"));
-  await utils.findByText(s.suggestedRepliesReplyCard);
+  await utils.findByText(s.suggestedRepliesReplyCard, { selector: ".param-row__name" });
   return utils;
 }
 

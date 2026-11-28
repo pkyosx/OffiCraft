@@ -6,9 +6,9 @@
 //      name — never in front of the row label.
 //   4. the executor/creator/type/key VALUES are chips (pill), not flat text; a
 //      member is the bare name (no "· 成員" — the 負責人 label already says it).
-//   5. every value row is preceded by its field label (任務類型 / 負責人 /
-//      建立者 / 識別鍵) in a shared max-content label column (the .task-card__meta
-//      grid) so the chips line up.
+//   5. every value row is preceded by its field label in a shared max-content
+//      label column (the .card-meta grid) so the chips line up; 類型 /
+//      產物 / 建立者 appear right under 到期日 only while the card is expanded.
 //   Jump behaviour is unchanged from T-e987 (verified below): 類型 chip →
 //   #settings/manuals/<typeKey>; 負責人/建立者 chip → that peer's chat compose.
 
@@ -22,7 +22,8 @@ import {
   __injectMockTaskType,
   __injectMockOutsourceWorker,
 } from "../api/mock";
-import type { TaskView } from "../api/adapter";
+import type { TaskArtifactView } from "../api/adapter";
+import type { MockTaskRow } from "../api/mock";
 import { api } from "../api";
 
 // Unlisted-identity cache: the REAL hook lazily fetches GET /api/members/{id}
@@ -53,7 +54,7 @@ vi.mock("../hooks/useWorkerCodenames", () => ({
 
 let seq = 0;
 
-function mkTask(over: Partial<TaskView>): TaskView {
+function mkTask(over: Partial<MockTaskRow>): MockTaskRow {
   seq += 1;
   return {
     id: `task-${seq}`,
@@ -78,6 +79,14 @@ function mkTask(over: Partial<TaskView>): TaskView {
     steps: [],
     ...over,
   };
+}
+
+function expandCards(scope: ParentNode = document) {
+  const cards =
+    scope instanceof HTMLElement && scope.dataset.testid === "task-card"
+      ? [scope]
+      : Array.from(scope.querySelectorAll<HTMLElement>('[data-testid="task-card"]'));
+  cards.forEach((c) => fireEvent.click(c));
 }
 
 function renderPage() {
@@ -117,7 +126,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     const { findByTestId } = renderPage();
     const badge = await findByTestId("task-no");
     expect(badge.textContent).toContain(`#${task.taskNo}`);
-    expect(badge.classList.contains("task-card__id-badge")).toBe(true);
+    expect(badge.className).toBe("id-chip");
     // the ☑ glyph is an inline svg inside the badge.
     expect(badge.querySelector("svg")).toBeTruthy();
     // v2 (owner 2026-07-17): the badge lives on the fixed badge row between
@@ -125,7 +134,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     // title line, not in the meta stack.
     expect(badge.closest(".task-card__badge-row")).toBeTruthy();
     expect(badge.closest(".task-card__title-line")).toBeNull();
-    expect(badge.closest(".task-card__meta")).toBeNull();
+    expect(badge.closest(".card-meta")).toBeNull();
   });
 
   it("#no and 識別鍵 live in the head; the dep marker keeps its own block", async () => {
@@ -150,34 +159,64 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     expect(
       card.querySelector('[data-testid="task-dep"] .task-card__dep-no')
         ?.textContent
-    ).toBe("等 T-7d40");
+    ).toBe("等 #T-7d40");
   });
 
-  it("shows every value under its field label in the shared label column", async () => {
+  it("shows 負責人 / 到期日 / 識別鍵 under their labels, and adds 類型 / 產物 / 建立者 right under 到期日 only while the card is expanded", async () => {
     __injectMockTaskType({ typeKey: "sync-jira", displayName: "", purpose: "" });
+    const link = (id: string) =>
+      ({ id, kind: "link", url: `https://x.test/${id}`, name: id }) as unknown as TaskArtifactView;
     __injectMockTask(
       mkTask({
+        artifacts: [link("ta-1"), link("ta-2")],
         title: "四欄齊全",
         typeKey: "sync-jira",
-        // executorId's default is "mira"; a DIFFERENT creator keeps the 建立者
-        // row on screen. Same-id would legitimately hide it (T-17be) — this
-        // test is about the label column, not about that rule.
+        // A creator different from the executor keeps the 建立者 row (T-17be).
         creatorId: "owner",
         dedupeKey: "PROJ-1421",
       })
     );
     const { findByTestId } = renderPage();
-    const meta = (await findByTestId("task-card")).querySelector(
-      ".task-card__meta"
-    )!;
-    expect(meta).toBeTruthy();
-    // The field labels are present in the grid (equal-width column) — the id
-    // badge left the stack for the badge row (v2), and 任務類型 followed it
-    // there (v6/T-17be), so 負責人 now leads.
-    const labels = Array.from(
-      meta.querySelectorAll(".task-card__meta-label")
-    ).map((n) => n.textContent);
-    expect(labels).toEqual(["負責人", "建立者", "到期日", "識別鍵"]);
+    const card = await findByTestId("task-card");
+    const meta = card.querySelector(".card-meta")!;
+    const labels = () =>
+      Array.from(meta.querySelectorAll(".card-meta__label")).map(
+        (n) => n.textContent
+      );
+    expect(labels()).toEqual(["負責人", "到期日", "識別鍵"]);
+
+    expect(meta.querySelector('[data-testid="task-meta-more"]')).toBeNull();
+    expect(card.querySelector('[data-testid="task-meta-more-toggle"]')).toBeNull();
+    expect(card.textContent).not.toContain("更多");
+
+    fireEvent.click(card);
+    expect(card.getAttribute("aria-expanded")).toBe("true");
+    expect(labels()).toEqual(["負責人", "到期日", "類型", "產物", "建立者", "識別鍵"]);
+    const region = meta.querySelector('[data-testid="task-meta-more"]')!;
+    const dueValue = meta.querySelector(".task-card__due")!;
+    expect(dueValue.nextElementSibling).toBe(region);
+    expect(region.querySelector('[data-testid="task-type-link"]')).toBeTruthy();
+    expect(
+      region.querySelector('[data-testid="task-artifacts-badge"]')?.textContent
+    ).toBe("2 個");
+    expect(region.querySelector('[data-testid="task-creator"]')?.textContent).toBe(
+      "owner"
+    );
+
+    fireEvent.click(card);
+    expect(labels()).toEqual(["負責人", "到期日", "識別鍵"]);
+  });
+
+  it("the expanded card leaves out the 產物 row when the task has no artifacts", async () => {
+    __injectMockTask(mkTask({ title: "沒有產物", creatorId: "owner" }));
+    const { findByTestId } = renderPage();
+    const card = await findByTestId("task-card");
+    expandCards(card);
+    const labels = Array.from(card.querySelectorAll(".card-meta__label")).map(
+      (n) => n.textContent
+    );
+    expect(labels).toEqual(["負責人", "到期日", "類型", "建立者"]);
+    expect(card.querySelector('[data-testid="task-artifacts-badge"]')).toBeNull();
   });
 
   it("renders a URL 識別鍵 as an external-link chip in the head", async () => {
@@ -188,7 +227,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     const link = await findByTestId("task-key-link");
     expect(link.getAttribute("href")).toBe("https://github.com/x/y/pull/9");
     expect(link.getAttribute("target")).toBe("_blank");
-    expect(link.classList.contains("task-card__chip")).toBe(true);
+    expect(link.classList.contains("card-meta__chip")).toBe(true);
   });
 
   it("任務類型 value is a chip with the gear inside; clicking jumps to the type's settings hub; ad-hoc is plain", async () => {
@@ -198,6 +237,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
 
     const { findAllByTestId } = renderPage();
     const cards = await findAllByTestId("task-card");
+    expandCards();
     const byTitle = (title: string) =>
       cards.find((c) =>
         c.querySelector(".task-card__title")?.textContent?.includes(title)
@@ -213,14 +253,13 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     expect(adhocRow.tagName).not.toBe("BUTTON");
     expect(adhocRow.querySelector("svg")).toBeNull();
 
-    // typed: a badge carrying the gear icon that deep-links into settings.
+    // typed: a chip carrying the gear icon that deep-links into settings.
     const typed = byTitle("有類型");
     const link = typed.querySelector<HTMLButtonElement>(
       '[data-testid="task-type-link"]'
     )!;
-    // v6 (T-17be): a coloured .task-badge on row 1.
-    expect(link.classList.contains("task-badge")).toBe(true);
-    expect(link.querySelector("svg")).toBeTruthy(); // gear inside the badge
+    expect(link.classList.contains("card-meta__chip")).toBe(true);
+    expect(link.querySelector("svg")).toBeTruthy();
     fireEvent.click(link);
     expect(window.location.hash).toBe("#settings/manuals/review-pr");
   });
@@ -236,6 +275,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
 
     const { findAllByTestId } = renderPage();
     const cards = await findAllByTestId("task-card");
+    expandCards();
     const byTitle = (title: string) =>
       cards.find((c) =>
         c.querySelector(".task-card__title")?.textContent?.includes(title)
@@ -264,7 +304,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     expect(
       link.querySelector('[data-testid="task-executor"]')?.textContent
     ).toBe("Mira");
-    expect(link.classList.contains("task-card__chip")).toBe(true);
+    expect(link.classList.contains("card-meta__chip")).toBe(true);
     expect(link.querySelector("svg")).toBeTruthy(); // chat bubble inside the chip
     fireEvent.click(link);
     expect(window.location.hash).toBe(
@@ -272,7 +312,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     );
   });
 
-  it("外包 executor keeps its 代號 · 模型 · 投入度 chip", async () => {
+  it("外包 executor chip shows the bare 代號 — no 外包 prefix, model or effort — and so does the message box", async () => {
     const task = mkTask({
       title: "外包負責",
       executorKind: "outsource",
@@ -290,7 +330,10 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     const link = await findByTestId("task-assignee-link");
     expect(
       link.querySelector('[data-testid="task-executor"]')?.textContent
-    ).toBe("外包 · O-7 · Opus 4.6 · 高投入");
+    ).toBe("O-7");
+    expect((await findByTestId("task-msg-input")).getAttribute("placeholder")).toBe(
+      "傳訊息給 O-7…"
+    );
   });
 
   it("an executor missing from the live lists shows its name from the lazy cache, the raw id only when unresolvable, and opens its chat", async () => {
@@ -316,7 +359,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
         '[data-testid="task-assignee-link"] [data-testid="task-executor"]'
       )?.textContent;
 
-    expect(executorOf("外包已釋出")).toBe("外包 · R-2");
+    expect(executorOf("外包已釋出")).toBe("R-2");
     expect(executorOf("正職已離開")).toBe("阿哲");
     expect(executorOf("查無負責人")).toBe("m-unknown");
     expect(
@@ -420,7 +463,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
           c.querySelector(".task-card__title")?.textContent?.includes(title)
         )!
         .querySelector('[data-testid="task-previous-assignee"]')?.textContent;
-    expect(previousOf("外包轉派後")).toBe("外包 · R-2");
+    expect(previousOf("外包轉派後")).toBe("R-2");
     expect(previousOf("正職轉派後")).toBe("阿哲");
   });
 
@@ -529,14 +572,15 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
   });
 
   describe("建立者 resolution + fallback", () => {
-    it('empty creator (old task) renders "—", not clickable', async () => {
+    it('empty creator (old task) renders "-", not clickable', async () => {
       __injectMockTask(mkTask({ title: "老任務", creatorId: "" }));
       const { findByTestId } = renderPage();
+      expandCards(await findByTestId("task-card"));
       const row = await findByTestId("task-creator-row");
       expect(row.tagName).not.toBe("BUTTON");
       expect(
         row.querySelector('[data-testid="task-creator"]')?.textContent
-      ).toBe("—");
+      ).toBe("-");
     });
 
     it("a roster-member creator shows the name and opens their chat", async () => {
@@ -549,6 +593,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
       });
       __injectMockTask(task);
       const { findByTestId } = renderPage();
+      expandCards(await findByTestId("task-card"));
       const link = await findByTestId("task-creator-link");
       expect(
         link.querySelector('[data-testid="task-creator"]')?.textContent
@@ -559,7 +604,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
       );
     });
 
-    it("a live outsource-worker creator shows 外包 代號 and is clickable", async () => {
+    it("a live outsource-worker creator shows its bare 代號 and is clickable", async () => {
       const task = mkTask({ title: "外包建立", creatorId: "ow-3" });
       __injectMockTask(task);
       __injectMockOutsourceWorker({
@@ -570,10 +615,11 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
         taskId: "some-other-task",
       });
       const { findByTestId } = renderPage();
+      expandCards(await findByTestId("task-card"));
       const link = await findByTestId("task-creator-link");
       expect(
         link.querySelector('[data-testid="task-creator"]')?.textContent
-      ).toBe("外包 · O-3");
+      ).toBe("O-3");
       fireEvent.click(link);
       expect(window.location.hash).toBe("#office/chat/ow-3/compose/" +
         encodeURIComponent(task.taskNo));
@@ -585,6 +631,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
       __injectMockTask(dismissed);
       const { findAllByTestId } = renderPage();
       const cards = await findAllByTestId("task-card");
+      expandCards();
       const creatorLinkOf = (title: string) =>
         cards
           .find((c) =>
@@ -592,7 +639,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
           )!
           .querySelector('[data-testid="task-creator-link"]')!;
 
-      expect(creatorLinkOf("已釋出建立").textContent).toBe("外包 · R-2");
+      expect(creatorLinkOf("已釋出建立").textContent).toBe("R-2");
       expect(creatorLinkOf("已離開建立").textContent).toBe("阿哲");
       expect(
         creatorLinkOf("已離開建立").querySelector(".avatar__img")?.getAttribute("src")
@@ -607,6 +654,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
       const task = mkTask({ title: "查無建立者", creatorId: "ow-9" });
       __injectMockTask(task); // neither live nor cache-resolvable → raw id
       const { findByTestId } = renderPage();
+      expandCards(await findByTestId("task-card"));
       const link = await findByTestId("task-creator-link");
       expect(
         link.querySelector('[data-testid="task-creator"]')?.textContent
@@ -618,6 +666,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
       __injectMockTask(mkTask({ title: "查無正職建立", creatorId: "m-unknown" }));
       const { findAllByTestId } = renderPage();
       const cards = await findAllByTestId("task-card");
+      expandCards();
       const creatorOf = (title: string) =>
         cards.find((c) =>
           c.querySelector(".task-card__title")?.textContent?.includes(title)

@@ -34,6 +34,7 @@ import { useWindowActive } from "../hooks/useWindowActive";
 import type { OutsourceWorkerView } from "../api/adapter";
 import { Avatar } from "./Avatar";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
+import { TaskIdChip } from "./TaskChips";
 import { RuntimeLoginWarningMark } from "./RuntimeLoginWarningMark";
 import { PresenceAvatar } from "./PresenceAvatar";
 import { NameWithActivity, shownActivity } from "./MemberActivity";
@@ -82,20 +83,12 @@ export function OutsourceTaskLine({
         />
       )}
       {w.taskNo && (
-        <button
-          type="button"
-          className="outsource-row__chip outsource-row__chip--task"
-          title={t.office.outsource.openTask}
-          aria-label={t.office.outsource.openTask}
-          data-testid={`${idPrefix}-task-${w.id}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenTask(w.taskId);
-          }}
-          onKeyDown={(e) => e.stopPropagation()}
-        >
-          {w.taskNo}
-        </button>
+        <TaskIdChip
+          taskNo={w.taskNo}
+          label={t.office.outsource.openTask}
+          onOpen={() => onOpenTask(w.taskId)}
+          testId={`${idPrefix}-task-${w.id}`}
+        />
       )}
       <span
         className="outsource-row__type"

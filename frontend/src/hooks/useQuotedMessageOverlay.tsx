@@ -10,7 +10,7 @@
 // overlay with it. A second caller keyed on a card id would not unmount, and
 // would paint room A's message full-screen over room B — R8-3's shape.
 // T-0b78 briefly routed the 請示 page's 跳到原訊息 and the inline task card's
-// 在聊天室回覆 through here too; owner 2026-08-29 sent those two BACK to
+// header link through here too; owner 2026-08-29 sent those two BACK to
 // navigating (「1 跟 2 變回去原本那樣」) and knowingly took back the miss
 // described below, parking the fix. So the history in this header is history —
 // do not read it as "three call sites still share this".

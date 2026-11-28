@@ -25,8 +25,8 @@
 // the moment of ticking.
 //
 // The 請示卡 開卡人 axis is where that difference became visible, because its
-// options ARRIVE LATE: 近期已處理 is fetched on first unfold, so a reader could
-// tick every opener while the pane was collapsed, see 「所有開卡人」, unfold, and
+// options ARRIVE LATE: 近期已回覆 is fetched only once it is selected, so a
+// reader could tick every opener before that, see 「所有開卡人」, select it, and
 // have the newly-loaded opener silently excluded — a person they never
 // unticked, on an axis that claimed to be showing everyone. The 任務頁 axes are
 // the same mechanism; 負責人 can reach it too (its options follow the server's
@@ -37,8 +37,21 @@
 // constraint, so the pill must render as active and agree with the 清除篩選
 // button beside it, which keys on the page's own `anyFilter` (size > 0).
 
-import { useEffect, useRef, useState } from "react";
+import {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import { useEscapeLayer } from "../lib/useEscapeLayer";
+import { FilterLayerContext } from "./FilterPanel";
 import { ChevronDownIcon } from "./icons";
+
+const POP_GAP = 4;
+const POP_EDGE = 8;
+const POP_MAX_HEIGHT = 320;
 
 export interface MultiSelectOption {
   value: string;
@@ -82,6 +95,66 @@ export function MultiSelectFilter({
 }: MultiSelectFilterProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const inLayer = useContext(FilterLayerContext);
+  const [popStyle, setPopStyle] = useState<CSSProperties | undefined>(undefined);
+
+  // Nested inside the filter panel's layer, so Esc closes this first.
+  useEscapeLayer(
+    () => {
+      setOpen(false);
+      triggerRef.current?.focus();
+    },
+    ref,
+    open,
+  );
+
+  // Inside the filter panel / sheet the popover is `fixed` against the
+  // viewport: an absolute one would be clipped by the layer's scrolling box.
+  // It opens below the trigger, or above when there is more room there.
+  const place = () => {
+    const trig = triggerRef.current?.getBoundingClientRect();
+    const pop = popRef.current;
+    if (!trig || !pop) return;
+    const below = window.innerHeight - trig.bottom - POP_GAP - POP_EDGE;
+    const above = trig.top - POP_GAP - POP_EDGE;
+    const up = Math.min(pop.scrollHeight, POP_MAX_HEIGHT) > below && above > below;
+    const left = Math.max(
+      POP_EDGE,
+      Math.min(trig.left, window.innerWidth - POP_EDGE - pop.offsetWidth),
+    );
+    const next: CSSProperties = {
+      position: "fixed",
+      left,
+      right: "auto",
+      top: up ? "auto" : trig.bottom + POP_GAP,
+      bottom: up ? window.innerHeight - trig.top + POP_GAP : "auto",
+      minWidth: trig.width,
+      maxHeight: Math.min(POP_MAX_HEIGHT, up ? above : below),
+    };
+    setPopStyle((cur) => (JSON.stringify(cur) === JSON.stringify(next) ? cur : next));
+  };
+  const placeRef = useRef(place);
+  placeRef.current = place;
+  // Every render, not only on open: a filter change re-renders the page and
+  // can move the trigger (a bottom sheet grows its footer upward).
+  useLayoutEffect(() => {
+    if (open && inLayer) placeRef.current();
+  });
+  useEffect(() => {
+    if (!open || !inLayer) {
+      setPopStyle(undefined);
+      return;
+    }
+    const onMove = () => placeRef.current();
+    window.addEventListener("resize", onMove);
+    window.addEventListener("scroll", onMove, true);
+    return () => {
+      window.removeEventListener("resize", onMove);
+      window.removeEventListener("scroll", onMove, true);
+    };
+  }, [open, inLayer]);
 
   useEffect(() => {
     if (!open) return;
@@ -128,6 +201,7 @@ export function MultiSelectFilter({
   return (
     <div className="tasks__ms" ref={ref}>
       <button
+        ref={triggerRef}
         type="button"
         className={`tasks__filter tasks__ms-trigger${
           constrained ? " tasks__ms-trigger--active" : ""
@@ -145,7 +219,13 @@ export function MultiSelectFilter({
         />
       </button>
       {open && (
-        <div className="tasks__ms-pop" role="group" aria-label={noun}>
+        <div
+          ref={popRef}
+          className="tasks__ms-pop"
+          role="group"
+          aria-label={noun}
+          style={popStyle}
+        >
           {groups.map((g) => (
             <label
               key={g.value}

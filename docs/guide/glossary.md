@@ -31,7 +31,7 @@ This page lists what each term in the console and the user guide means, and whic
 - **Stop / Accelerated stop / Force stop**: three stages of the same button. Stop asks the member to wrap up and then end; Accelerated stop gives the wrap-up a deadline; Force stop ends it immediately, and unsaved work is lost.
 - **Refocus**: asks an online member to write its progress into a handover, end its current session, and start a new session that continues from the handover.
 - **Handover**: the member ends its current session and a new session takes over. It happens when memory use reaches a threshold, on Refocus, when settings change, when the member asks for it itself, and when its login credential is about to expire. See [Architecture and how it works](architecture.md).
-- **First notice / Final call**: the two memory-use thresholds that trigger a handover. Claude members are measured by percentage, Codex members by the number of memory compactions. Under Settings › General.
+- **First notice / Final call**: the two memory-use thresholds that trigger a handover. Claude members are measured by percentage, Codex members by the number of memory compactions. Under Settings › Advanced.
 - **Memory used**: how much memory capacity the member's current session has used. Codex members also show the number of memory compactions.
 - **Runtime**: the section in the member details that shows the current status, sub-agents, and background waits. A sub-agent is an extra AI worker a member opens to split up work and handle part of it; a background wait means the member is waiting on a command or schedule running in the background.
 - **Last operation**: the result and reason of the latest wake or stop, in the member details. The reason a wake failed is recorded here.
@@ -42,7 +42,7 @@ This page lists what each term in the console and the user guide means, and whic
 ## Chat and reply cards
 
 - **Reply card**: a card a member opens when it needs your decision. One card is one question, with background and options; it appears in the Ask tab and in chat. See [Assigning work and answering reply cards](daily.md).
-- **Later**: moves an unanswered reply card into "Snoozed"; at the time you pick, it returns to Ask on its own. The card still counts as unanswered, and the member who opened it is not notified.
+- **Later**: sets an unanswered reply card aside. It moves to the "Later" label on the Ask page (in chat it is tagged "Snoozed"), and at the time you pick it moves back to "Awaiting" on its own. It is still unanswered, but the number on the Ask tab leaves it out, and the member who opened it is not notified.
 - **Secret reply card**: a reply card in which a member asks you for a secret value. Only the member who opened the card can retrieve the value you enter; it is deleted automatically some time after it is retrieved, or if no one ever retrieves it. See [Give members your account keys (secrets)](secrets.md).
 - **Suggested replies**: preset sentences below the input box that you can drop in with one tap. The chat has one set for each member, plus one set shared by all members; reply cards, task messages, and lore messages each have their own set too, and so does every task manual. A reply card's reply box lists, in order, the set from the manual of the task the card belongs to, the set for the member who opened the card, and the reply-card set; a task card's message box lists the task manual's set first, then the task-message set; an outsource member's chat lists the set from the manual of its task first, then the member's own set and the shared set. See [Settings](settings.md).
 - **Deleting a message**: you can delete an ordinary chat message you sent within the last 24 hours; its place then shows "This message was deleted".
@@ -67,7 +67,7 @@ This page lists what each term in the console and the user guide means, and whic
 - **Step**: one stage of a task. Its status is To do, In progress, Done, Awaiting my reply, Waiting on external, or Superseded. Each step can have a note.
 - **DoD (definition of done)**: a description of what counts as "finished" for a step, written as results that can be checked objectively. See [Having AI follow an SOP for repeated work (Task manuals)](sop.md).
 - **Acceptance criteria (AC)**: the observable, verifiable results the whole task must achieve when it is complete, written on the confirmation reply card sent before the task is created (labelled "AC" on the card). Acceptance criteria are for the whole task; a DoD is for a single step. See [Tracking task progress](tasks.md).
-- **Gate**: a step marked when the task is planned as needing your approval. The task card announces it as soon as the plan is submitted, and when the step is reached, the member opens a reply card and waits for you. Steps that have opened a reply card or are marked as gates are labelled "Approval" on the task card. See [Tracking task progress](tasks.md).
+- **Gate**: a step that needs your approval, either marked as one when the task is planned or made one for good when a member opens a reply card on it. When the step is reached, the member opens a reply card and waits for you. Gate steps carry an amber shield ("Needs your approval") on the task card. See [Tracking task progress](tasks.md).
 - **In parallel**: a group of steps that do not depend on each other and can be done at the same time. The task card shows "In parallel · N items".
 - **Artifacts**: files a task produces and attaches to itself. Versions are kept and can be compared.
 - **Files**: reference files that belong to no task and that every member can read and update; one of the main tabs. Members read them by an ID starting with `sd-`, and the last few old versions are kept. See [Interface reference](interface.md).
@@ -105,7 +105,7 @@ This page lists what each term in the console and the user guide means, and whic
 - **Passkeys**: sign in with your device's biometrics or screen lock, without typing a password.
 - **Claim code**: the one-time code needed the first time you set the admin password.
 - **Session length / Member login lifetime**: how long after you sign in to the console you must sign in again; how long before a member must get a new login credential.
-- **Signing keys**: the keys the server uses to issue login credentials and share links, under Settings › System update & backup. Removing an old key immediately invalidates the logins and links it signed. See [Protect your studio](security.md).
+- **Signing keys**: the keys the server uses to issue login credentials and share links, under Settings › Security. Removing an old key immediately invalidates the logins and links it signed. See [Protect your studio](security.md).
 - **Machine credential lifetime**: how long each machine's warden login credential is valid. It is renewed automatically before it expires; a machine that misses the renewal has to be reinstalled.
 - **Preferences**: the place in the avatar menu for adjusting theme, language, and layout.
 - **Notification email**: the email address you must enter before turning on push notifications. See [Use it on your phone](mobile.md).
@@ -113,9 +113,11 @@ This page lists what each term in the console and the user guide means, and whic
 - **Switch by time of day**: changes the theme automatically at the times you set, based on your device's local time. See [Themes (look and wording)](theme.md).
 - **Seasonal theme**: a theme applied automatically during holidays; some also switch to different versions by time of day. It can be turned off with "Show seasonal theme" in the theme settings.
 - **Background animation**: whether the theme background plays an animation. The options are Auto, Play, and Still, saved only on this device; with "Auto", phones and tablets show a still image. See [Themes (look and wording)](theme.md).
-- **General**: the system parameters in Settings (thresholds, size caps, intervals, number of backups kept, and so on). See [Settings](settings.md).
-- **System update & backup**: the Settings page for checking for updates, upgrading, automatic updates, the update check interval, backup health, and signing keys. See [Settings](settings.md).
-- **Developer mode**: the switch at the bottom of Settings › General, off by default. While it is off, every document in Global context except User Language and User additions is locked and nobody can change it. See [Settings](settings.md).
+- **General**: the Settings page for the suggested-reply lists and the due-soon lead time. See [Settings](settings.md).
+- **Advanced**: the other system parameters in Settings (thresholds, size caps, intervals, number of backups kept, developer mode, and so on). See [Settings](settings.md).
+- **System update & backup**: the Settings page for checking for updates, upgrading, automatic updates, the update check interval, and backup health.
+- **Security**: the Settings page for signing keys. See [Settings](settings.md).
+- **Developer mode**: the switch at the bottom of Settings › Advanced, off by default. While it is off, every document in Global context except User Language and User additions is locked and nobody can change it. See [Settings](settings.md).
 - **Receive beta versions**: also includes pre-release versions when checking for updates.
 - **Backup health**: shows whether scheduled backups are working (Backups are healthy, Backups are failing, Cannot tell). See [Troubleshooting and FAQ](troubleshooting.md).
 

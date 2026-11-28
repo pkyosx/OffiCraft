@@ -1,5 +1,5 @@
-/* 檔案庫 page (`.shared-docs*`): the list table, one document's page and the
- * replace dialog's extras. Buttons and fields reuse secrets.css, the id
+/* 檔案庫 page (`.shared-docs*`): the list cards, one document's page and the
+ * replace dialog's extras. Buttons and fields reuse secrets.css, the card and id
  * badge lore.css, the copy-link button office.css, the ✓/✗ inline-edit.css —
  * each importer pulls those sheets itself. Theme tokens only. */
 
@@ -11,14 +11,6 @@
   min-height: 0;
   overflow-y: auto;
   padding-bottom: 12px;
-}
-
-.shared-docs__bar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 14px;
-  flex-wrap: wrap;
 }
 
 .shared-docs__bar-btn {
@@ -45,197 +37,86 @@
   color: var(--color-text-muted);
 }
 
-/* ── list ── */
-.shared-docs__table-wrap {
-  overflow-x: auto;
-  padding: 4px 8px;
+/* ── list: one lore card per document ──
+ * The card, its head, id badge, icon actions, label/value grid and chips are
+ * lore.css's .lore-row vocabulary; this block only adds the kind icon chip and
+ * the name drawn as a link. */
+.lore-badge.shared-docs__kind {
+  padding: 3px 7px;
 }
-.shared-docs__table {
-  width: 100%;
-  min-width: 760px;
-  table-layout: fixed;
-  border-collapse: collapse;
-  font-size: 13px;
-  color: var(--color-text);
-}
-.shared-docs__table th {
-  padding: 10px 10px;
-  text-align: left;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
-}
-.shared-docs__table td {
-  padding: 6px 10px;
-  vertical-align: middle;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 4%, transparent);
-}
-.shared-docs__table tr:last-child td {
-  border-bottom: none;
-}
-/* Fixed so a copy (✓ swapped for the glyph) never shifts the columns. */
-.shared-docs__col-id {
-  width: 210px;
-}
-.shared-docs__col-updated {
-  width: 230px;
-}
-/* Fixed so 編輯 | 上傳新版本 | 永久刪除 line up down the column whatever a
- * row's kind; a member, who has no 永久刪除, sees the same two on every row. */
-.shared-docs__col-actions {
-  width: 132px;
-  text-align: left;
-}
-.shared-docs__actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.shared-docs__actions .ts-icon-btn[aria-disabled="true"] {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.shared-docs__actions .ts-icon-btn[aria-disabled="true"]:hover {
-  color: var(--color-text-muted);
-  border-color: var(--color-border);
-}
-.shared-docs__table th.shared-docs__col-actions {
-  text-align: left;
-}
-.shared-docs__id-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
+.lore-badge.shared-docs__kind svg {
+  display: block;
 }
 .shared-docs__file {
   position: relative;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
   min-width: 0;
-  color: var(--color-text);
-}
-.shared-docs__kind {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 8px;
-  color: var(--color-text-muted);
 }
 .shared-docs__file-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-  flex: 1;
 }
 .shared-docs__name-line {
   display: flex;
-  align-items: center;
-  gap: 6px;
   min-width: 0;
 }
 .shared-docs__file-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
   min-width: 0;
   padding: 0;
   border: none;
   background: none;
   font: inherit;
-  color: inherit;
+  color: var(--color-accent);
   text-align: left;
   text-decoration: none;
   cursor: pointer;
 }
-/* The whole cell (icon, name, description) is the open target; the pencil
- * sits above that stretched area so it stays its own button. */
+/* The whole block (name and description) is the open target. */
 .shared-docs__file-open::after {
   content: "";
   position: absolute;
   inset: 0;
 }
-.shared-docs__name-edit {
-  position: relative;
-  z-index: 1;
+.shared-docs__file-open svg {
   flex: none;
-  display: inline-grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  opacity: 0;
 }
-.shared-docs__file:hover .shared-docs__name-edit,
-.shared-docs__name-edit:focus-visible {
-  opacity: 1;
-}
-.shared-docs__name-edit:hover {
-  color: var(--color-accent);
-  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
-}
-/* Hidden means unclickable too, so a click just past the name opens the file. */
-@media (hover: hover) {
-  .shared-docs__name-edit {
-    pointer-events: none;
-  }
-  .shared-docs__file:hover .shared-docs__name-edit,
-  .shared-docs__name-edit:focus-visible {
-    pointer-events: auto;
-  }
-}
-@media (hover: none) {
-  .shared-docs__name-edit {
-    opacity: 1;
-  }
-}
-.shared-docs__name,
-.shared-docs__file-description {
+/* Block, or the ellipsis never applies and a long name runs out of the card. */
+.shared-docs__name {
+  display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.shared-docs__name {
-  font-weight: 600;
-}
-.shared-docs__file-description {
-  font-size: 12px;
-  color: var(--color-text-muted);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
 }
 .shared-docs__file-open:hover .shared-docs__name {
-  color: var(--color-accent);
+  text-decoration-color: currentColor;
 }
-.shared-docs__updated {
-  white-space: nowrap;
+.shared-docs__file-description {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.shared-docs__chip-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--color-text-muted);
-  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .shared-docs__updated-open {
-  max-width: 100%;
-  padding: 0;
-  border: none;
-  background: none;
-  font: inherit;
-  color: inherit;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-.shared-docs__updated-open:hover {
-  color: var(--color-accent);
-  text-decoration: underline;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── one document ── */

@@ -4,11 +4,9 @@
 //   ① 負責人 == 建立者 → the 建立者 row is gone. The rule compares executorId
 //     to creatorId — IDS, never display names (two members can share a name;
 //     a name match would hide a genuinely different creator). Empty is not an
-//     identity: creatorId "" still renders 「—」 even when executorId is ""
+//     identity: creatorId "" still renders 「-」 even when executorId is ""
 //     too.
-//   ② The 任務類型 chip is on ROW 1 (.task-card__badge-row) as a coloured
-//     .task-badge beside 優先權/狀態 — not in the .task-card__meta grid, not a
-//     neutral .task-card__chip. Its 齒輪 deep-link survived the move.
+//   ② A long 任務類型 name shows in full — no truncation.
 //   ③ zh filterExecutorAll reads 「所有負責人」, not the ambiguous 「所有人」.
 //
 // Plus a behavioural guard the icon swap could have silently broken:
@@ -19,8 +17,8 @@
 //
 // ── WHAT THIS FILE CANNOT SEE ─────────────────────────────────────────────
 // vite.config.ts sets environment:"jsdom", which parses no stylesheet and
-// computes no layout. So every LOOK/FIT question in T-17be — "is the badge
-// actually teal", "does the type name wrap at 390px", "is the dep block blue
+// computes no layout. So every LOOK/FIT question in T-17be — "does the type
+// name wrap at 390px", "is the dep block blue
 // rather than purple", "is the chevron 18px" — is INVISIBLE here. Those were
 // settled on the owner-approved 390/1280 screenshots
 // (kyle-17be-shots/candA-badge-wrap-*), and that is the only evidence for
@@ -43,7 +41,7 @@ import type { Member } from "../types";
 import type { TaskView, OutsourceWorkerView } from "../api/adapter";
 // 篩選 moved into the FilterPanel (T-93 round 3): open it before reading a
 // dropdown label, and 清除篩選 is now 清除全部 on the 已篩選 strip.
-import { clearAllFilters } from "../test/tasksFilter";
+import { clearAllFilters, openFiltersWhenReady } from "../test/tasksFilter";
 
 let seq = 0;
 
@@ -107,6 +105,8 @@ function renderCardWithRoster(task: TaskView, members: Member[]) {
   );
 }
 
+const expandCard = (card: HTMLElement) => fireEvent.click(card);
+
 const byTitle = (cards: HTMLElement[], title: string) =>
   cards.find((c) =>
     c.querySelector(".task-card__title")?.textContent?.includes(title)
@@ -125,6 +125,7 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
     );
     const { findByTestId } = renderPage();
     const card = await findByTestId("task-card");
+    expandCard(card);
 
     // POSITIVE CONTROL, and not optional. Every assertion in this test is a
     // negative ("the 建立者 row is absent"), and absence is exactly what a
@@ -146,9 +147,9 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
     // not.toContain("建立者") would stay green if the whole meta grid vanished;
     // this cannot).
     const labels = Array.from(
-      card.querySelectorAll(".task-card__meta-label")
+      card.querySelectorAll(".card-meta__label")
     ).map((n) => n.textContent);
-    expect(labels).toEqual(["負責人", "到期日"]);
+    expect(labels).toEqual(["負責人", "到期日", "類型"]);
   });
 
   it("keeps the 建立者 row when the ids differ but the DISPLAY NAMES are identical", async () => {
@@ -165,6 +166,7 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
       mkTask({ title: "同名不同人", executorId: "mira", creatorId: "mira-2" }),
       roster
     );
+    fireEvent.click(getByTestId("task-card"));
 
     // Positive control: the two rows really do render the SAME string, so the
     // trap this test sets is armed. If these ever differ, the test below stops
@@ -175,27 +177,28 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
     // …and despite the identical text, the row stays: the ids differ.
     expect(queryByTestId("task-creator-link")).toBeTruthy();
     const labels = Array.from(
-      document.querySelectorAll(".task-card__meta-label")
+      document.querySelectorAll(".card-meta__label")
     ).map((n) => n.textContent);
-    expect(labels).toEqual(["負責人", "建立者"]);
+    expect(labels).toEqual(["負責人", "類型", "建立者"]);
   });
 
-  it('keeps the 「—」 row when creatorId is "" (T-5012-shaped task) — empty is not an identity', async () => {
+  it('keeps the 「-」 row when creatorId is "" (T-5012-shaped task) — empty is not an identity', async () => {
     __injectMockTask(
       mkTask({ title: "沒有建立者", executorId: "mira", creatorId: "" })
     );
     const { findByTestId } = renderPage();
     const card = await findByTestId("task-card");
+    expandCard(card);
 
     const row = card.querySelector('[data-testid="task-creator-row"]')!;
     expect(row).toBeTruthy();
-    // toBe on the bare word, never not.toContain(…): the row must SAY 「—」.
+    // toBe on the bare word, never not.toContain(…): the row must SAY 「-」.
     expect(
       row.querySelector('[data-testid="task-creator"]')?.textContent
-    ).toBe("—");
+    ).toBe("-");
   });
 
-  it('keeps the 「—」 row when BOTH creatorId and executorId are "" (unassigned 外包)', async () => {
+  it('keeps the 「-」 row when BOTH creatorId and executorId are "" (unassigned 外包)', async () => {
     // The collision the `!== ""` guard exists for: "" === "" is true, so a
     // naive id compare would eat this row.
     __injectMockTask(
@@ -208,6 +211,7 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
     );
     const { findByTestId } = renderPage();
     const card = await findByTestId("task-card");
+    expandCard(card);
 
     expect(
       card.querySelector('[data-testid="task-executor"]')?.textContent
@@ -216,7 +220,7 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
       card
         .querySelector('[data-testid="task-creator-row"]')
         ?.querySelector('[data-testid="task-creator"]')?.textContent
-    ).toBe("—");
+    ).toBe("-");
   });
 
   it("hides the row for an 外包 executor who is also the creator (id match across kinds)", async () => {
@@ -230,6 +234,7 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
     );
     const { findByTestId } = renderPage();
     const card = await findByTestId("task-card");
+    expandCard(card);
     // Positive control first — the assignee row proves the card rendered.
     expect(card.querySelector('[data-testid="task-executor"]')).toBeTruthy();
     expect(card.querySelector('[data-testid="task-creator"]')).toBeNull();
@@ -246,108 +251,25 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
     );
     const { findByTestId } = renderPage();
     const card = await findByTestId("task-card");
+    expandCard(card);
     expect(
       card.querySelector('[data-testid="task-creator"]')?.textContent
     ).toBe("Mira");
   });
 });
 
-// ── ② task type chip 在第一排 ──────────────────────────────────────────────
-describe("T-17be ② 任務類型 chip 移到第一排、改有色 badge", () => {
-  it("puts the type badge on the badge row, out of the meta grid, as a .task-badge", async () => {
-    __injectMockTaskType({
-      typeKey: "develop-officraft",
-      displayName: "",
-      purpose: "",
-    });
-    __injectMockTask(
-      mkTask({ title: "類型上第一排", typeKey: "develop-officraft" })
-    );
-    const { findByTestId } = renderPage();
-    const card = await findByTestId("task-card");
-    const type = card.querySelector('[data-testid="task-type"]')!;
-
-    // Positive control: the badge is really rendering the type name. Without
-    // this, every "it is on the badge row" assertion below would also pass on
-    // an empty badge.
-    expect(type.textContent).toBe("develop-officraft");
-
-    const badge = card.querySelector('[data-testid="task-type-link"]')!;
-    // THE spec: row 1, beside 優先權/狀態 — and provably NOT in the meta grid.
-    expect(badge.closest(".task-card__badge-row")).toBeTruthy();
-    expect(badge.closest(".task-card__meta")).toBeNull();
-    // Same badge vocabulary as its row-mates, not the old neutral chip.
-    expect(badge.classList.contains("task-badge")).toBe(true);
-    expect(badge.classList.contains("task-card__chip")).toBe(false);
-
-    // It shares the row with the id/priority/status badges — asserted by
-    // common parent, so "on the badge row" cannot be satisfied by some second
-    // badge row that a refactor invents.
-    const row = card.querySelector(".task-card__badge-row")!;
-    for (const id of ["task-no", "task-priority", "task-status"]) {
-      expect(row.contains(card.querySelector(`[data-testid="${id}"]`)!)).toBe(
-        true
-      );
-    }
-    expect(row.contains(badge)).toBe(true);
-  });
-
-  it("keeps the 齒輪 deep-link into the type's settings hub after the move", async () => {
-    __injectMockTaskType({ typeKey: "review-pr", displayName: "", purpose: "" });
-    __injectMockTask(mkTask({ title: "齒輪還在", typeKey: "review-pr" }));
-    const { findByTestId } = renderPage();
-    const link = await findByTestId("task-type-link");
-    expect(link.querySelector("svg")).toBeTruthy(); // the gear rode along
-    fireEvent.click(link);
-    expect(window.location.hash).toBe("#settings/manuals/review-pr");
-  });
-
-  it("shows a LONG type name in full — no truncation, no ellipsis (owner accepted the wrap)", async () => {
-    // 候選 B (truncate to 6 chars +「…」) was measured and STILL wrapped at
-    // 390px, so it cost the name and bought nothing; owner picked 候選 A and
-    // accepted the wrap. jsdom cannot see the wrap — but it CAN see that the
-    // name is intact, which is the half of that ruling a regression would eat.
+// ── ② 任務類型名稱完整顯示 ─────────────────────────────────────────────────
+describe("T-17be ② 任務類型名稱完整顯示", () => {
+  it("shows a LONG type name in full — no truncation, no ellipsis", async () => {
     const long = "develop-officraft";
     __injectMockTaskType({ typeKey: long, displayName: "", purpose: "" });
     __injectMockTask(mkTask({ title: "長類型名", typeKey: long }));
     const { findByTestId } = renderPage();
-    const type = (await findByTestId("task-card")).querySelector(
-      '[data-testid="task-type"]'
-    )!;
-    expect(type.textContent).toBe(long); // whole name, exactly
-    expect(type.textContent).not.toContain("…");
-  });
-
-  it("shows a SHORT type name on the same badge row (the name length is not a branch)", async () => {
-    __injectMockTaskType({ typeKey: "dev", displayName: "", purpose: "" });
-    __injectMockTask(mkTask({ title: "短類型名", typeKey: "dev" }));
-    const { findByTestId } = renderPage();
     const card = await findByTestId("task-card");
+    expandCard(card);
     const type = card.querySelector('[data-testid="task-type"]')!;
-    expect(type.textContent).toBe("dev");
-    expect(
-      card
-        .querySelector('[data-testid="task-type-link"]')!
-        .closest(".task-card__badge-row")
-    ).toBeTruthy();
-  });
-
-  it("an ad-hoc task's type badge is plain: no gear, not a button, still on row 1", async () => {
-    __injectMockTask(mkTask({ title: "自由代辦", typeKey: "" }));
-    const { findByTestId } = renderPage();
-    const card = await findByTestId("task-card");
-    const row = card.querySelector('[data-testid="task-type-row"]')!;
-    expect(row).toBeTruthy();
-    // POSITIVE CONTROL (review 2026-07-17): every other assertion here is a
-    // negative — not a BUTTON, no gear, no deep-link — and all three stay
-    // green on an EMPTY badge. Without this the ad-hoc case could render a
-    // bare teal badge with no text on row 1 and the suite would not notice
-    // (proved: emptying t.tasks.adhoc survived all 490 tests before this).
-    expect(row.textContent).toBe("自由代辦");
-    expect(row.tagName).not.toBe("BUTTON");
-    expect(row.querySelector("svg")).toBeNull(); // no gear → no dead affordance
-    expect(row.closest(".task-card__badge-row")).toBeTruthy();
-    expect(card.querySelector('[data-testid="task-type-link"]')).toBeNull();
+    expect(type.textContent).toBe(long);
+    expect(type.textContent).not.toContain("…");
   });
 });
 
@@ -356,8 +278,7 @@ describe("T-17be ③ 執行者篩選文案「所有負責人」", () => {
   it("labels the executor filter 「所有負責人」 — the bare word, asserted positively", async () => {
     __injectMockTask(mkTask({ title: "篩選列" }));
     const { findByTestId } = renderPage();
-    // The dropdowns live inside the FilterPanel now (T-93 round 3) — open it
-    // before reading a label off one.
+    await openFiltersWhenReady();
     const filter = await findByTestId("filter-executor");
 
     // toBe on the whole rendered label, NOT not.toContain("所有人"): the
@@ -374,6 +295,7 @@ describe("T-17be ③ 執行者篩選文案「所有負責人」", () => {
     // reading.
     __injectMockTask(mkTask({ title: "其它篩選" }));
     const { findByTestId } = renderPage();
+    await openFiltersWhenReady();
     expect((await findByTestId("filter-type")).textContent?.trim()).toBe(
       "所有類型"
     );
@@ -450,14 +372,14 @@ describe("T-17be deps 區塊: 不是 status、不上第一排", () => {
     // not a status. The status badge still says 進行中 (positive control: the
     // dep did not overwrite it)…
     expect(
-      card.querySelector('[data-testid="task-status"]')?.textContent
+      card.querySelector('[data-testid="task-status"]')?.getAttribute("aria-label")
     ).toBe("進行中");
     // …and the dep block says who is blocking.
     const dep = card.querySelector('[data-testid="task-dep"]')!;
     // T-1d82 split the row into 編號 + 標題 spans; T-17be's claim is about the
     // 編號 being present and off row 1, so it reads the 編號 span.
     expect(dep.querySelector(".task-card__dep-no")?.textContent).toBe(
-      "等 T-70fb"
+      "等 #T-70fb"
     );
 
     // 🔴 The line owner drew: the dep is NOT a row-1 badge. Standing it beside
@@ -479,7 +401,7 @@ describe("T-17be deps 區塊: 不是 status、不上第一排", () => {
     const dep = card.querySelector('[data-testid="task-dep"]')!;
 
     expect(dep.querySelector(".task-card__dep-no")?.textContent).toBe(
-      "等 T-70fc"
+      "等 #T-70fc"
     );
     // It borrows waiting's block shape + clock icon…
     expect(dep.classList.contains("task-card__waiting")).toBe(true);
@@ -498,7 +420,7 @@ describe("T-17be deps 區塊: 不是 status、不上第一排", () => {
     // which still says 進行中 and must not have been flipped to 等待外部 by a
     // mere dep. Non-vacuous in both directions — a vanished pill fails too.
     expect(
-      card.querySelector('[data-testid="task-status"]')?.textContent
+      card.querySelector('[data-testid="task-status"]')?.getAttribute("aria-label")
     ).toBe("進行中");
   });
 });

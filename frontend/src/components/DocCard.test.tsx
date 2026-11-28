@@ -81,15 +81,6 @@ describe("DocCard", () => {
   it("keeps the two original documents free of every boot-context affordance", async () => {
     for (const open of [openRoleDoc, openCustomDoc]) {
       const utils = await open();
-      // No note about the save. `replaceNote` is opt-in, and these two pages
-      // never asked for it — it must not arrive under them just because three
-      // other documents now do. (The notes block and the top-level 還原出廠版
-      // are not asserted here any more: neither exists on ANY page since
-      // 2026-08-14, so an absence assertion for them is satisfied by every
-      // possible implementation. What is left of those two removals is guarded
-      // where it can still fail — in BootDocPage.test.tsx.)
-      expect(utils.queryByTestId("doc-card-replace-note")).toBeNull();
-
       // 完成編輯 saves DIRECTLY — no confirmation step was inserted under them.
       fireEvent.click(utils.getAllByTestId("doc-card-edit")[0]);
       fireEvent.change(utils.getByTestId("doc-card-editor"), {

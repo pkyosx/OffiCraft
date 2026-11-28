@@ -13,7 +13,7 @@ export type TermName = string | { zh: string; en: string; foundIn: string };
 
 export const TERM_ALIASES: readonly (readonly TermName[])[] = [
   ["nav.office"],
-  [{ zh: "請示卡", en: "Reply card", foundIn: "settings.suggestedRepliesReplyCardSub" }, "nav.replies"],
+  [{ zh: "請示卡", en: "Reply card", foundIn: "replies.tabsLabel" }, "nav.replies"],
   ["nav.tasks"],
   ["tasks.typeLabel"],
   ["tasks.progressLabel"],
@@ -37,7 +37,9 @@ export const TERM_ALIASES: readonly (readonly TermName[])[] = [
   ["mp.resumeSummary.rosterDutyLabel"],
   [{ zh: "判準", en: "Insight", foundIn: "mp.insight" }],
   ["settings.params"],
+  ["settings.advanced"],
   ["settings.software"],
+  ["settings.security"],
   ["profile.theme"],
   ["profile.preferences"],
   ["settings.assigneeKindMember"],

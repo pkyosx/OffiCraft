@@ -14,7 +14,6 @@ import { makeMessages, effortText } from "./compose";
 import { applyWording } from "./wording";
 import { MESSAGE_KEYS } from "./messageKeys.generated";
 import type { ActivityWait, Effort, MemberActivity } from "../types";
-import type { DueRemaining } from "../lib/dueDate";
 
 type Lang = "zh" | "en";
 const DICTS: Record<Lang, Dict> = { zh, en };
@@ -68,7 +67,6 @@ type Arg =
   | null
   | MemberActivity
   | ActivityWait
-  | DueRemaining
   | { id: string; reason: string }[];
 /** [language, message, arguments, the text that must appear on screen]. */
 const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
@@ -140,13 +138,6 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "taskReassignTitle", ["T-1234"], "轉派 T-1234"],
     ["zh", "taskDueDate", [1793375999], "2026/10/30（五）"],
     ["zh", "taskDueDateTime", [1792650600], "2026/10/22（四） 14:30"],
-    ["zh", "taskOverdueDays", [1], "已逾期 1 天"],
-    ["zh", "taskOverdueDays", [2], "已逾期 2 天"],
-    ["zh", "taskDueRemaining", [{ overdue: false, amount: 5, unit: "day" }], "還有 5 天"],
-    ["zh", "taskDueRemaining", [{ overdue: false, amount: 19, unit: "hour" }], "還有 19 小時"],
-    ["zh", "taskDueRemaining", [{ overdue: false, amount: 25, unit: "minute" }], "還有 25 分鐘"],
-    ["zh", "taskDueRemaining", [{ overdue: true, amount: 2, unit: "day" }], "已逾期 2 天"],
-    ["zh", "taskDueRemaining", [{ overdue: true, amount: 3, unit: "hour" }], "已逾期 3 小時"],
     ["zh", "taskDueLead", [1440], "1 天"],
     ["zh", "taskDueLead", [120], "2 小時"],
     ["zh", "taskDueLead", [90], "90 分鐘"],
@@ -155,6 +146,8 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "taskCountSummary", [2, 1, 12], "已逾期 2 · 即將到期 1 · 進行中 12"],
     ["zh", "taskCountSummary", [3, 0, 4], "已逾期 3 · 進行中 4"],
     ["zh", "taskCountSummary", [0, 0, 4], "進行中 4"],
+    ["zh", "taskListedCount", [5], "5 個任務"],
+    ["zh", "taskListedCount", [1234], "1,234 個任務"],
     // T-60 — the artifact version reader's four. The count is the `sp` case
     // again (zh runs the characters together, en needs the space), and it is
     // only ever printed for n > 1, so there is no singular rendering to pin.
@@ -171,9 +164,11 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "replyWaitedFull", [3 * 86400 + 4 * 3600 + 5 * 60 + 59], "已等你 3 天 4 小時 5 分"],
     ["zh", "replyWaitedFull", [10], "已等你 1 分"],
     ["zh", "replyOpenedAt", ["7/13 09:05"], "開卡 7/13 09:05"],
-    ["zh", "replyAnsweredAt", ["7/13 09:05"], "已回覆 7/13 09:05"],
-    ["zh", "replyExpiredAt", ["7/13 09:05"], "已過期 7/13 09:05"],
+    ["zh", "replyCopyId", ["rc-83935a1b2c3d"], "複製完整請示卡 ID rc-83935a1b2c3d"],
     ["zh", "replyExpireConfirmBody", ["要不要買新的"], "要把「要不要買新的」標為過期嗎?此動作不可復原、也不算回答——成員會收到通知,問題還在的話他會重新開一張新卡。"],
+    ["zh", "filterAppliedCount", [1], "已套用 1 個條件"],
+    ["zh", "filterAppliedCount", [3], "已套用 3 個條件"],
+    ["zh", "displayOptionsChanged", ["負責人"], "顯示方式：已改為負責人"],
     ["zh", "replySelectedCount", [0], "已選 0 項"],
     ["zh", "replySelectedCount", [1], "已選 1 項"],
     ["zh", "replySelectedCount", [2], "已選 2 項"],
@@ -187,6 +182,9 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "loreScopeManual", ["PR 審查"], "任務：PR 審查"],
     ["zh", "loreScopeAgent", ["Mira"], "建立者：Mira"],
     ["zh", "loreEntryCount", [14], "14 筆"],
+    ["zh", "loreListedCount", [5], "5 筆傳承"],
+    ["zh", "replyListedCount", [1200], "1,200 張請示卡"],
+    ["zh", "loreListedCount", [1200], "1,200 筆傳承"],
     ["zh", "loreChars", [6240], "6,240 字"],
     ["zh", "loreDropped", [4], "4 筆讀不到"],
     ["zh", "loreLegendNumber", [1131], "1,131"],
@@ -205,7 +203,10 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "loreStagedFailed", [[{ id: "L-2", reason: "你沒有權限做這個動作" }, { id: "L-4", reason: "" }]], "沒有成功：L-2（你沒有權限做這個動作）、L-4"],
     ["zh", "secretCopyId", ["sec-00000000000a"], "複製密鑰 ID sec-00000000000a"],
     ["zh", "secretDeleteConfirmBody", ["部署權杖"], "要刪除「部署權杖」嗎？刪除後無法復原。"],
-    ["zh", "sharedDocCopyId", ["sd-0c41e97a2b58"], "複製檔案 ID sd-0c41e97a2b58"],
+    ["zh", "sharedDocCopyId", ["sd-0c41e97a2b58"], "複製完整檔案 ID sd-0c41e97a2b58"],
+    ["zh", "sharedDocListedCount", [4], "4 份檔案"],
+    ["zh", "sharedDocListedCount", [1200], "1,200 份檔案"],
+    ["zh", "secretListedCount", [3], "3 把密鑰"],
     ["zh", "sharedDocDeleteConfirmBody", ["Review Rule"], "要永久刪除「Review Rule」嗎？檔案與所有版本都會刪除，無法復原。"],
     ["zh", "sharedDocEditHint", [], "下載後在電腦上修改，再用「上傳新版本」換上去。"],
     ["zh", "sharedDocUpdated", ["Mira", "11/17 16:05"], "Mira · 11/17 16:05"],
@@ -361,12 +362,6 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "taskReassignTitle", ["T-1234"], "Reassign T-1234"],
     ["en", "taskDueDate", [1793375999], "Fri, Oct 30, 2026"],
     ["en", "taskDueDateTime", [1792631100], "Thu, Oct 22, 2026 09:05"],
-    ["en", "taskOverdueDays", [1], "Overdue 1 day"],
-    ["en", "taskOverdueDays", [2], "Overdue 2 days"],
-    ["en", "taskDueRemaining", [{ overdue: false, amount: 1, unit: "day" }], "1 day left"],
-    ["en", "taskDueRemaining", [{ overdue: false, amount: 19, unit: "hour" }], "19 hours left"],
-    ["en", "taskDueRemaining", [{ overdue: true, amount: 2, unit: "day" }], "Overdue 2 days"],
-    ["en", "taskDueRemaining", [{ overdue: true, amount: 1, unit: "minute" }], "Overdue 1 minute"],
     ["en", "taskDueLead", [1440], "1 day"],
     ["en", "taskDueLead", [2880], "2 days"],
     ["en", "taskDueLead", [60], "1 hour"],
@@ -377,14 +372,21 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "taskCountSummary", [2, 1, 12], "2 overdue · 1 due soon · 12 open"],
     ["en", "taskCountSummary", [3, 0, 4], "3 overdue · 4 open"],
     ["en", "taskCountSummary", [0, 0, 4], "4 open"],
+    ["en", "taskListedCount", [1], "1 task"],
+    ["en", "replyListedCount", [1], "1 card"],
+    ["en", "replyListedCount", [3], "3 cards"],
+    ["en", "taskListedCount", [5], "5 tasks"],
+    ["en", "taskListedCount", [1234], "1,234 tasks"],
     ["en", "replyWaited", ["3 小時"], "Waiting 3 小時"],
     ["en", "replyWaitedFull", [23 * 3600 + 59 * 60], "Waiting 23 hours 59 minutes"],
     ["en", "replyWaitedFull", [86400 + 3600 + 60], "Waiting 1 day 1 hour 1 minute"],
     ["en", "replyWaitedFull", [2 * 86400], "Waiting 2 days"],
     ["en", "replyOpenedAt", ["7/13 09:05"], "Opened 7/13 09:05"],
-    ["en", "replyAnsweredAt", ["7/13 09:05"], "Answered 7/13 09:05"],
-    ["en", "replyExpiredAt", ["7/13 09:05"], "Expired 7/13 09:05"],
+    ["en", "replyCopyId", ["rc-83935a1b2c3d"], "Copy the full reply card ID rc-83935a1b2c3d"],
     ["en", "replyExpireConfirmBody", ["要不要買新的"], "Mark \"要不要買新的\" as expired? This cannot be undone and does not count as an answer — the member is notified and will open a fresh card if the question still matters."],
+    ["en", "filterAppliedCount", [1], "1 filter applied"],
+    ["en", "filterAppliedCount", [3], "3 filters applied"],
+    ["en", "displayOptionsChanged", ["Assignee"], "Display: changed to Assignee"],
     ["en", "replySelectedCount", [0], "Selected 0 options"],
     // n=1 is its own row: en inflects and the other two rows cannot see it.
     ["en", "replySelectedCount", [1], "Selected 1 option"],
@@ -400,6 +402,9 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "loreScopeAgent", ["Mira"], "Author: Mira"],
     ["en", "loreEntryCount", [1], "1 entry"],
     ["en", "loreEntryCount", [14], "14 entries"],
+    ["en", "loreListedCount", [1], "1 entry"],
+    ["en", "loreListedCount", [5], "5 entries"],
+    ["en", "loreListedCount", [1200], "1,200 entries"],
     ["en", "loreChars", [6240], "6,240 chars"],
     ["en", "loreDropped", [4], "4 not read"],
     ["en", "loreLegendNumber", [1131], "1,131"],
@@ -418,7 +423,12 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "loreStagedFailed", [[{ id: "L-2", reason: "admin only" }, { id: "L-4", reason: "" }]], "Did not go through: L-2 (admin only), L-4"],
     ["en", "secretCopyId", ["sec-00000000000a"], "Copy secret ID sec-00000000000a"],
     ["en", "secretDeleteConfirmBody", ["Deploy token"], "Delete \u201cDeploy token\u201d? This cannot be undone."],
-    ["en", "sharedDocCopyId", ["sd-0c41e97a2b58"], "Copy file ID sd-0c41e97a2b58"],
+    ["en", "sharedDocCopyId", ["sd-0c41e97a2b58"], "Copy the full file ID sd-0c41e97a2b58"],
+    ["en", "sharedDocListedCount", [1], "1 file"],
+    ["en", "sharedDocListedCount", [4], "4 files"],
+    ["en", "sharedDocListedCount", [1200], "1,200 files"],
+    ["en", "secretListedCount", [1], "1 secret"],
+    ["en", "secretListedCount", [3], "3 secrets"],
     ["en", "sharedDocDeleteConfirmBody", ["Review Rule"], "Permanently delete \u201cReview Rule\u201d? The file and every version are deleted. This cannot be undone."],
     ["en", "sharedDocEditHint", [], "Download it, edit it on your computer, then put it back with \u201cUpload new version\u201d."],
     ["en", "sharedDocUpdated", ["Mira", "11/17 16:05"], "Mira · 11/17 16:05"],
@@ -595,10 +605,7 @@ describe("makeMessages", () => {
     );
   });
 
-  it("lets a theme re-word both halves of the 步驟 … · 已歷時 … progress line", () => {
-    // The two are ONE visible string on the task card. 已歷時 was still an
-    // interpolation template, so a pack could re-word 步驟 and not 已歷時 —
-    // the "same sentence, half of it swappable" defect this ticket removed.
+  it("lets a theme re-word both 步驟 … and 已歷時 … on the progress line", () => {
     const themed = applyWording(zh, {
       "tasks.progressLabel": "關卡",
       "tasks.elapsedLabel": "耗費",
@@ -673,8 +680,7 @@ describe("makeMessages", () => {
       "mp.machineMovingToLabel",
       "replies.waitedLabel",
       "replies.openedAtLabel",
-      "replies.answeredAtLabel",
-      "replies.expiredAtLabel",
+      "replies.handledAtLabel",
       "replies.expireConfirmBodyLead",
       "replies.expireConfirmBodyTail",
       "office.outsource.title",

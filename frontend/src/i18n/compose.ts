@@ -33,7 +33,7 @@
 import type { Dict } from "./locales/zh";
 import type { ActivityWait, Effort, MemberActivity } from "../types";
 import { dayStartOf, formatAbsolute, formatClock, formatResetTime } from "../lib/dateFormat";
-import { splitLeadMinutes, type DueRemaining, type LeadUnit } from "../lib/dueDate";
+import { splitLeadMinutes, type LeadUnit } from "../lib/dueDate";
 import { durationParts } from "../lib/duration";
 
 /** The UI languages a wording overlay keys on (mirrors i18n's `Language`;
@@ -41,6 +41,8 @@ import { durationParts } from "../lib/duration";
 type Lang = "zh" | "en";
 
 export interface Messages {
+  filterAppliedCount: (n: number) => string;
+  displayOptionsChanged: (choice: string) => string;
   // ── tasks ──
   taskProgress: (done: number, total: number) => string;
   taskElapsed: (elapsed: string) => string;
@@ -54,11 +56,11 @@ export interface Messages {
   taskReassignTitle: (taskNo: string) => string;
   taskDueDate: (tsSeconds: number) => string;
   taskDueDateTime: (tsSeconds: number) => string;
-  taskOverdueDays: (days: number) => string;
-  taskDueRemaining: (remaining: DueRemaining) => string;
   taskDueLead: (minutes: number) => string;
   taskDueLeadWorkspace: (minutes: number) => string;
   taskCountSummary: (overdue: number, dueSoon: number, open: number) => string;
+  /** 「5 個任務」: how many the list holds under the current filters. */
+  taskListedCount: (n: number) => string;
   // ── task artifact versions (T-60) ──
   taskArtifactVersionCount: (n: number) => string;
   taskArtifactVersionLabel: (when: string) => string;
@@ -68,11 +70,11 @@ export interface Messages {
   loginThrottled: (secs: number) => string;
   passkeyIpHint: (url: string) => string;
   // ── replies ──
+  replyListedCount: (n: number) => string;
   replyWaited: (elapsed: string) => string;
   replyWaitedFull: (seconds: number) => string;
   replyOpenedAt: (time: string) => string;
-  replyAnsweredAt: (time: string) => string;
-  replyExpiredAt: (time: string) => string;
+  replyCopyId: (cardId: string) => string;
   replyExpireConfirmBody: (summary: string) => string;
   replySelectedCount: (n: number) => string;
   replyPickedOptions: (options: string[]) => string;
@@ -84,6 +86,7 @@ export interface Messages {
   loreScopeManual: (manualName: string) => string;
   loreScopeAgent: (authorName: string) => string;
   loreEntryCount: (n: number) => string;
+  loreListedCount: (n: number) => string;
   loreChars: (n: number) => string;
   loreDropped: (n: number) => string;
   loreEveryoneUsed: (chars: number) => string;
@@ -104,6 +107,8 @@ export interface Messages {
   secretDeleteConfirmBody: (name: string) => string;
   sharedDocCopyId: (docId: string) => string;
   sharedDocDeleteConfirmBody: (name: string) => string;
+  sharedDocListedCount: (n: number) => string;
+  secretListedCount: (n: number) => string;
   sharedDocEditHint: () => string;
   sharedDocUpdated: (by: string, when: string) => string;
   // ── office ──
@@ -310,6 +315,8 @@ export function makeMessages(t: Dict, language: Lang): Messages {
   };
   const counted = (n: number, one: string, many: string): string =>
     `${n} ${n === 1 ? one : many}`;
+  const countedNum = (n: number, one: string, many: string): string =>
+    `${num(n)} ${n === 1 ? one : many}`;
   const leadUnitWords: Record<LeadUnit, [string, string]> = {
     day: [tasks.dueLeadDayOne, tasks.dueLeadDayMany],
     hour: [tasks.dueLeadHourOne, tasks.dueLeadHourMany],
@@ -356,24 +363,13 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       const pad = (n: number) => String(n).padStart(2, "0");
       return `${messages.taskDueDate(tsSeconds)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     },
-    taskOverdueDays: (days) =>
-      `${tasks.overdueDaysLead} ${days} ${
-        days === 1 ? tasks.overdueDaysTailOne : tasks.overdueDaysTailMany
-      }`,
-    taskDueRemaining: ({ overdue, amount, unit }) => {
-      if (overdue && unit === "day") return messages.taskOverdueDays(amount);
-      const span = counted(amount, ...leadUnitWords[unit]);
-      const parts = overdue
-        ? [tasks.overdueDaysLead, span]
-        : [tasks.dueRemainingLead, span, tasks.dueRemainingTail];
-      return parts.filter((part) => part !== "").join(" ");
-    },
     taskDueLead: (minutes) => {
       const { amount, unit } = splitLeadMinutes(minutes);
       return counted(amount, ...leadUnitWords[unit]);
     },
     taskDueLeadWorkspace: (minutes) =>
       `${tasks.dueLeadWorkspaceLead}${messages.taskDueLead(minutes)}`,
+    taskListedCount: (n) => countedNum(n, tasks.listedCountOne, tasks.listedCountMany),
     taskCountSummary: (overdue, dueSoon, open) =>
       [
         overdue > 0 &&
@@ -398,8 +394,6 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       `${tasks.artifacts.versionsOpaqueLead}${mime}${tasks.artifacts.versionsOpaqueTail}`,
     taskProgress: (done, total) =>
       `${tasks.progressLabel} ${done}/${total}`,
-    // 「步驟 N/M · 已歷時 X」 is ONE visible string. Leaving elapsed as a template
-    // left 步驟 overridable and 已歷時 not, inside that one sentence.
     // The 429 wait. The space AFTER the number is language-specific and is the
     // OPPOSITE of `sp`: zh writes 「請於 42 秒後再試。」 (spaces both sides), en
     // writes "in 42s." (none). It cannot reuse `sp`, and it is not baked into
@@ -422,6 +416,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     taskDuplicateOf: (taskNo) => `${tasks.duplicateOfLabel} ${taskNo}`,
     taskReassignTitle: (taskNo) => `${tasks.reassignTitleLabel} ${taskNo}`,
 
+    replyListedCount: (n) => countedNum(n, replies.listedCountOne, replies.listedCountMany),
     replyWaited: (elapsed) => `${replies.waitedLabel} ${elapsed}`,
     // 「已等你 23 小時 59 分」/「Waiting 23 hours 59 minutes」: every non-zero
     // part, so the desktop pill's single unit loses nothing for whoever asks.
@@ -435,8 +430,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       return messages.replyWaited(parts.join(" "));
     },
     replyOpenedAt: (time) => `${replies.openedAtLabel} ${time}`,
-    replyAnsweredAt: (time) => `${replies.answeredAtLabel} ${time}`,
-    replyExpiredAt: (time) => `${replies.expiredAtLabel} ${time}`,
+    replyCopyId: (cardId) => `${replies.copyIdLabel} ${cardId}`,
     replyExpireConfirmBody: (summary) =>
       `${replies.expireConfirmBodyLead}${summary}${replies.expireConfirmBodyTail}`,
     // How many options are ticked on a multi-select card. LITERAL spaces on
@@ -448,6 +442,16 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       `${replies.selectedCountLead} ${n} ${
         n === 1 ? replies.selectedCountTailOne : replies.selectedCountTailMany
       }`,
+    displayOptionsChanged: (choice) => `${tasks.displayOptionsChangedLead}${sp}${choice}`,
+    // en has no lead word, so empty fragments drop out instead of leaving a space.
+    filterAppliedCount: (n) =>
+      [
+        t.common.filterAppliedLead,
+        String(n),
+        n === 1 ? t.common.filterAppliedTailOne : t.common.filterAppliedTailMany,
+      ]
+        .filter(Boolean)
+        .join(" "),
     // Every circled option on one line (the collapsed task-card row). Joined by
     // the locale's own list separator — the same one every other list in this
     // file uses, so a multi-select decision is punctuated like a list and not
@@ -476,6 +480,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       `${t.lore.openManualLabel} ${manualName}`,
     loreScopeManual: (manualName) => `${t.lore.scopeManualLead}${manualName}`,
     loreScopeAgent: (authorName) => `${t.lore.scopeAgentLead}${authorName}`,
+    loreListedCount: (n) => countedNum(n, t.lore.listedCountOne, t.lore.listedCountMany),
     loreEntryCount: (n) =>
       `${num(n)}${n === 1 ? t.lore.entryCountTailOne : t.lore.entryCountTailMany}`,
     loreChars: (n) => `${num(n)}${t.lore.charsTail}`,
@@ -505,10 +510,12 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     sharedDocCopyId: (docId) => `${t.sharedDocs.copyIdLabel} ${docId}`,
     sharedDocDeleteConfirmBody: (name) =>
       `${t.sharedDocs.deleteConfirmLead}${name}${t.sharedDocs.deleteConfirmTail}`,
+    sharedDocListedCount: (n) =>
+      countedNum(n, t.sharedDocs.listedCountOne, t.sharedDocs.listedCountMany),
+    secretListedCount: (n) => countedNum(n, t.secrets.listedCountOne, t.secrets.listedCountMany),
     sharedDocEditHint: () =>
       `${t.sharedDocs.editHintLead}${t.sharedDocs.uploadVersion}${t.sharedDocs.editHintTail}`,
     sharedDocUpdated: (by, when) => `${by} · ${when}`,
-
     // The outsource identity label has ONE source of the word 外包 now: the
     // section title. It used to have two (a title leaf and an identically
     // worded template), so a theme could re-word one and not the other.

@@ -1,8 +1,8 @@
-// GUARD (T-9ca5) — step-level 等待外部 badge + reason row.
+// GUARD — step-level 等待外部 icon + reason row.
 //
-// Contract: a step in waiting_external gets its OWN badge (step-waiting-external
-// / .task-step-badge--waiting-external, distinct from the amber owner 等我回覆)
-// and a .task-step__waiting reason row that ALWAYS-STACKS — the 等待中 label on
+// Contract: a step in waiting_external gets its OWN timeline icon (named
+// 等待外部, distinct from the amber owner 等我回覆) and a .task-step__waiting
+// reason row that ALWAYS-STACKS — the 等待中 label on
 // line 1, the markdown reason on line 2 — at every width. The fixture reason is
 // 3 chars, so it trivially fits beside the label; its landing on line 2 is the
 // CSS (flex-basis:100% in a wrap row), not overflow — the same argument the
@@ -29,14 +29,14 @@ async function mountExpanded(mount: any, page: any, width: number) {
 }
 
 for (const width of [1280, 390]) {
-  test(`width ${width}: step 等待外部 badge + reason row stacks`, async ({
+  test(`width ${width}: step 等待外部 icon + reason row stacks`, async ({
     mount,
     page,
   }) => {
     const cmp = await mountExpanded(mount, page, width);
 
-    // (1) the step carries its OWN external-wait badge, distinct from 等我回覆.
-    await expect(cmp.getByTestId("step-waiting-external")).toBeVisible();
+    // (1) the step's timeline icon names its OWN external wait, not 等我回覆.
+    await expect(cmp.getByRole("img", { name: "等待外部" })).toBeVisible();
 
     // (2) the reason row always-stacks: label on line 1, reason md on line 2.
     const row = cmp.getByTestId("step-waiting-reason");
@@ -50,5 +50,14 @@ for (const width of [1280, 390]) {
     expect(mdBox.y - labelBox.y).toBeGreaterThan(8);
     // STACKED-B: reason begins on a NEW flex line — left edge at/left-of label.
     expect(mdBox.x).toBeLessThanOrEqual(labelBox.x + 1);
+
+    // (3) the reason row's icon paints the theme's 等待外部 step colour.
+    await page.evaluate(() =>
+      document.documentElement.style.setProperty("--color-step-waiting-external", "rgb(77, 88, 99)")
+    );
+    const iconColour = await row
+      .locator(":scope > svg")
+      .evaluate((el: Element) => getComputedStyle(el).color);
+    expect(iconColour, "reason icon colour").toBe("rgb(77, 88, 99)");
   });
 }

@@ -671,9 +671,8 @@ func TestAnsweringOneOfTwoCardsKeepsTheTaskWaiting(t *testing.T) {
 
 // TestBoundCardArmsANonGatePlainStep: a linked_task naming an is_gate=false,
 // not-done step of a live task is a legitimate ad-hoc 請示 and arms it
-// (waiting_owner + bound card + task follows). is_gate is a plan-declared
-// property and is NOT flipped: the step becomes a card-carrying plain step, the
-// state resumeGateState already folds.
+// (waiting_owner + bound card + task follows), and the step becomes a gate for
+// good: is_gate stays true after the card is answered and the step is done.
 func TestBoundCardArmsANonGatePlainStep(t *testing.T) {
 	api := newTasksTestServer(t)
 	task := createAdHocTask(t, api, "m-exec")
@@ -708,16 +707,36 @@ func TestBoundCardArmsANonGatePlainStep(t *testing.T) {
 	if step.Status != StepStatusWaitingOwner || step.ReplyCardID != card.ID {
 		t.Fatalf("plain step must be waiting_owner + bound: %+v", step)
 	}
-	// is_gate stays false — arming does not rewrite the plan shape.
-	if step.IsGate {
-		t.Fatalf("arming must not flip is_gate on a plain step: %+v", step)
-	}
 	stored, err := api.dal.GetTask(task.ID)
 	if err != nil || stored == nil {
 		t.Fatalf("task: %v %v", stored, err)
 	}
 	if stored.Status != TaskStatusWaitingOwner {
 		t.Fatalf("task must follow into waiting_owner, got %s", stored.Status)
+	}
+	if got := getTaskView(t, api, task.ID).Steps[0]; !got.IsGate {
+		t.Fatalf("get_task must show the bound step as a gate: %+v", got)
+	}
+
+	if rec := answerCard(t, api, card.ID,
+		map[string]any{"option_idxs": []int{0}}); rec.Code != http.StatusOK {
+		t.Fatalf("answer: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := reportStepStatus(t, api, task.ID, plainStep.ID, "m-exec", "done", ""); rec.Code != http.StatusOK {
+		t.Fatalf("finish step: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := getTaskView(t, api, task.ID).Steps[0]; got.Status != StepStatusDone || !got.IsGate {
+		t.Fatalf("get_task after answer + done = %+v, want done and still a gate", got)
+	}
+	rec = httptest.NewRecorder()
+	api.HandleGetTaskStepApiTasksTaskIdStepsStepIdGet(rec,
+		taskReq(t, "GET", "/api/tasks/"+task.ID+"/steps/"+plainStep.ID, nil, "owner", "owner"),
+		task.ID, plainStep.ID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get_task_step: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := decodeBody[taskStepDetailDTO](t, rec); !got.IsGate {
+		t.Fatalf("get_task_step after answer + done = %+v, want is_gate true", got)
 	}
 }
 
@@ -1518,9 +1537,8 @@ func TestSubmitPlanRelistingDoneStepsDoesNotDuplicate(t *testing.T) {
 
 // ── submit_plan: parallel (fork-join) shape guards ───────────────────────────
 
-// TestSubmitPlanParallelShapeGuards pins the three 400s of the parallel write
-// gate (gate-in-group / split group / one-lane group) plus the legal
-// fork-join round-trip. Plans WITHOUT any parallel_group are untouched by the
+// TestSubmitPlanParallelShapeGuards pins the two 400s of the parallel write
+// gate (split group / one-lane group) plus the legal fork-join round-trip. Plans WITHOUT any parallel_group are untouched by the
 // gate — every other test in this file keeps pinning that.
 func TestSubmitPlanParallelShapeGuards(t *testing.T) {
 	api := newTasksTestServer(t)
@@ -1534,15 +1552,7 @@ func TestSubmitPlanParallelShapeGuards(t *testing.T) {
 		return rec
 	}
 
-	// 1. A gate inside a parallel group is refused.
-	if rec := post([]map[string]any{
-		{"name": "lane a", "dod": "d", "parallel_group": "pg"},
-		{"name": "approve", "dod": "d", "parallel_group": "pg", "is_gate": true},
-	}); rec.Code != http.StatusBadRequest {
-		t.Fatalf("gate-in-group: want 400, got %d %s", rec.Code, rec.Body.String())
-	}
-
-	// 2. A split group (same key, not consecutive) is refused.
+	// 1. A split group (same key, not consecutive) is refused.
 	if rec := post([]map[string]any{
 		{"name": "lane a", "dod": "d", "parallel_group": "pg"},
 		{"name": "solo", "dod": "d"},
@@ -1551,7 +1561,7 @@ func TestSubmitPlanParallelShapeGuards(t *testing.T) {
 		t.Fatalf("split group: want 400, got %d %s", rec.Code, rec.Body.String())
 	}
 
-	// 3. A one-lane group is refused (parallel means at least two).
+	// 2. A one-lane group is refused (parallel means at least two).
 	if rec := post([]map[string]any{
 		{"name": "lonely", "dod": "d", "parallel_group": "pg"},
 		{"name": "join", "dod": "d"},
@@ -1564,11 +1574,12 @@ func TestSubmitPlanParallelShapeGuards(t *testing.T) {
 		t.Fatalf("refused plans must not write: %v %v", steps, err)
 	}
 
-	// A legal fork-join plan (two groups + join + trailing gate) lands whole.
+	// A legal fork-join plan (two groups, one holding a gate, + join + trailing
+	// gate) lands whole.
 	rec := post([]map[string]any{
 		{"name": "spec", "dod": "d"},
 		{"name": "lane a", "dod": "d", "parallel_group": "pg"},
-		{"name": "lane b", "dod": "d", "parallel_group": "pg"},
+		{"name": "lane b", "dod": "d", "parallel_group": "pg", "is_gate": true},
 		{"name": "join", "dod": "d"},
 		{"name": "check a", "dod": "d", "parallel_group": "verify"},
 		{"name": "check b", "dod": "d", "parallel_group": "verify"},
@@ -1590,6 +1601,9 @@ func TestSubmitPlanParallelShapeGuards(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("parallel_group round-trip: want %v, got %v", want, got)
 		}
+	}
+	if !view.Steps[2].IsGate || view.Steps[1].IsGate {
+		t.Fatalf("is_gate round-trip inside group pg: %+v", view.Steps[1:3])
 	}
 }
 
@@ -1646,6 +1660,31 @@ func TestSubmitPlanParallelReplanValidatesTheCombinedTimeline(t *testing.T) {
 	if len(view.Steps) != 3 || view.Steps[0].Status != StepStatusDone ||
 		view.Steps[1].ParallelGroup != "pg" || view.Steps[2].ParallelGroup != "" {
 		t.Fatalf("replanned timeline wrong: %+v", view.Steps)
+	}
+
+	// A card bound to a lane turns it into a gate inside the group; echoing the
+	// plan back exactly as get_task shows it, while that card still waits, lands.
+	card := openCardOnStep(t, api, task.ID, "m-exec", view.Steps[1].ID, "which way?")
+	held := getTaskView(t, api, task.ID)
+	if st := held.Steps[1]; !st.IsGate || st.ParallelGroup != "pg" ||
+		st.ReplyCardID != card.ID || st.Status != StepStatusWaitingOwner {
+		t.Fatalf("bound lane must be a waiting gate inside pg: %+v", st)
+	}
+	echo := make([]map[string]any, 0, len(held.Steps))
+	for _, st := range held.Steps {
+		echo = append(echo, map[string]any{
+			"name": st.Name, "dod": st.DoD,
+			"parallel_group": st.ParallelGroup, "is_gate": st.IsGate,
+		})
+	}
+	if rec := post(echo); rec.Code != http.StatusOK {
+		t.Fatalf("echoing get_task's plan with a waiting gate in a group: %d %s",
+			rec.Code, rec.Body.String())
+	}
+	replanned := getTaskView(t, api, task.ID)
+	if len(replanned.Steps) != 3 || replanned.Steps[1].Name != "lane b2" ||
+		!replanned.Steps[1].IsGate || replanned.Steps[1].ParallelGroup != "pg" {
+		t.Fatalf("echoed plan must keep lane b2 as a gate inside pg: %+v", replanned.Steps)
 	}
 }
 
@@ -1781,7 +1820,7 @@ func TestSubmitPlanRelistingAnsweredCardStepContinuesTheLiveRow(t *testing.T) {
 		t.Fatalf("answer: %d %s", rec.Code, rec.Body.String())
 	}
 	v2 := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
-		{"name": "ask direction", "dod": "a different dod", "is_gate": true},
+		{"name": "ask direction", "dod": "a different dod", "is_gate": false},
 		{"name": "execute", "dod": "d"},
 	})
 	if len(v2.Steps) != 2 {
@@ -1794,7 +1833,7 @@ func TestSubmitPlanRelistingAnsweredCardStepContinuesTheLiveRow(t *testing.T) {
 	if cont.ReplyCardID != card.ID {
 		t.Fatalf("the continued row keeps its card pointer: %+v", cont)
 	}
-	if cont.DoD != "owner answered" || cont.IsGate {
+	if cont.DoD != "owner answered" || !cont.IsGate {
 		t.Fatalf("the relisted entry's dod and is_gate must not be written: %+v", cont)
 	}
 	if v2.ProgressDone != 0 || v2.ProgressTotal != 2 {

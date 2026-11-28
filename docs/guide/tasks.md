@@ -14,7 +14,7 @@ A task is a piece of work divided into several steps, with clear acceptance crit
 
 The "Task" tab lists all tasks. The number on the tab is the number of tasks that are not yet closed. Each task card shows:
 
-- **Status**: which stage the task has reached. See the next section.
+- **Status**: which stage the task has reached, shown as an icon at the start of the card; hover over it to see the status name. See the next section.
 - **Assignee**: the member currently working on the task.
 - **Priority**: the order in which tasks are handled. When "Frozen" is selected, the member stops moving this task forward.
 - **Due date**: changes color when the task is Due soon or Overdue.
@@ -43,7 +43,7 @@ When "Reassigning" appears on a task card, the task is being handed to a differe
 The "Workflow" on a task card lists the steps the assignee has broken the task into:
 
 - **Definition of done (DoD)**: how far a step must go before it counts as complete.
-- **Gate**: a step that needs your decision, approval, or acceptance. It is marked "Awaiting my reply" from the start. When the task reaches a gate, the member opens a reply card for you.
+- **Gate**: a step that needs your decision, approval, or acceptance. It carries an amber shield on the top-right corner of its box ("Needs your approval") from the start. When the task reaches a gate, the member opens a reply card for you. A step a member opens a reply card on becomes a gate too.
 - **Note**: progress and results that the assignee records on the step.
 
 ## Artifacts
@@ -61,7 +61,7 @@ Artifacts are results the assignee places on the task card for you to review or 
 - **Frozen**: pause the task. Before resuming it, the member opens a card to ask you.
 - **Reassign**: hand the task to a different member or to an outsource member.
 
-Force close, Terminate, and Mark duplicate are on the status tag of the task card. Frozen is under "Priority". Reassign is next to "Assignee".
+Force close, Terminate, and Mark duplicate are in the menu that opens when you click the status icon at the start of the task card. Frozen is under "Priority". Reassign is next to "Assignee".
 
 ## Related pages
 

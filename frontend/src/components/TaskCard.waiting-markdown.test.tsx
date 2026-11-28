@@ -75,8 +75,9 @@ describe("step 等待外部 reason markdown render (T-a20b shapes, T-c514 surfac
       "等 **fms #20054** 合併，commit `919fe961`"
     );
     const waiting = await findByTestId("step-waiting-reason");
+    expect((await findByTestId("step-marker")).getAttribute("aria-label")).toBe("等待外部");
 
-    // positive control: this scope always holds the clock icon + the label, so
+    // positive control: this scope always holds the icon + the label, so
     // a mis-scoped/empty selector fails HERE rather than passing the negative
     // assertions below by vacuity.
     expect(waiting.querySelector("svg")).not.toBeNull();
@@ -222,7 +223,7 @@ describe("waiting_external task: reason lives in the step (T-c514)", () => {
 
     // ② the task-level STATUS pill stays on the card.
     expect(
-      container.querySelector('[data-testid="task-status"]')?.textContent
+      container.querySelector('[data-testid="task-status"]')?.getAttribute("aria-label")
     ).toBe("等待外部");
   });
 });

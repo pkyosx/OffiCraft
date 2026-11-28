@@ -109,6 +109,13 @@ func TestEntryIdFilterServesExactlyThatOneEntry(t *testing.T) {
 			"contains the wanted row too, so 「it is in there」 proves nothing.",
 			want, got, want)
 	}
+	if page.Total == nil {
+		t.Fatalf("?entry_ids=%s carries no total", want)
+	}
+	if *page.Total != 1 {
+		t.Fatalf("?entry_ids=%s total=%d, want 1, the one entry the filter matched",
+			want, *page.Total)
+	}
 }
 
 // TestUnknownEntryIdServesAnEmptyPageNotEveryEntry — 🔴 THE ONE THAT MATTERS.

@@ -1,29 +1,10 @@
-/* FilterPanel — the 篩選 row (T-118).
- *
- * 🔴 THERE IS NO `position: fixed` AND NO `z-index` IN THIS FILE, AND THAT IS
- * STILL THE POINT. owner c-3b5a0aa66550:「按搜尋時不要再跳出新modal」, and
- * c-c3d681fe05da:「不要多filter那一層了,全部拉出來」. The fields are page content
- * above the list, not a layer over it. Two separate rulings say so.
- *
- * Self-contained: FilterPanel.tsx imports this file itself, so the row carries
- * its own look onto whichever page hosts it (frontend/.claude/rules/
- * css-layout-traps.md — "用了哪份 CSS 的 class,就要自己 import 那份 CSS").
+/* FilterPanel — the 篩選 shell (a funnel that opens an anchored panel / phone
+ * sheet). Self-contained: FilterPanel.tsx imports this file itself.
  * Colours are theme tokens only.
  *
- * 🔴 NO `margin`/`margin-bottom` HERE — owner 2026-09-06 circled the gap the
- * old one produced (「另外怎麼有一段空白」, c-d6c59eaa1c5a, a phone screenshot of
- * 請示卡頁). BOTH host pages are flex columns that already space their own
- * children (`.replies` gap 26px, `.tasks` gap 22px); a component that adds its
- * own outer spacing is invisible in code review and only shows up as "why is
- * there a gap there" on someone's phone. The host owns the rhythm.
- *
- * 🔴 NO BORDER AND NO BACKGROUND ON THE ROW EITHER. Round 3 had the fields
- * inside a card because they only appeared on demand and
- * needed to read as a panel that had opened. They are permanent now, so a frame
- * around them is a box the owner did not ask for — and he has already rejected
- * one extra frame on this exact page (「上面又多了一塊筐感覺很亂」,
- * rc-b167fc748704). The fields are content; the list below is the content they
- * belong to. */
+ * 🔴 NO `margin` ON THE ROW: the host pages are flex columns that space their
+ * own children; a component that adds outer spacing shows up only as "why is
+ * there a gap there" on a phone. No border or background on the row either. */
 .filter-panel {
   display: flex;
   flex-wrap: wrap;
@@ -31,55 +12,8 @@
   gap: 10px;
 }
 
-.filter-panel__fields {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
-
-/* Inside the fields flow, so on a phone the actions share the last line of
- * fields instead of taking a line of their own; `margin-left: auto` keeps them
- * on that line's right edge. */
-.filter-panel__actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* 🔴 NO 「ONE FIELD PER ROW ON A PHONE」 RULE HERE, AND PUTTING ONE BACK IS
- * REVERSING AN OWNER RULING, NOT TIDYING A PHONE LAYOUT.
- *
- * There used to be `@media (max-width: 520px) { .filter-panel__fields > * {
- * flex: 1 1 100% } }`, to stop the fields wrapping into ragged part-rows. It
- * was written when this panel only appeared after clicking a funnel, so almost
- * nobody met it. T-118 made the fields permanent and it became what the owner
- * sees every time he opens the page on his phone — he asked 「為什麼會一個
- * filter 一行」 (2026-09-07 `c-e91a6f9274d1`) and then circled 「窄畫面也讓它們
- * 並排、塞不下才換行」 (`rc-5d2e6d48a108`), having been told in that same card
- * that the cost is exactly the ragged part-rows the old rule bought off.
- *
- * ⚠️ It also had a SECOND effect nobody had named: `flex-basis: 100%` beats the
- * id field's own width, so on a phone that field stopped being 「as wide as the
- * id it holds」 and became full-bleed. That is why 「ID的也太長」 arrived in the
- * same breath as the question above — one rule, two complaints.
- *
- * So the fields keep `flex: 0 0 auto` at every width and simply wrap when they
- * run out of room. `.filter-panel__fields` is `flex-wrap: wrap` above. */
-
-/* ── 清除篩選 ─────────────────────────────────────────────────────────────
- * 🔴 IT SITS IN THE FIELD ROW, NOT ON A STRIP OF ITS OWN. owner 2026-09-06
- * named the 「N 筆 · 已篩選：<chip ×> · 清除全部」 row when he asked for a
- * removal (`c-c3d681fe05da`) — he did NOT name this control, and when the row
- * went he asked for it back (`c-2423dba8b65b`「清除篩選還是要留著」). So it
- * lives with the fields it clears: one more item in the same flex row, wrapping
- * with them, and no container of its own.
- *
- * A link rather than a filled button: it is the row's least-used control and
- * must not out-shout the four fields that are its subject. */
+/* 清除篩選: the panel footer's right end. A link rather than a filled button:
+ * it is the least-used control. */
 .filter-panel__clear {
   border: 0;
   background: transparent;
@@ -94,4 +28,226 @@
 }
 .filter-panel__clear:hover {
   text-decoration: underline;
+}
+
+/* Basis 0, so a long count shrinks to an ellipsis instead of wrapping the
+ * funnel onto a second line; the top padding matches the bar's badge room so
+ * the text sits on the funnel's centre line. */
+.filter-panel__summary {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-top: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+
+/* ── the bar: funnel + the page's actions ── */
+.filter-panel__bar {
+  margin-left: auto;
+  display: flex;
+  /* stretch: the funnel takes the 顯示方式 button's height beside it. */
+  align-items: stretch;
+  gap: 8px;
+  /* Room for the badge that pokes above the funnel: the host page's scroll
+   * box starts at this row's top edge and would clip it. */
+  padding-top: 6px;
+}
+.filter-panel__trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.filter-panel__trigger:hover,
+.filter-panel__trigger[aria-expanded="true"] {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+.filter-panel__trigger--active {
+  color: var(--color-text-strong);
+}
+.filter-panel__badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+/* A funnel alone in the bar ends flush with the page's right edge, where an
+ * overhanging badge would scroll the page sideways. */
+.filter-panel__trigger:only-child .filter-panel__badge {
+  right: 0;
+}
+
+/* ── the fields, as a labelled grid (panel and sheet) ─────────────────────── */
+.filter-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 12px;
+}
+.filter-panel__field {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.filter-panel__field--wide {
+  grid-column: 1 / -1;
+}
+.filter-panel__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+/* A field fills its cell; `widthCh` sizes the field only outside the panel. */
+.filter-panel__field .id-filter-field {
+  display: grid;
+  width: 100%;
+}
+/* A Latin-only summary renders shorter than a CJK one; keep the grid even. */
+.filter-panel__field .tasks__ms-trigger,
+.filter-panel__field .id-filter {
+  min-height: 34px;
+}
+.filter-panel__field .tasks__ms-trigger {
+  width: 100%;
+  max-width: none;
+  justify-content: space-between;
+}
+.filter-panel__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 30px;
+}
+.filter-panel__applied {
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.filter-panel__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+
+/* ── desktop: a dropdown under the funnel, in the 顯示方式 panel's look
+ * (display-options.css). Position, width and max-height come from
+ * FilterPanel.tsx; it is `fixed` so the list's scroll box cannot clip it, and
+ * it scrolls itself when the window is short. The inner dropdowns are `fixed`
+ * too (MultiSelectFilter), so that scroll does not clip them either. */
+.filter-panel__pop {
+  position: fixed;
+  z-index: 60;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  background: var(--color-card);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--color-shadow) 45%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.filter-panel__pop:focus {
+  outline: none;
+}
+.filter-panel__pop-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.filter-panel__pop .filter-panel__foot {
+  min-height: 0;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+.filter-panel__pop .filter-panel__clear {
+  height: 26px;
+}
+
+/* ── phone: a bottom sheet in the chat search / chat group menu shape ───────
+ * Copied from chat-search.css rather than shared: those sheets are styled by
+ * their own page-scoped stylesheets. Never past 70% of the visible window, so
+ * the dimmed strip above stays there to tap closed. */
+.filter-panel__sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+  background: color-mix(in srgb, var(--color-backdrop) 45%, transparent);
+}
+.filter-panel__sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 70%;
+  padding-bottom: env(safe-area-inset-bottom);
+  border-radius: 14px 14px 0 0;
+  background: var(--color-card);
+  outline: none;
+}
+.filter-panel__sheet-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 10px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
+}
+.filter-panel__done {
+  flex: none;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  border-radius: 8px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.filter-panel__sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 16px;
+}
+.filter-panel__sheet .filter-panel__foot {
+  flex: none;
+  padding: 6px 12px 10px 16px;
+}
+.filter-panel__sheet .tasks__ms-trigger,
+.filter-panel__sheet .id-filter {
+  min-height: 40px;
 }

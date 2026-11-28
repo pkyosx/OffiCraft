@@ -101,7 +101,12 @@ describe("TaskCard 任務編號 chip 點擊複製 (owner 2026-07-19)", () => {
     __injectMockTask(task);
 
     const { findByTestId } = renderPage();
-    fireEvent.click(await findByTestId("task-no"));
+    const chip = await findByTestId("task-no");
+    expect(
+      Array.from(chip.querySelector("svg")!.children).map((el) => el.getAttribute("d") ?? el.tagName),
+      "the copy icon leads the number",
+    ).toEqual(["rect", "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"]);
+    fireEvent.click(chip);
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(task.taskNo));
 

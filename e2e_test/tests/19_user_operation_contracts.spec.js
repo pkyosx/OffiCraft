@@ -15,6 +15,11 @@ const {
   uniqueName,
 } = require('../lib/fixtures');
 
+/** Select the 近期已回覆 label above the list. */
+async function showAnswered(page) {
+  await page.getByTestId('replies-tab-answered').click();
+}
+
 function options(texts, aiPickAt) {
   return texts.map((text, i) => ({ text, ai_pick: i === aiPickAt }));
 }
@@ -155,7 +160,7 @@ test.describe('user-operation contract · single card draft preservation', () =>
     await chip(waiting, 1).click();
 
     await expect(waiting, 'one tap must close the page card').toHaveCount(0);
-    await page.getByTestId('answered-toggle').click();
+    await showAnswered(page);
     const answered = page
       .getByTestId('answered-card')
       .filter({ hasText: summary });

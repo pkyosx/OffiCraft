@@ -42,6 +42,7 @@ function page(entries: LoreEntryView[]): LoreEntryPageView {
     entries,
     limit: 30,
     offset: 0,
+    total: entries.length,
     capChars: 0,
     firstDroppedId: "",
     usedChars: 0,
@@ -155,15 +156,18 @@ describe("LorePage — 已離開的撰寫人只留名牌，沒有訊息框", () 
 
     const row = await waitFor(() => rowById(container, "L-9"));
     await waitFor(() =>
-      expect(row.querySelector('[data-testid="lore-author-row"]')?.textContent).toBe("外包 · O-9"),
+      expect(row.querySelector('[data-testid="lore-author-row"]')?.textContent).toBe("O-9"),
     );
     await waitFor(() => expect(row.querySelector('[data-testid="lore-message-box"]')).toBeNull());
   });
 
-  it("under a departed staff writer the row keeps the plain name the per-id read serves, and the card has no message box", async () => {
+  it("under a departed staff writer the row keeps the plain name the per-id read serves, and the card has no message box; no writer at all reads 「-」", async () => {
     stubRoster([]);
-    stubList([mkEntry({ id: "L-11", authorId: DEPARTED_STAFF })]);
+    stubList([mkEntry({ id: "L-11", authorId: DEPARTED_STAFF }), mkEntry({ id: "L-14", authorId: "" })]);
     const { container } = await renderPage();
+    await waitFor(() =>
+      expect(rowById(container, "L-14").querySelector('[data-testid="lore-author-row"]')?.textContent).toBe("-"),
+    );
 
     const row = await waitFor(() => rowById(container, "L-11"));
     await waitFor(() =>
@@ -213,17 +217,19 @@ describe("LorePage — 已離開的撰寫人只留名牌，沒有訊息框", () 
     );
   });
 
-  it("a 外包 who is STILL on the live roster gets the card's message himself", async () => {
+  it("a 外包 who is STILL on the live roster gets the card's message himself, addressed by bare 代號", async () => {
     stubRoster([worker(LIVE, "O-1")]);
     stubList([mkEntry({ id: "L-10", authorId: LIVE })]);
     const { container } = await renderPage();
 
-    const row = await waitFor(() => rowById(container, "L-10"));
+    fireEvent.click(await waitFor(() => rowById(container, "L-10")));
+    const row = rowById(container, "L-10");
     await waitFor(() =>
       expect(
         row.querySelector<HTMLTextAreaElement>('[data-testid="lore-msg-input"]')!.placeholder,
-      ).toBe("傳訊息給 外包 · O-1…"),
+      ).toBe("傳訊息給 O-1…"),
     );
+    expect(row.querySelector('[data-testid="lore-author-row"]')?.textContent).toBe("O-1");
     expect(await messageRecipientOf(row)).toBe(LIVE);
   });
 });

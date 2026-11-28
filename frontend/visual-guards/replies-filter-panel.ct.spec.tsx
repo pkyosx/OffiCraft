@@ -1,165 +1,46 @@
-// T-118 — the list pages' 篩選列, measured in a real browser, on the real page.
+// The list pages' 篩選, measured in a real browser on the real page.
 //
-// WHY THIS FILE EXISTS. Two review rounds recorded the same gap and neither
-// closed it: nobody had ever LOOKED at this control. The vitest suite renders
-// it in jsdom, which applies no layout engine and computes no colour, so it
-// answers "is the input in the DOM" and nothing about whether the owner can
-// see it or whether it fits on his phone. The cloud `frontend-ct` job was
-// green throughout for the same reason — it ran a set of guards, none of which
-// mounts this panel. A green that never rendered the thing is not evidence.
+// jsdom lays nothing out and computes no colour, so the vitest suite can say
+// whether a field is in the DOM but not whether it fits a phone or can be seen.
+// The panel here comes from the shipped `RepliesPage` / `App`
+// (stories/RepliesFilterPanelStory.tsx); a story that assembled the row out of
+// its own markup once kept this guard green for a layout no page rendered.
 //
-// 🔴 AND THAT IS EXACTLY HOW THIS FILE ITSELF FAILED ONCE — READ THIS BEFORE
-// EDITING. Its first version (`reply-id-filter.ct.spec.tsx`, with
-// `stories/ReplyIdFilterStory.tsx`) measured a `.replies__filters` row that the
-// STORY built out of raw markup. Round 2 replaced both list pages' 篩選列 with
-// the shared `FilterPanel`, and that row stopped existing on any page — but the
-// story kept assembling it, so the guard stayed green while measuring a layout
-// the product does not render. It flunked its own standard.
+// The shape measured: on 任務頁, 請示頁 and a 傳承 section page the row holds a
+// funnel; the fields open in a panel anchored under it (desktop) or a bottom
+// sheet (≤720px).
 //
-// The fix is structural, not a bigger assertion count: THE PANEL COMES FROM
-// `RepliesPage`. `RepliesPageStory` mounts the shipped page and this file drives
-// it the way the owner does. If you ever replace a mount here with hand-built
-// markup "to make the test simpler", you are rebuilding the exact defect this
-// file was rewritten to fix.
-//
-// 🔁 WHAT T-118 CHANGED, AND WHY EVERY ASSERTION BELOW MOVED RATHER THAN DIED.
-// owner 2026-09-06 20:07 (c-c3d681fe05da), with a screenshot, restated for this
-// page at 20:19 (c-38c7759e6377):
-//
-//   「我想改一下,不要多filter那一層了,全部拉出來,而任務編號那邊就是按enter
-//     或是點外面就視為apply了,然後也不用再顯示14筆已篩選跟那一行跟案件那個
-//     子標了,案件跟請示卡都一樣」
-//
-// So the funnel toggle, the expanding `.filter-panel__form`, the 取消／套用篩選
-// row, the 已篩選 strip with its chips and its ×, the 清除全部 button and the
-// 「請示卡」 header row ALL STOPPED EXISTING. The gesture this file drove —
-// 「click the funnel, type an id, press 套用篩選」— is now 「type an id, press
-// Enter」 (or click away). Each assertion below carries a marker saying what it
-// used to hold and who overturned it.
-//
-// WHAT IS ASSERTED IS GEOMETRY AND COMPUTED COLOUR — things the owner can see:
-//   (1) the 篩選 row and its fields stay INSIDE the content column and do not
-//       push the page into horizontal scrolling, at phone widths. 320px is
-//       where that is tightest.
-//       🔁 WAS the same question asked of `.filter-panel__form`, the 已篩選
-//       strip, the header row and the action row. Three of those four are gone
-//       (owner 2026-09-06); the row and its `__fields` box are what is left.
-//   (2) the ID field is FINDABLE against the page behind it — it must differ
-//       from its surroundings by a border, a fill, or both. Asserted as "the
-//       composited border colour is not equal to the composited page
-//       background", under every built-in theme. UNCHANGED by T-118 except that
-//       there is no longer a funnel to click before it is on screen.
-//   (3) every CJK label on the row keeps its glyphs on ONE line box inside its
-//       own box. (The 預設/編輯 pills in set-badge-nowrap burst exactly this
-//       way; CJK min-content is ONE CHARACTER — see frontend/.claude/rules/
-//       css-layout-traps.md.)
-//       🔁 WAS asserted on 取消 / 套用篩選 / 清除全部 / 篩選 — every one of those
-//       four labels was deleted by owner 2026-09-06. The CJK labels that
-//       survive on this shared row are the 任務頁's dropdown triggers (負責人 /
-//       類型 / 狀態), so the assertion moved to the test that mounts them.
-//   (4) 🔁 GONE WITH ITS SUBJECT: 「the 取消 / 套用篩選 row stays inside the form
-//       box and on ONE row」. Both buttons were removed by owner 2026-09-06.
-//       Nothing replaces it, because nothing replaces them — the field commits
-//       itself now.
-//   (5) several conditions on the shared row WRAP inside the column rather than
-//       running out of it, at the narrowest phone width.
-//       🔁 WAS asked of the four 已篩選 CHIPS. The strip is gone (owner
-//       2026-09-06); the thing that now carries several conditions at once is
-//       the FIELDS, so the same question is asked of them.
-//   (6) 🔴 THE 篩選 ROW IS NOT AN OVERLAY. It is page content: the list starts
-//       BELOW it, and neither the row nor its fields box is
-//       `fixed`/`absolute`/`sticky`. owner c-3b5a0aa66550 ruled 「按搜尋時不要再
-//       跳出新modal」 AFTER being shown the overlay version, and c-c3d681fe05da's
-//       「全部拉出來」 is the opposite of floating it — two separate rulings, and
-//       this is their only mechanical witness. jsdom cannot hold it: it computes
-//       no layout, so an overlaid row and an in-flow one look identical to every
-//       unit test we have.
-//       🔁 WAS witnessed by 「opening the panel MOVES the list down」. There is
-//       no opening any more, so the witness is the row's permanent place in the
-//       flow instead of its effect on appearing.
-//   (7) emptying the 編號 box is an escape from an applied filter, and 清除篩選
-//       shows only while something is filtered.
-//
-// 🔴 WHAT THIS GUARD DELIBERATELY DOES NOT ASSERT, and why you should know:
-// a ≥3:1 non-text contrast threshold on the field's border. Measured here, the
-// border-vs-page ratio is LOW (an independent reviewer computed ~1.35:1 dark,
-// ~1.54:1 on a light pack). That number is inherited verbatim from the
-// pre-existing `.tasks__filter` pill this control was copied from, so a
-// threshold assertion would redden on code this ticket did not write and would
-// be a styling decision taken without the owner, who has said he wants to see
-// this himself on the trial station. The honest guard is the one above: the
-// field must be distinguishable from its background at all, and the empty
-// field additionally carries placeholder text at a comfortable ratio. If the
-// owner asks for a stronger boundary, raise (2) into a threshold then — do not
-// read its absence as "contrast was checked and passed".
-//
-// MUTANTS. The log that used to sit here was DISCARDED, not carried forward:
-// every mutant in it was applied against the previous shape (`__form`,
-// `__toggle`, `__summary`, `__btn`, `__chip-x`) — CSS rules that no longer
-// exist in filter-panel.css and testids no component renders, so keeping those
-// notes would have been a stale claim of teeth. The four below were applied,
-// run and REVERTED against the shape this file now measures (the file is green
-// again after each: 11 passed):
-//
-// -- IS THE GUARD ATTACHED TO THE PRODUCT? ---------------------------------
-//   * FilterPanel.tsx: `return null` from the component => 11 failed, 0 passed.
-//     Every test here dies at "element(s) not found" for `replies-filter` /
-//     `replies-filter-fields` / the field itself.
-//   * RepliesPage.tsx: delete the `<FilterPanel>` element, leaving its
-//     `<IdFilterInput>` rendered bare => 7 failed, 4 passed. The four survivors
-//     are the two theme-contrast tests, the field-width test and the
-//     several-field wrap test — correctly so: the first three ask only about
-//     the FIELD (which the mutant leaves on the page) and the last is the one
-//     test that mounts `FilterPanel` directly because the single-axis 請示 page
-//     cannot produce a multi-field row. THE OLD VERSION OF THIS GUARD COULD NOT
-//     FEEL THIS MUTANT AT ALL — that is why it stayed green for a row no page
-//     rendered.
-//
-// -- DO THE ASSERTIONS HAVE TEETH? (CSS mutants, all in filter-panel.css) ---
-//   * `.filter-panel { position: fixed; top: 0; left: 0 }` => 2 failed. (6)
-//     reds on both of its soft halves — the computed `position` check, and the
-//     list no longer starting below the row — and the spacing guard reds too,
-//     because a row taken out of flow leaves no gap to measure. The three width
-//     tests stay GREEN, and that is honest rather than a hole: a fixed row at
-//     `left: 0` is still inside a viewport-wide column, so "does it overflow"
-//     genuinely cannot see it. (6) is the assertion that can, and it does.
-//   * `.filter-panel__fields { flex-wrap: wrap }` -> `nowrap`, together with
-//     the <=520px `flex: 1 1 100%` -> `flex: 0 0 auto` => 1 failed: (5), on
-//     「distinct rows the 篩選 fields occupy」. The soft halves report together,
-//     which is what they are soft for.
-//     🔁 THE SECOND HALF OF THAT MUTANT IS NOW THE SHIPPED STATE, so do not
-//     read this line as 「`flex: 0 0 auto` is a defect」. owner 2026-09-07
-//     `rc-5d2e6d48a108` circled 「窄畫面也讓它們並排、塞不下才換行」 and the
-//     ≤520px rule is GONE (filter-panel.css says why). The `flex-wrap: nowrap`
-//     half still reds (5) on its own. What guards the new ruling is the second
-//     assertion added to (5) — 「rows must be FEWER than fields」 — which the
-//     old one-per-row layout fails and the 「more than one row」 assertion above
-//     it cannot see.
-//
-// ⚠️ NOT RE-RUN, and stated rather than implied: nothing here re-verifies the
-// UNIT-level guards, and no mutant was applied to `idFilter.css` — the
-// field-width test's teeth are inherited from the previous round's log and have
-// not been re-measured against this shape.
-//
-// ⚠️ NOT COVERED HERE, and say so rather than implying otherwise: the 任務頁's
-// own page has no mount in this file. What is guarded here is the SHELL
-// (through the 請示 page) plus the multi-field row; a 任務頁 GEOMETRY guard, if
-// anyone wants one, is a second file that drives that page.
-//
-// But be precise about how big that gap is, because "not covered" reads bigger
-// than it is: the 任務頁's WIRING is guarded, just not in a browser. Measured,
-// not assumed — renaming that page's `testId="tasks-filter"` (a mutant that
-// COMPILES, unlike deleting the element, which only produces a transform error
-// and therefore proves nothing) reddens **37 assertions** across
-// `TasksPage.test.tsx` / `.id-filter` / `.jump` and the TaskCard suites. So a
-// 任務頁 that stops rendering the panel is caught immediately; what nobody
-// measures is whether that page's row FITS and stays in flow.
+// What is asserted is geometry and computed colour:
+//   (1) the panel / sheet and every field in it stay inside the viewport with
+//       no horizontal overflow, at desktop and phone widths, and a dropdown
+//       opened inside floats above the layer instead of being clipped by it;
+//       the desktop panel hangs under the funnel, right edges aligned, with
+//       nothing dimming the page, and is dismissed like 顯示方式;
+//   (2) the folded row is page content — the list starts below it;
+//   (3) the ID field is distinguishable from the box behind it under every
+//       built-in theme (a border, a fill or both; deliberately not a ≥3:1
+//       threshold — that border ratio is inherited from `.tasks__filter`);
+//   (4) emptying the 編號 box is an escape from an applied filter, and 清除篩選
+//       shows only while something is filtered;
+//   (5) the shell adds no spacing of its own below the row;
+//   (6) on 請示頁 the three list label chips and the funnel / 顯示方式 hold one
+//       row inside the column at 320, either side of each language's
+//       full-label threshold, 375, 390, 393 and 1440 in both languages with
+//       4/1/3 and 99/18/23 cards — short labels below the threshold, no number
+//       on any chip; at the threshold the full labels still fit with every
+//       character 0.5px wider (a wider font) — and the selected label's count
+//       (「N 張請示卡」, 近期已回覆's with 「· 近 24 小時」) on one muted line under
+//       the row at every width, its height held before the count is known, and
+//       no sort wording in the row;
+//   (7) on 任務頁 and a 傳承 section page the row's count (「5 個任務」) sits at
+//       its left end on the funnel's centre line, whole and on one line, at
+//       320, 390 and 1440 in both languages.
 import { test, expect } from "@playwright/experimental-ct-react";
-import type { Locator } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { BUILTIN_THEME_IDS, expectBuiltinApplied } from "./builtinThemes";
 import {
+  AppPageStory,
   RepliesPageStory,
-  FilterFieldsStory,
 } from "./stories/RepliesFilterPanelStory";
 
 type Rgba = { r: number; g: number; b: number; a: number };
@@ -201,204 +82,158 @@ function sameColour(a: Rgba, b: Rgba): boolean {
   );
 }
 
-/** Line boxes + vertical spill of an element's own TEXT, measured with a Range
- * per text node (one client rect per line box) against the element's border
- * box.
- *
- * ⚠️ A Range over the whole element would count a caret `<svg>` as a line box,
- * so this walks TEXT NODES only, and counts DISTINCT line tops rather than
- * rects — a label split across two text nodes on one line is still one line. */
-async function labelGeometry(el: Locator) {
-  return await el.evaluate((node) => {
-    const box = node.getBoundingClientRect();
-    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-    const rects: DOMRect[] = [];
-    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-      if (!n.textContent || !n.textContent.trim()) continue;
-      const range = document.createRange();
-      range.selectNodeContents(n);
-      rects.push(...Array.from(range.getClientRects()));
-    }
-    if (rects.length === 0) throw new Error("no text in this element");
-    const tops = new Set(rects.map((r) => Math.round(r.top)));
-    return {
-      lines: tops.size,
-      spillAbove: box.top - Math.min(...rects.map((r) => r.top)),
-      spillBelow: Math.max(...rects.map((r) => r.bottom)) - box.bottom,
-    };
-  });
-}
-
-/** Horizontal overflow of one element, and of the page. */
-async function overflow(locator: Locator) {
-  return await locator.evaluate((node) => ({
-    self: node.scrollWidth - node.clientWidth,
-    page:
-      document.documentElement.scrollWidth -
-      document.documentElement.clientWidth,
-  }));
-}
-
 const FULL_ID = "rc-428906235337"; // 15 chars, the real shape (api_replycards.go:283)
 
-/** Drive the real page the way the owner does.
- *
- * 🔁 WAS 「funnel → type → 套用篩選」, and it waited for the 已篩選 strip to prove
- * the filter had landed. OVERTURNED BY owner 2026-09-06 (c-c3d681fe05da): there
- * is no funnel, no button and no strip. The commit is Enter, and the landing is
- * witnessed by the list itself — an id the mock does not hold is a 404, which
- * renders the ordinary filtered-empty result. */
-async function applyId(cmp: Locator, id: string) {
-  await cmp.getByTestId("filter-reply-card-id").fill(id);
-  await cmp.getByTestId("filter-reply-card-id").press("Enter");
-  await expect(cmp.getByTestId("filter-reply-card-id")).toHaveValue(id);
+/** The fields live in a layer portalled to <body>, so they are found on the
+ * page, not inside the mount. */
+async function openFilters(cmp: Locator, page: Page) {
+  await cmp.getByTestId("replies-filter-toggle").click();
+  await expect(page.locator('[role="dialog"]')).toBeVisible();
+}
+
+async function applyId(cmp: Locator, page: Page, id: string) {
+  const field = page.getByTestId("filter-reply-card-id");
+  await field.fill(id);
+  await field.press("Enter");
+  await expect(field).toHaveValue(id);
   await expect(cmp.getByTestId("replies-empty")).toBeVisible();
 }
 
-// 320 = the narrowest phone still in use, and the width where the row is
-// tightest. 390 = the phone width the rest of this suite treats as the owner's.
-// 1040 = the desktop content column's max width, the control that says a
-// narrow-width fix did not move the breakage to desktop.
-for (const width of [320, 390, 1040]) {
-  test(`width ${width}: the 篩選列 fits inside the content column`, async ({
+const FIELD_COUNT = { tasks: 5, replies: 4, lore: 3 };
+const DROPDOWN = {
+  tasks: ["filter-status", "狀態"],
+  replies: ["filter-priority", "任務優先序"],
+  lore: ["lore-filter-state", "狀態"],
+};
+
+for (const pageName of ["tasks", "replies", "lore"] as const) {
+  for (const width of [390, 721, 1440]) {
+    test(`${pageName} width ${width}: the 篩選 ${width > 720 ? "panel" : "sheet"} holds every field inside the viewport, with no horizontal overflow, and a dropdown in it is not clipped`, async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: width > 720 ? 900 : 844 });
+      const cmp = await mount(<AppPageStory page={pageName} theme="office" wide={width > 1040} />);
+      await cmp.getByTestId(`${pageName}-filter-toggle`).click();
+      const layer = page.getByTestId(`${pageName}-filter-${width > 720 ? "pop" : "sheet"}`);
+      await expect(layer).toBeVisible();
+
+      const m = await layer.evaluate((box) => {
+        const r = box.getBoundingClientRect();
+        const grid = box.querySelector(".filter-panel__grid") as HTMLElement;
+        const fields = Array.from(grid.querySelectorAll<HTMLElement>(".filter-panel__field")).map((f) => {
+          const control = f.lastElementChild as HTMLElement;
+          const label = f.querySelector(".filter-panel__label") as HTMLElement;
+          const c = control.getBoundingClientRect();
+          const range = document.createRange();
+          range.selectNodeContents(label);
+          return {
+            label: label.textContent,
+            left: c.left,
+            right: c.right,
+            top: c.top,
+            bottom: c.bottom,
+            labelLines: new Set(Array.from(range.getClientRects()).map((x) => Math.round(x.top))).size,
+          };
+        });
+        return {
+          box: { left: r.left, right: r.right, top: r.top, bottom: r.bottom },
+          boxOverflow: box.scrollWidth - box.clientWidth,
+          gridOverflow: grid.scrollWidth - grid.clientWidth,
+          page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          fields,
+        };
+      });
+      expect(m.page, "page horizontal overflow").toBeLessThanOrEqual(1);
+      expect(m.boxOverflow, "layer horizontal overflow").toBeLessThanOrEqual(1);
+      expect(m.gridOverflow, "field grid horizontal overflow").toBeLessThanOrEqual(1);
+      expect(m.box.left).toBeGreaterThanOrEqual(-0.5);
+      expect(m.box.right).toBeLessThanOrEqual(width + 0.5);
+      expect(m.box.bottom).toBeLessThanOrEqual((width > 720 ? 900 : 844) + 0.5);
+      expect(m.fields).toHaveLength(FIELD_COUNT[pageName]);
+      for (const f of m.fields) {
+        expect(f.left, `${f.label} left edge`).toBeGreaterThanOrEqual(m.box.left);
+        expect(f.right, `${f.label} right edge`).toBeLessThanOrEqual(m.box.right);
+        expect(f.top, `${f.label} top edge`).toBeGreaterThanOrEqual(m.box.top);
+        expect(f.bottom, `${f.label} bottom edge`).toBeLessThanOrEqual(m.box.bottom);
+        expect(f.labelLines, `${f.label} label lines`).toBe(1);
+      }
+      const rows = new Set(m.fields.slice(1).map((f) => Math.round(f.top))).size;
+      expect(rows, "the dropdowns in two columns").toBe(Math.ceil((FIELD_COUNT[pageName] - 1) / 2));
+      expect(Math.round(m.fields[0].right - m.fields[0].left), "the ID field spans both columns").toBe(
+        Math.round(m.fields[2].right - m.fields[1].left)
+      );
+
+      const [dropdown, noun] = DROPDOWN[pageName];
+      await page.getByTestId(dropdown).click();
+      const pop = page.getByRole("group", { name: noun });
+      await expect(pop).toBeVisible();
+      const p = (await pop.boundingBox())!;
+      expect(p.x).toBeGreaterThanOrEqual(0);
+      expect(p.x + p.width).toBeLessThanOrEqual(width);
+      expect(p.y).toBeGreaterThanOrEqual(0);
+      expect(p.y + p.height).toBeLessThanOrEqual(width > 720 ? 900 : 844);
+      const onTop = await pop.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const probes = [
+          [r.left + r.width / 2, r.top + 8],
+          [r.left + r.width / 2, r.bottom - 8],
+        ];
+        return probes.every(([x, y]) => el.contains(document.elementFromPoint(x, y)));
+      });
+      expect(onTop, "the popover paints above the layer at its top and bottom").toBe(true);
+      expect(await pop.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+      if (width <= 720) return;
+
+      const funnel = page.getByTestId(`${pageName}-filter-toggle`);
+      const f = (await funnel.boundingBox())!;
+      expect(m.box.top - (f.y + f.height), "the panel hangs just under the funnel").toBeGreaterThanOrEqual(0);
+      expect(m.box.top - (f.y + f.height)).toBeLessThanOrEqual(6);
+      expect(Math.abs(m.box.right - (f.x + f.width)), "right edges aligned").toBeLessThanOrEqual(1);
+      await expect(page.locator('[data-testid$="-filter-backdrop"]'), "nothing dims the page").toHaveCount(0);
+      await expect(layer).not.toHaveAttribute("aria-modal", /.*/);
+
+      await page.keyboard.press("Escape");
+      await expect(pop, "Esc closes the open dropdown first").toBeHidden();
+      await expect(layer).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(layer).toBeHidden();
+      await expect(funnel).toBeFocused();
+
+      await funnel.click();
+      await expect(layer).toBeVisible();
+      await page.mouse.click(4, (width > 720 ? 900 : 844) - 4);
+      await expect(layer, "an outside click closes it").toBeHidden();
+
+      await funnel.click();
+      await expect(layer).toBeVisible();
+      await funnel.click();
+      await expect(layer, "the funnel closes it again").toBeHidden();
+    });
+  }
+}
+
+for (const width of [320, 1040]) {
+  test(`width ${width}: a whole 請示卡 id fits the field in the 篩選 layer without overflowing it`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
+    expect(FULL_ID.length, "the id shape this guard is calibrated on").toBe(15);
     const cmp = await mount(<RepliesPageStory theme="office" />);
-
-    // 🔁 WAS 「apply a filter, then RE-OPEN, because that is the only state in
-    // which the form, the 已篩選 strip and the header row are all on screen at
-    // once」. OVERTURNED BY owner 2026-09-06 (c-c3d681fe05da): every field is
-    // permanently on screen, so the whole row is measurable from first paint.
-    // A filter is still applied afterwards, because a field HOLDING a full id
-    // is wider than an empty one and that is the tighter case.
-    const panel = cmp.getByTestId("replies-filter");
-    const fields = cmp.getByTestId("replies-filter-fields");
-    const field = cmp.getByTestId("filter-reply-card-id");
-    for (const el of [panel, fields, field]) {
-      await expect(el).toBeVisible();
-    }
-    await applyId(cmp, FULL_ID);
-
-    // (1) Nothing escapes the row's boxes, and the page does not scroll
-    // sideways.
-    for (const [name, el] of [
-      ["篩選 row", panel],
-      ["fields box", fields],
-    ] as const) {
-      const o = await overflow(el);
-      expect(o.self, `${name} horizontal overflow`).toBeLessThanOrEqual(1);
-      expect(o.page, "page horizontal overflow").toBeLessThanOrEqual(1);
-    }
-
-    const fieldsBox = (await fields.boundingBox())!;
-    const fieldBox = (await field.boundingBox())!;
-    expect(
-      fieldBox.x + fieldBox.width,
-      "ID field right edge vs the fields box"
-    ).toBeLessThanOrEqual(fieldsBox.x + fieldsBox.width + 1);
-    expect(
-      fieldBox.x,
-      "ID field left edge vs the fields box"
-    ).toBeGreaterThanOrEqual(fieldsBox.x - 1);
+    await openFilters(cmp, page);
+    await applyId(cmp, page, FULL_ID);
+    const field = page.getByTestId("filter-reply-card-id");
+    const m = await field.evaluate((el: HTMLInputElement) => ({
+      scroll: el.scrollWidth - el.clientWidth,
+      page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    }));
+    expect(m.scroll, "a complete id must fit without the field scrolling").toBeLessThanOrEqual(1);
+    expect(m.page, "page horizontal overflow").toBeLessThanOrEqual(1);
   });
 }
 
-// (5) + (3) SEVERAL CONDITIONS ON THE SHARED ROW.
-//
-// 🔁 REPLACES 「width 320: several 已篩選 chips WRAP inside the strip, and 清除
-// 全部 stays reachable」. OVERTURNED BY owner 2026-09-06 (c-c3d681fe05da):
-// 「也不用再顯示14筆已篩選跟那一行」— the strip, its chips and 清除全部 are gone,
-// so there is nothing left to lay four chips out from. The QUESTION is
-// unchanged: several conditions sharing one row at the narrowest phone width
-// must WRAP inside the column rather than run out of it. What carries several
-// conditions now is the FIELDS.
-//
-// ⚠️ This is the ONE test here that does not drive the 請示 page: that page
-// filters on a single axis and cannot produce a multi-field row. It mounts the
-// shipped `FilterPanel` and the shipped `MultiSelectFilter` with a dictated
-// option list — see the story's second export for why that trade is made here
-// and nowhere else.
-test("width 320: several 篩選 fields WRAP inside the row, and their CJK labels keep to one line", async ({
-  mount,
-  page,
-}) => {
-  await page.setViewportSize({ width: 320, height: 900 });
-  const cmp = await mount(<FilterFieldsStory theme="office" />);
-
-  const fields = cmp.getByTestId("replies-filter-fields");
-  await expect(fields).toBeVisible();
-
-  // 🔴 soft from here down, ON PURPOSE: `flex-wrap: nowrap` breaks the row in
-  // several places at once, and a hard first failure would leave the others
-  // unproven. "which parts of the row broke" is the useful output.
-  const o = await overflow(fields);
-  expect.soft(o.self, "篩選 fields horizontal overflow").toBeLessThanOrEqual(1);
-  expect.soft(o.page, "page horizontal overflow").toBeLessThanOrEqual(1);
-
-  const layout = await fields.evaluate((node) => {
-    const tops = Array.from(node.children).map((n) =>
-      Math.round(n.getBoundingClientRect().top)
-    );
-    return { rows: new Set(tops).size, count: tops.length };
-  });
-
-  // WRAP, not one runaway row: an id box plus three dropdown triggers cannot
-  // share one line in a ~240px column, so if they all report the same top the
-  // row is overflowing rather than wrapping.
-  expect
-    .soft(layout.rows, "distinct rows the 篩選 fields occupy")
-    .toBeGreaterThan(1);
-
-  // 🔴 AND WRAP IS ALL IT DOES — no field gets a row to itself while there is
-  // room beside it. owner 2026-09-07 asked 「為什麼會一個filter一行」
-  // (`c-e91a6f9274d1`) on his phone and then circled 「窄畫面也讓它們並排、塞不下
-  // 才換行」 (`rc-5d2e6d48a108`), told in that same card that the price is ragged
-  // part-rows. What produced one-per-row was `@media (max-width: 520px) {
-  // .filter-panel__fields > * { flex: 1 1 100% } }` in filter-panel.css, and
-  // THIS is the assertion that stops it coming back: under that rule every
-  // child reports its own top, so rows === count. The test above cannot see it
-  // — one-per-row satisfies 「more than one row」 perfectly.
-  expect
-    .soft(
-      layout.rows,
-      "rows vs fields — equal means every field took a row of its own"
-    )
-    .toBeLessThan(layout.count);
-
-  const fieldsBox = (await fields.boundingBox())!;
-  for (const testId of ["filter-executor", "filter-type", "filter-status"]) {
-    const trigger = cmp.getByTestId(testId);
-    const box = (await trigger.boundingBox())!;
-    expect.soft(
-      box.x + box.width,
-      `${testId} right edge vs the fields box`
-    ).toBeLessThanOrEqual(fieldsBox.x + fieldsBox.width + 1);
-
-    // (3) The CJK labels that survive on this row, on ONE line box, inside
-    // their own box.
-    const geo = await labelGeometry(trigger);
-    expect.soft(geo.lines, `${testId} label line boxes`).toBe(1);
-    expect
-      .soft(geo.spillAbove, `${testId} label spilling above its trigger`)
-      .toBeLessThanOrEqual(0.5);
-    expect
-      .soft(geo.spillBelow, `${testId} label spilling below its trigger`)
-      .toBeLessThanOrEqual(0.5);
-  }
-});
-
-// 🔴 (6) THE 篩選列 IS NOT AN OVERLAY.
-//
-// 🔁 WAS witnessed by 「opening it moves the list down」. OVERTURNED BY owner
-// 2026-09-06 (c-c3d681fe05da):「全部拉出來」— there is no opening left to
-// observe. The RULE is not overturned; it is doubly held (c-3b5a0aa66550,
-// 「按搜尋時不要再跳出新modal」, said after he was shown the overlay version).
-// So the witness becomes the row's permanent place in the flow: the list starts
-// below it, and nothing here is taken out of flow. A `position: fixed` row
-// leaves the list starting at the top of the column, underneath it.
-test("the 篩選列 is page content, not an overlay: the list starts below it", async ({
+test("the folded 篩選 row is page content: the list starts below it", async ({
   mount,
   page,
 }) => {
@@ -406,255 +241,66 @@ test("the 篩選列 is page content, not an overlay: the list starts below it", 
   const cmp = await mount(<RepliesPageStory theme="office" />);
 
   const panel = cmp.getByTestId("replies-filter");
-  const below = cmp.locator(".replies__section").first();
+  const below = cmp.getByRole("tabpanel");
   await expect(panel).toBeVisible();
   await expect(below).toBeVisible();
-
-  // Neither the shell nor its fields box may be taken out of flow.
-  const positions = await panel.evaluate((node) => ({
-    row: getComputedStyle(node).position,
-    fields: getComputedStyle(node.querySelector(".filter-panel__fields")!)
-      .position,
-  }));
-  // 🔴 soft, ON PURPOSE: an overlay breaks BOTH halves of this test (out of
-  // flow AND the list no longer starts below it), and a hard failure on the
-  // first would hide whether the second still has teeth. "one red" and "both
-  // red" have to be distinguishable in the output.
-  for (const [name, pos] of Object.entries(positions)) {
-    expect.soft(
-      ["fixed", "absolute", "sticky"],
-      `the ${name} must stay in page flow, not float over it`
-    ).not.toContain(pos);
-  }
-
+  expect(["fixed", "absolute", "sticky"]).not.toContain(
+    await panel.evaluate((node) => getComputedStyle(node).position)
+  );
   const panelBox = (await panel.boundingBox())!;
   const belowBox = (await below.boundingBox())!;
-  expect.soft(
-    panelBox.height,
-    "the row must have real height for this test to mean anything"
-  ).toBeGreaterThan(0);
-  expect.soft(
-    panelBox.y + panelBox.height,
-    "the row's bottom edge vs the list below it"
-  ).toBeLessThanOrEqual(belowBox.y + 1);
+  expect(panelBox.height).toBeGreaterThan(0);
+  expect(panelBox.y + panelBox.height, "the row's bottom edge vs the list below it")
+    .toBeLessThanOrEqual(belowBox.y + 1);
 });
 
-// The state the loop above cannot reach: the field is EMPTY while a filter is
-// still APPLIED — the owner cleared the box but has not pressed Enter and has
-// not clicked away, so the list is still narrowed beside an empty field.
-// Narrowest width only: that is where a row which fits when full could still
-// break with a placeholder in the box.
-//
-// 🔁 KEPT — only the gesture and the surviving boxes moved. It used to reach
-// this state through the funnel and prove it by the 清除全部 still on screen;
-// owner 2026-09-06 removed both, and typing-without-committing is what keeps
-// the state reachable at all (`onCommit` fires on Enter and blur, and on
-// nothing else).
-test("width 320: the row still fits with an empty field and a filter still applied", async ({
-  mount,
-  page,
-}) => {
-  await page.setViewportSize({ width: 320, height: 900 });
-  const cmp = await mount(<RepliesPageStory theme="office" />);
-
-  await applyId(cmp, FULL_ID);
-  const field = cmp.getByTestId("filter-reply-card-id");
-  // `fill("")` types without committing: no Enter, and focus stays in the box.
-  await field.fill("");
-  await expect(field).toHaveValue("");
-  // The filter is still on — this is the whole point of the state.
-  await expect(cmp.getByTestId("replies-empty")).toBeVisible();
-
-  for (const [name, sel] of [
-    ["篩選 row", ".filter-panel"],
-    ["fields box", ".filter-panel__fields"],
-  ] as const) {
-    const o = await overflow(cmp.locator(sel));
-    expect(o.self, `${name} horizontal overflow`).toBeLessThanOrEqual(1);
-    expect(o.page, "page horizontal overflow").toBeLessThanOrEqual(1);
-  }
-});
-
-// owner 2026-09-06 (rc-44347fc49338): 「好像太寬了」, then the reason —「請示卡的
-// ID好像都是固定長度？」. He is right: api_replycards.go:283 mints "rc-" + 12 hex,
-// so every 請示卡 id is exactly 15 characters, while the field was a flat 200px
-// chosen with no reference to that.
-//
-// This turns his aesthetic note into something MEASURABLE, which is the only
-// form it can be kept in: a whole id must be fully visible in the field, and the
-// field must not be much wider than the id it holds. A pixel number would have
-// gone stale the first time anyone touched the font; this asks about the
-// RELATIONSHIP between the box and its content, so it survives that.
-//
-// 🔁 KEPT — only the funnel click before it is gone (owner 2026-09-06).
-test("the field is sized to the id it holds — a whole id fits, with little to spare", async ({
-  mount,
-  page,
-}) => {
-  await page.setViewportSize({ width: 1040, height: 900 });
-  expect(FULL_ID.length, "the id shape this guard is calibrated on").toBe(15);
-  const cmp = await mount(<RepliesPageStory theme="office" />);
-  const field = cmp.getByTestId("filter-reply-card-id");
-  await field.fill(FULL_ID);
-
-  const m = await field.evaluate((el: HTMLInputElement) => {
-    // Measure the text the field actually holds by cloning its type face onto a
-    // detached span — the input itself reports no text metrics.
-    const cs = getComputedStyle(el);
-    const probe = document.createElement("span");
-    probe.style.font = cs.font;
-    probe.style.letterSpacing = cs.letterSpacing;
-    probe.style.whiteSpace = "pre";
-    probe.style.position = "absolute";
-    probe.style.visibility = "hidden";
-    probe.textContent = el.value;
-    document.body.appendChild(probe);
-    const textW = probe.getBoundingClientRect().width;
-    probe.remove();
-    return {
-      textW,
-      clientW: el.clientWidth, // inside the border, padding included
-      scrollW: el.scrollWidth,
-      padL: parseFloat(cs.paddingLeft),
-      padR: parseFloat(cs.paddingRight),
-    };
-  });
-
-  // (1) The whole id is visible — no clipping, nothing to scroll to. This is
-  // the half that breaks if someone shrinks the field.
-  expect(
-    m.scrollW - m.clientW,
-    "a complete id must fit without the field scrolling"
-  ).toBeLessThanOrEqual(1);
-
-  // (2) …and the box is not much wider than what it holds. This is the half
-  // owner actually complained about. The room for the text is the content box
-  // minus its padding; allow one character of slack for the caret and rounding.
-  const contentW = m.clientW - m.padL - m.padR;
-  const perChar = m.textW / FULL_ID.length;
-  expect(
-    contentW - m.textW,
-    "slack between the field and the id it holds (px)"
-  ).toBeLessThanOrEqual(perChar * 2);
-});
-
-// 🆕 T-118, 8th review. The id field and the pill triggers share ONE row, so
-// the field must not stand taller than they do. This is the only assertion in
-// the tree that holds that, and it was written because nothing did.
-//
-// It exists because the height is fixed by exactly ONE line —
-// `.id-filter-sizer { line-height: normal }` in idFilter.css. The sizer is a
-// <span> sharing a single grid cell with the <input>; a span inherits the
-// body's 1.5 while an input takes the UA's `normal`, so without that line the
-// SPAN is the taller of the two, the cell takes the span's height, and the
-// field grows past the pills beside it.
-//
-// MEASURED, NOT ASSUMED: deleting that line leaves all 41 unit assertions green
-// (jsdom lays nothing out) and, before this test existed, left this whole CT
-// suite green too — `grep -n height` over this file hit only `setViewportSize`,
-// `panelBox.height > 0`, and 「the panel's bottom is above the list」, none of
-// which move when the field gains 4.5px. The unit layer CANNOT ever catch it.
-// This is the layer that can.
-//
-// 「no taller than」 rather than 「exactly equal」 on purpose: equality would red
-// on sub-pixel rounding, and it would also freeze the PILLS' height, which is
-// not this guard's business. What is ruled out is the field standing proud of
-// the row.
-//
-// ⚠️ ONE ASSERTION, AND THAT IS THE HONEST SHAPE — DO NOT ADD A SECOND ONE
-// COMPARING THE CELL TO THE INPUT. The first version of this test did exactly
-// that (「the hidden sizer must not add height to the cell」), reasoning that the
-// gap would name WHICH of the two children grew. There is no gap: the two share
-// one grid cell under the default `align-items: stretch`, so when the sizer's
-// intrinsic height grows the cell grows AND THE INPUT IS STRETCHED WITH IT —
-// measured on seth-m1, `cell - input` stayed 0 under both mutants below while
-// the row was visibly 3.5px out of line. It was a decorative assertion that
-// could never red, sitting under a comment that claimed it would. Attribution
-// is simply not available from the rendered rects here; (a) is the whole guard.
-test("the field is no taller than the pill triggers beside it", async ({
+test("the ID field is no taller than the pill triggers beside it in the panel", async ({
   mount,
   page,
 }) => {
   await page.setViewportSize({ width: 1040, height: 900 });
   const cmp = await mount(<RepliesPageStory theme="office" />);
+  await openFilters(cmp, page);
 
-  const m = await cmp
-    .getByTestId("filter-reply-card-id")
-    .evaluate((el: HTMLElement) => {
-      // Measure the WRAPPER, not the input: the cell is what the sizer sizes.
-      const wrap = el.parentElement as HTMLElement;
-      return { field: wrap.getBoundingClientRect().height };
-    });
-  const pill = await cmp.getByTestId("filter-opener").boundingBox();
-
-  expect(
-    pill?.height,
-    "the pill trigger must be laid out for this to mean anything"
-  ).toBeGreaterThan(0);
-  expect(
-    m.field,
-    "the id field's grid cell must not stand taller than the pill beside it"
-  ).toBeLessThanOrEqual((pill as { height: number }).height + 1);
+  const field = (await page.getByTestId("filter-reply-card-id").boundingBox())!;
+  const pill = (await page.getByTestId("filter-opener").boundingBox())!;
+  expect(pill.height).toBeGreaterThan(0);
+  expect(Math.abs(field.height - pill.height), "the id field and the pills keep one height")
+    .toBeLessThanOrEqual(1);
 });
 
-// (2) The field must be distinguishable from the page behind it, under every
-// built-in theme. This is the assertion that would have caught a field whose border
-// was deleted or whose fill collapsed into the background — the failure mode
-// the topbar guard (theme-contrast ①) records as "an invisible rectangle".
-//
-// 🔁 KEPT — only the funnel click before it is gone (owner 2026-09-06).
 for (const theme of BUILTIN_THEME_IDS) {
-  test(`theme ${theme}: the ID field is distinguishable from the page behind it`, async ({
+  test(`theme ${theme}: the ID field is distinguishable from the panel behind it`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width: 1040, height: 900 });
     const cmp = await mount(<RepliesPageStory theme={theme} />);
     await expectBuiltinApplied(page, theme);
+    await openFilters(cmp, page);
 
-    const field = cmp.getByTestId("filter-reply-card-id");
+    const field = page.getByTestId("filter-reply-card-id");
     await expect(field).toBeVisible();
-
     const colours = await field.evaluate((node) => {
       const cs = getComputedStyle(node);
       return {
         border: cs.borderTopColor,
         fill: cs.backgroundColor,
         borderWidth: cs.borderTopWidth,
-        page: getComputedStyle(document.body).backgroundColor,
+        behind: getComputedStyle(node.closest(".filter-panel__pop")!).backgroundColor,
       };
     });
-
-    // The border is alpha-composited (color-mix with transparent), so compare
-    // what is actually PAINTED, not the declared value.
-    const pageBg = parseColor(colours.page);
-    const border = over(parseColor(colours.border), pageBg);
-    const fill = over(parseColor(colours.fill), pageBg);
-
+    const behind = parseColor(colours.behind);
+    const border = over(parseColor(colours.border), behind);
+    const fill = over(parseColor(colours.fill), behind);
+    expect(parseFloat(colours.borderWidth), "the field must declare a border width").toBeGreaterThan(0);
     expect(
-      parseFloat(colours.borderWidth),
-      // NOTE: this half only asks that a border WIDTH is declared. A border
-      // painted `transparent` still passes it — and that is correct, because
-      // the contract below is "distinguishable by a border, a fill, or BOTH",
-      // and the fill alone satisfies it. Do not read this line as a guard on
-      // the border's COLOUR.
-      "the field must declare a border width"
-    ).toBeGreaterThan(0);
-    expect(
-      sameColour(border, pageBg) && sameColour(fill, pageBg),
-      "the field must differ from the page by a border, a fill, or both"
+      sameColour(border, behind) && sameColour(fill, behind),
+      "the field must differ from the panel by a border, a fill, or both"
     ).toBe(false);
   });
 }
 
-// (7) The owner must have a way OUT of a filter he did not mean to apply, and it
-// must be present on screen rather than remembered. There are two escapes —
-// emptying the 編號 box, and `.filter-panel__clear` at the end of the field row
-// (owner c-2423dba8b65b「清除篩選還是要留著」). This test exercises the box one,
-// because that is the escape that must work even when the button is not
-// rendered (it only appears while something is actually filtered). The button
-// has its own guard in the unit tests; do not delete this one as a duplicate of
-// it.
 test("emptying the 編號 box is an escape from an applied filter", async ({
   mount,
   page,
@@ -662,89 +308,348 @@ test("emptying the 編號 box is an escape from an applied filter", async ({
   await page.setViewportSize({ width: 390, height: 900 });
   const cmp = await mount(<RepliesPageStory theme="office" />);
 
-  await expect(cmp.getByTestId("replies-filter")).toBeVisible();
-  // ⚠️ The escape is witnessed through the EMPTY-STATE SENTENCE, not through a
-  // card count: this story's mock seam serves no waiting cards, so "the list
-  // came back" has nothing to count. The two sentences are a real, load-bearing
-  // distinction of their own (「你回完了」 vs 「還有卡,只是沒有一張符合」), and
-  // they flip in exactly the two directions this test needs.
   const empty = cmp.getByTestId("replies-empty");
   await expect(empty).toHaveText("✓ 目前沒有待處理的請示");
+  await openFilters(cmp, page);
+  await expect(page.getByTestId("replies-filter-clear"), "no 清除篩選 while nothing is filtered")
+    .toHaveCount(0);
 
-  // The escape, end to end: apply an id nothing matches (the page says so), then
-  // empty the box and commit by clicking away (「點外面」) — the page must go
-  // back to speaking as if no filter had ever been applied.
-  // 🔴 清除篩選 IS CONDITIONAL, AND BOTH HALVES ARE PINNED HERE. Nothing is
-  // filtered yet, so it must be absent; once an id is applied it must appear.
-  await expect(
-    cmp.getByTestId("replies-filter-clear"),
-    "清除篩選 must NOT be on screen while nothing is filtered"
-  ).toHaveCount(0);
-
-  await applyId(cmp, FULL_ID);
+  await applyId(cmp, page, FULL_ID);
   await expect(empty).toHaveText("沒有符合篩選條件的請示");
-  await expect(
-    cmp.getByTestId("replies-filter-clear"),
-    "清除篩選 must appear once something IS filtered (owner c-2423dba8b65b)"
-  ).toBeVisible();
+  await expect(page.getByTestId("replies-filter-clear")).toBeVisible();
+  await expect(cmp.getByTestId("replies-filter-count")).toHaveText("1");
 
-  const field = cmp.getByTestId("filter-reply-card-id");
+  const field = page.getByTestId("filter-reply-card-id");
   await field.fill("");
   await field.blur();
   await expect(empty).toHaveText("✓ 目前沒有待處理的請示");
-  await expect(
-    cmp.getByTestId("replies-filter-clear"),
-    "清除篩選 must go away again once the filter is gone"
-  ).toHaveCount(0);
+  await expect(page.getByTestId("replies-filter-clear")).toHaveCount(0);
+  await expect(cmp.getByTestId("replies-filter-count")).toHaveCount(0);
 });
 
-// 🔴 THE SHELL MUST NOT ADD SPACING OF ITS OWN — owner circled the gap it made.
-//
-// 2026-09-06, c-d6c59eaa1c5a: a phone screenshot of 請示卡頁 with NO filter
-// applied, a red ring round the empty band between 請示卡 and 待核准, and one
-// line: 「另外怎麼有一段空白」.
-//
-// Measured rather than guessed: `.filter-panel` carried `margin-bottom: 12px`,
-// and BOTH host pages are flex columns that already space their own children
-// (`.replies` gap 26px, `.tasks` gap 22px). Nothing collapses a flex gap against
-// a margin — they ADD — so the row below sat 38px away on a page whose rhythm is
-// 26px. Neither number is wrong on its own, which is exactly why no reviewer saw
-// it and no test could: it is only visible as a shape, on a screen.
-//
-// The rule this pins is the general one, not the number: the HOST owns the
-// rhythm between its children, so the distance from this shell to the next row
-// must be the host's own gap and nothing more.
-//
-// 🔁 KEPT verbatim — this test never touched the funnel, and T-118 did not
-// change the rule. (Its recorded mutant — put `margin-bottom: 12px` back on
-// `.filter-panel` ⇒ 38 vs 26 — was run against the previous shape and has NOT
-// been re-run; see the mutant note in this file's header.)
-test("the 篩選 shell adds no spacing of its own: the gap below it is the page's", async ({
+test("the 篩選 shell adds no spacing of its own: the gap below the label row is the page's", async ({
   mount,
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   const cmp = await mount(<RepliesPageStory theme="office-light" />);
-  await cmp.locator(".replies__section-title").first().waitFor();
+  await cmp.getByRole("tabpanel").waitFor();
 
   const m = await cmp.evaluate((root: HTMLElement) => {
     const panel = root.querySelector(".filter-panel") as HTMLElement;
-    const host = panel.parentElement as HTMLElement;
-    const next = panel.nextElementSibling as HTMLElement;
+    const head = root.querySelector(".replies__head") as HTMLElement;
+    const list = root.querySelector('[role="tabpanel"]') as HTMLElement;
+    const tabs = root.querySelector('[role="tablist"]') as HTMLElement;
+    const countLine = root.querySelector('[data-testid="replies-count-line"]') as HTMLElement;
+    const cs = getComputedStyle(panel);
+    const headBottom = head.getBoundingClientRect().bottom;
     return {
-      hostGap: parseFloat(getComputedStyle(host).rowGap || "0"),
-      actual: next.getBoundingClientRect().top - panel.getBoundingClientRect().bottom,
-      panelMarginBottom: getComputedStyle(panel).marginBottom,
-      nextMarginTop: getComputedStyle(next).marginTop,
+      hostGap: parseFloat(getComputedStyle(head.parentElement!).rowGap || "0"),
+      actual: list.getBoundingClientRect().top - headBottom,
+      rowBottomInHead:
+        headBottom -
+        Math.max(
+          panel.getBoundingClientRect().bottom,
+          tabs.getBoundingClientRect().bottom,
+          countLine.getBoundingClientRect().bottom,
+        ),
+      panelMargins: [cs.marginTop, cs.marginBottom],
     };
   });
-
-  // Positive control: a host that is not spacing its children would make the
-  // comparison below vacuous.
-  expect(m.hostGap, "the host must own a real rhythm for this test to mean anything")
-    .toBeGreaterThan(0);
-  expect(
-    m.actual,
-    `gap under the 篩選 shell (panel margin-bottom ${m.panelMarginBottom}, next margin-top ${m.nextMarginTop})`
-  ).toBeCloseTo(m.hostGap, 0);
+  expect(m.hostGap, "the host must own a real rhythm for this test to mean anything").toBeGreaterThan(0);
+  expect(m.panelMargins, "the shell's own vertical margins").toEqual(["0px", "0px"]);
+  expect(m.rowBottomInHead, "the head ends at the lowest of the labels, the shell and the count line").toBeCloseTo(0, 0);
+  expect(m.actual, "gap under the label row").toBeCloseTo(m.hostGap, 0);
 });
+
+/** Below these widths the labels are the short ones (待回覆／稍後／已回覆,
+ * Waiting / Later / Done). */
+const FULL_LABELS_FROM = { zh: 360, en: 340 };
+const LABELS = {
+  zh: { full: ["等待回覆", "稍後再看", "近期已回覆"], short: ["待回覆", "稍後", "已回覆"] },
+  en: { full: ["Awaiting", "Later", "Answered"], short: ["Waiting", "Later", "Done"] },
+};
+const COUNT_LINE = {
+  zh: (n: number, answered: boolean) => `${n} 張請示卡${answered ? " · 近 24 小時" : ""}`,
+  en: (n: number, answered: boolean) => `${n} ${n === 1 ? "card" : "cards"}${answered ? " · last 24h" : ""}`,
+};
+type Box = { left: number; right: number; top: number; bottom: number; width: number; height: number };
+
+for (const cards of [[4, 1, 3], [99, 18, 23]] as const) {
+  for (const width of [
+    320,
+    FULL_LABELS_FROM.en - 1,
+    FULL_LABELS_FROM.en,
+    FULL_LABELS_FROM.zh - 1,
+    FULL_LABELS_FROM.zh,
+    375,
+    390,
+    393,
+    1440,
+  ]) {
+    for (const language of ["zh", "en"] as const) {
+      const full = width >= FULL_LABELS_FROM[language];
+      test(`width ${width}, ${language}, ${cards.join("/")} cards: the three list label chips, the 篩選 and 顯示方式 buttons hold one row inside the column, ${full ? "full" : "short"} labels whole with no number, separate chips with a gap, and each label's count on one line under the row (近期已回覆's with its 24h note), and the row names no sort`, async ({
+        mount,
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.evaluate((lang) => localStorage.setItem("oc.language", lang), language);
+        const cmp = await mount(<RepliesPageStory theme="office" cards={cards} />);
+        await expect(cmp.getByRole("tab")).toHaveCount(3);
+        await expect(cmp.getByTestId("replies-count-line")).toHaveText(COUNT_LINE[language](cards[0], false));
+
+        const m = await cmp.evaluate((root: HTMLElement) => {
+          const r = (el: Element) => {
+            const b = el.getBoundingClientRect();
+            return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, width: b.width, height: b.height };
+          };
+          const paint = (value: string) => {
+            const probe = document.createElement("div");
+            probe.style.background = value;
+            root.appendChild(probe);
+            const c = getComputedStyle(probe).backgroundColor;
+            probe.remove();
+            return c;
+          };
+          const list = root.querySelector('[role="tablist"]') as HTMLElement;
+          const column = root.querySelector(".replies") as HTMLElement;
+          const tabs = Array.from(list.querySelectorAll<HTMLElement>('[role="tab"]')).map((tab) => {
+            const l = tab.querySelector<HTMLElement>(".replies__tab-label")!;
+            const range = document.createRange();
+            range.selectNodeContents(l);
+            const shown = Array.from(range.getClientRects()).filter((x) => x.width > 0);
+            return {
+              box: r(tab),
+              text: l.innerText,
+              tabText: tab.innerText,
+              title: l.title,
+              lines: new Set(shown.map((x) => Math.round(x.top))).size,
+              cut: l.scrollWidth > l.clientWidth + 0.5,
+              fill: getComputedStyle(tab).backgroundColor,
+            };
+          });
+          return {
+            list: r(list),
+            column: r(column),
+            tabs,
+            activeFill: paint("var(--color-indigo)"),
+            headText: (root.querySelector(".replies__head") as HTMLElement).textContent,
+            funnel: r(root.querySelector('[data-testid="replies-filter-toggle"]')!),
+            display: r(root.querySelector('[data-testid="display-options"]')!),
+            page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            columnOverflow: column.scrollWidth - column.clientWidth,
+          };
+        });
+        expect(m.page, "page horizontal overflow").toBeLessThanOrEqual(0);
+        expect(m.columnOverflow, "column horizontal overflow").toBeLessThanOrEqual(0);
+        expect(m.list.left).toBeGreaterThanOrEqual(m.column.left - 0.5);
+        for (const t of m.tabs) {
+          expect(t.box.left, "chip inside the label control").toBeGreaterThanOrEqual(m.list.left - 0.5);
+          expect(t.box.right, "chip inside the label control").toBeLessThanOrEqual(m.list.right + 0.5);
+        }
+
+        const mid = (b: { top: number; bottom: number }) => (b.top + b.bottom) / 2;
+        const row = [...m.tabs.map((t) => t.box), m.funnel, m.display];
+        for (const b of row) {
+          expect(Math.abs(mid(b) - mid(m.funnel)), "chips and buttons on one row").toBeLessThanOrEqual(2);
+          expect(b.right).toBeLessThanOrEqual(m.column.right + 0.5);
+        }
+        expect(m.funnel.left, "the buttons after the labels").toBeGreaterThanOrEqual(m.list.right);
+
+        const want = LABELS[language][full ? "full" : "short"];
+        expect(m.tabs.map((t) => t.text)).toEqual(want);
+        expect(m.tabs.map((t) => t.tabText), "a chip shows only its label").toEqual(want);
+        expect(m.tabs.map((t) => t.title), "the full label in its title").toEqual(LABELS[language].full);
+        m.tabs.forEach((t, i) => {
+          expect(t.lines, `${t.text} on one line`).toBe(1);
+          expect(t.cut, `${t.text} whole`).toBe(false);
+          if (i < m.tabs.length - 1) {
+            expect(m.tabs[i + 1].box.left - t.box.right, "a visible gap between chips").toBeGreaterThanOrEqual(6);
+          }
+        });
+        expect(m.tabs[0].fill, "the selected chip wears the active fill").toBe(m.activeFill);
+        expect(m.tabs[1].fill).not.toBe(m.activeFill);
+        expect(m.headText).not.toContain(language === "zh" ? "開卡時間" : "Opened");
+
+        const views = ["waiting", "snoozed", "answered"] as const;
+        let firstLine: Box | null = null;
+        for (const [i, v] of views.entries()) {
+          await cmp.getByTestId(`replies-tab-${v}`).click();
+          await expect(cmp.getByTestId("replies-count-line")).toHaveText(COUNT_LINE[language](cards[i], v === "answered"));
+          const c = await cmp.evaluate((root: HTMLElement) => {
+            const r = (el: Element) => {
+              const b = el.getBoundingClientRect();
+              return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, width: b.width, height: b.height };
+            };
+            const line = root.querySelector('[data-testid="replies-count-line"]') as HTMLElement;
+            const range = document.createRange();
+            range.selectNodeContents(line);
+            return {
+              line: r(line),
+              lines: new Set(Array.from(range.getClientRects()).map((x) => Math.round(x.top))).size,
+              cut: line.scrollWidth > line.clientWidth + 0.5,
+              fontSize: getComputedStyle(line).fontSize,
+              color: getComputedStyle(line).color,
+              muted: (() => {
+                const probe = document.createElement("span");
+                probe.style.color = "var(--color-text-muted)";
+                root.appendChild(probe);
+                const col = getComputedStyle(probe).color;
+                probe.remove();
+                return col;
+              })(),
+              list: r(root.querySelector('[role="tablist"]')!),
+              funnel: r(root.querySelector('[data-testid="replies-filter-toggle"]')!),
+              display: r(root.querySelector('[data-testid="display-options"]')!),
+              panel: r(root.querySelector('[role="tabpanel"]')!),
+              page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            };
+          });
+          expect(c.page, `${v}: page horizontal overflow`).toBeLessThanOrEqual(0);
+          expect(c.lines, `${v}: the count on one line`).toBe(1);
+          expect(c.cut, `${v}: the count whole`).toBe(false);
+          expect(c.fontSize, "the 任務 page's count size").toBe("12.5px");
+          expect(c.color, "muted like the 任務 page's count").toBe(c.muted);
+          expect(Math.abs(c.line.left - m.column.left), `${v}: the count at the column's left`).toBeLessThanOrEqual(0.5);
+          expect(c.line.right).toBeLessThanOrEqual(m.column.right + 0.5);
+          expect(c.line.top, `${v}: the count under the row`).toBeGreaterThanOrEqual(Math.max(c.list.bottom, c.funnel.bottom));
+          expect(c.line.bottom, `${v}: the count above the list`).toBeLessThanOrEqual(c.panel.top);
+          expect(Math.abs(c.funnel.top - m.funnel.top), "the line moves no button").toBeLessThanOrEqual(0.5);
+          expect(Math.abs(c.display.left - m.display.left), "the line moves no button").toBeLessThanOrEqual(0.5);
+          if (firstLine) {
+            expect(Math.abs(c.line.top - firstLine.top), "the line stays put across labels").toBeLessThanOrEqual(0.5);
+            expect(Math.abs(c.line.height - firstLine.height)).toBeLessThanOrEqual(0.5);
+          } else firstLine = c.line;
+        }
+      });
+    }
+  }
+}
+
+for (const cards of [[4, 1, 3], [99, 18, 23]] as const) {
+  for (const language of ["zh", "en"] as const) {
+    test(`width ${FULL_LABELS_FROM[language]}, ${language}, ${cards.join("/")} cards, every character 0.5px wider: the full labels are still whole on the buttons' row`, async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize({ width: FULL_LABELS_FROM[language], height: 900 });
+      await page.evaluate((lang) => localStorage.setItem("oc.language", lang), language);
+      const cmp = await mount(<RepliesPageStory theme="office" cards={cards} />);
+      await expect(cmp.getByRole("tab")).toHaveCount(3);
+      await page.addStyleTag({ content: "* { letter-spacing: 0.5px !important; }" });
+      const m = await cmp.evaluate((root: HTMLElement) => {
+        const mid = (el: Element) => {
+          const b = el.getBoundingClientRect();
+          return (b.top + b.bottom) / 2;
+        };
+        const column = root.querySelector(".replies") as HTMLElement;
+        const funnel = root.querySelector('[data-testid="replies-filter-toggle"]')!;
+        return {
+          tabs: Array.from(root.querySelectorAll<HTMLElement>('[role="tab"]')).map((tab) => {
+            const l = tab.querySelector<HTMLElement>(".replies__tab-label")!;
+            return { text: l.innerText, cut: l.scrollWidth > l.clientWidth + 0.5, offRow: Math.abs(mid(tab) - mid(funnel)) };
+          }),
+          columnOverflow: column.scrollWidth - column.clientWidth,
+        };
+      });
+      expect(m.tabs.map((t) => t.text)).toEqual(LABELS[language].full);
+      for (const t of m.tabs) {
+        expect(t.cut, `${t.text} whole`).toBe(false);
+        expect(t.offRow, `${t.text} on the buttons' row`).toBeLessThanOrEqual(2);
+      }
+      expect(m.columnOverflow, "column horizontal overflow").toBeLessThanOrEqual(0);
+    });
+  }
+}
+
+for (const language of ["zh", "en"] as const) {
+  test(`390, ${language}: before any count is known the line under the row is empty but holds its height, and the count arriving moves neither the row nor the list`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 900 });
+    await page.evaluate((lang) => localStorage.setItem("oc.language", lang), language);
+    const cmp = await mount(<RepliesPageStory theme="office" cards={[4, 1, 3]} holdCounts />);
+    await expect(cmp.getByRole("tab")).toHaveCount(3);
+    await expect(cmp.getByTestId("replies-count-line")).toHaveText("");
+    const measure = () =>
+      cmp.evaluate((root: HTMLElement) => {
+        const r = (el: Element) => {
+          const b = el.getBoundingClientRect();
+          return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, width: b.width, height: b.height };
+        };
+        return {
+          line: r(root.querySelector('[data-testid="replies-count-line"]')!),
+          panel: r(root.querySelector('[role="tabpanel"]')!),
+          funnel: r(root.querySelector('[data-testid="replies-filter-toggle"]')!),
+          tabs: Array.from(root.querySelectorAll('[role="tab"]')).map(r),
+        };
+      });
+    const before = await measure();
+    expect(before.line.height, "the empty line keeps its height").toBeGreaterThan(10);
+    await page.evaluate(() => (window as unknown as { __releaseReplyCounts: () => void }).__releaseReplyCounts());
+    await expect(cmp.getByTestId("replies-count-line")).toHaveText(COUNT_LINE[language](4, false));
+    const after = await measure();
+    for (const k of ["top", "height"] as const) {
+      expect(after.line[k], `line ${k} unmoved`).toBeCloseTo(before.line[k], 0);
+    }
+    expect(after.panel.top, "the list unmoved").toBeCloseTo(before.panel.top, 0);
+    for (const k of ["left", "right", "top", "bottom"] as const) {
+      expect(after.funnel[k], `funnel ${k} unmoved`).toBeCloseTo(before.funnel[k], 0);
+      before.tabs.forEach((b, i) => expect(after.tabs[i][k], `chip ${k} unmoved`).toBeCloseTo(b[k], 0));
+    }
+  });
+}
+
+
+const COUNT_WORDING = {
+  tasks: { zh: /^\d+ 個任務$/, en: /^\d+ tasks?$/ },
+  lore: { zh: /^\d+ 筆傳承$/, en: /^\d+ (entry|entries)$/ },
+};
+
+for (const pageName of ["tasks", "lore"] as const) {
+  for (const width of [320, 390, 1440]) {
+    for (const language of ["zh", "en"] as const) {
+      test(`${pageName} width ${width}, ${language}: the count sits whole on one line at the 篩選 row's left end, on the funnel's centre line, inside the column`, async ({
+        mount,
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.evaluate((lang) => localStorage.setItem("oc.language", lang), language);
+        const cmp = await mount(<AppPageStory page={pageName} theme="office" wide={width > 1040} />);
+        const summary = cmp.getByTestId(`${pageName}-filter-summary`);
+        await expect(summary).toHaveText(COUNT_WORDING[pageName][language]);
+
+        const m = await summary.evaluate((el: HTMLElement) => {
+          const r = (e: Element) => {
+            const b = e.getBoundingClientRect();
+            return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+          };
+          const row = el.closest(".filter-panel")!;
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          return {
+            count: r(el),
+            text: range.getBoundingClientRect(),
+            row: r(row),
+            main: r(el.closest(".app__main")!),
+            funnel: r(row.querySelector(".filter-panel__trigger")!),
+            lines: new Set(Array.from(range.getClientRects()).map((x) => Math.round(x.top))).size,
+            cut: el.scrollWidth > el.clientWidth + 0.5,
+            page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          };
+        });
+        const mid = (b: { top: number; bottom: number }) => (b.top + b.bottom) / 2;
+        expect(m.page, "page horizontal overflow").toBeLessThanOrEqual(0);
+        expect(m.lines, "the count on one line").toBe(1);
+        expect(m.cut, "the count whole").toBe(false);
+        expect(Math.abs(m.count.left - m.row.left), "the count at the row's left end").toBeLessThanOrEqual(1);
+        expect(m.count.right, "the count left of the funnel").toBeLessThanOrEqual(m.funnel.left);
+        expect(Math.abs(mid(m.text) - mid(m.funnel)), "the count's text on the funnel's centre line").toBeLessThanOrEqual(2);
+        expect(m.row.left).toBeGreaterThanOrEqual(m.main.left - 0.5);
+        expect(m.row.right).toBeLessThanOrEqual(m.main.right + 0.5);
+      });
+    }
+  }
+}

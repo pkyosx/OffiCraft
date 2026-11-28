@@ -35,6 +35,7 @@ import { codeForStatus } from "../api/errorCodes";
 import type { ThemeBundle } from "../lib/themeBundle";
 import officeLightTheme from "../../../themes/office-light.theme.json" with { type: "json" };
 import { setToken, clearToken } from "../api/auth";
+import { infoHintText } from "../test/infoHint";
 
 /** The 主題庫 block — theme names also appear as options in 外觀's select. */
 function library(utils: ReturnType<typeof render>) {
@@ -1610,7 +1611,7 @@ describe("ThemeSettings · appearance", () => {
       ["still", "靜止"],
     ]);
     expect(bgMotion.value).toBe("auto");
-    expect(bgMotion.closest(".param-row")!.textContent).toContain("只影響這台裝置；自動時手機平板靜止、電腦播放");
+    expect(infoHintText(bgMotion.closest<HTMLElement>(".param-row")!)).toContain("只影響這台裝置；自動時手機平板靜止、電腦播放");
     expect(
       Array.from(appearance.querySelectorAll(".param-row__name")).map((n) => n.textContent)
     ).toEqual(["依時段切換", "主題", "背景動畫", "顯示應景主題"]);

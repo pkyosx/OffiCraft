@@ -5,12 +5,13 @@ import { formatBytes } from "../lib/bytes";
 import { formatDuration } from "../lib/duration";
 import type { MachineDiskUsageCategoryView, MachineDiskUsageView } from "../types";
 import { ChevronDownIcon } from "./icons";
+import { TitleWithInfo } from "./InfoHint";
 import "./disk-usage.css";
 
 const TOP_MEMBERS = 5;
 
 type Dicts = Dict["monitor"]["diskUsage"];
-type KnownKey = keyof Dicts["desc"];
+type KnownKey = "database" | "backups" | "workspaces" | "logs" | "oldVersionBackups" | "oldDatabaseCopies" | "other";
 
 /** The category keys the page has words and a colour for, by the server's
  * key. Any other key a warden reports is shown as the key itself, in the
@@ -40,8 +41,8 @@ export interface DiskUsageCellProps {
 interface Row {
   key: string;
   label: ReactNode;
-  /** A grey line under the label saying what the row holds. */
-  desc?: string;
+  /** What the row holds, behind ⓘ after a plain-text label. */
+  desc?: { about: string; hint: string };
   value: string;
   sub?: boolean;
   section?: boolean;
@@ -147,8 +148,9 @@ export function DiskUsageBreakdown({ usage }: { usage: MachineDiskUsageView }) {
                   <span className="disk-usage__swatch" aria-hidden="true" />
                 ))}
               <span className="disk-usage__text">
-                <span className="disk-usage__name">{r.label}</span>
-                {r.desc && <span className="disk-usage__desc">{r.desc}</span>}
+                <span className="disk-usage__name">
+                  {r.desc ? <TitleWithInfo title={r.desc.about} hint={r.desc.hint} /> : r.label}
+                </span>
               </span>
             </span>
             <span className="disk-usage__value">{r.value}</span>
@@ -200,13 +202,15 @@ function breakdownRows(
 ): Row[] {
   const rows: Row[] = [];
   const value = (bytes: number | null) => (bytes === null ? dash : formatBytes(bytes));
+  const descs: Partial<Record<KnownKey, string>> = d.desc;
   for (const c of u.categories) {
     if (c.parentKey !== null) continue;
     const known = KNOWN[c.key];
+    const hint = known && descs[known];
     rows.push({
       key: c.key,
       label: labelOf(c.key, d),
-      desc: known ? d.desc[known] : undefined,
+      desc: hint ? { about: labelOf(c.key, d), hint } : undefined,
       value: value(c.bytes),
       segment: segmentOf(c.key),
       // A row with its own sub rows opens a section, so they do not read as

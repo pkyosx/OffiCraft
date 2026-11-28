@@ -18,6 +18,7 @@ import {
   snoozeUntil,
 } from "../lib/replySnooze";
 import "./replies.css";
+import "./card-head.css";
 
 const EDGE = 8;
 
@@ -207,7 +208,7 @@ export function ReplySnoozeMenu({
       <button
         ref={triggerRef}
         type="button"
-        className="reply-card__icon-btn"
+        className="card-head__icon-btn"
         data-testid="snooze-card"
         aria-label={t.replies.snooze}
         title={t.replies.snooze}
@@ -215,7 +216,7 @@ export function ReplySnoozeMenu({
         aria-expanded={open}
         onClick={() => (open ? close(false) : setOpen(true))}
       >
-        <SnoozeActionIcon size={13} />
+        <SnoozeActionIcon size={14} />
       </button>
       {open &&
         createPortal(

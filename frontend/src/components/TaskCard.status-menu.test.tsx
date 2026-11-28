@@ -1,6 +1,6 @@
 // TaskCard — spec ② 狀態 badge 下拉 + spec ④ 右上三角指示器 (owner 2026-07-17).
 // Locked here:
-//   ② Clicking the 狀態 badge ALWAYS opens a dropdown — whatever the status is,
+//   ② Clicking the 狀態 icon ALWAYS opens a dropdown — whatever the status is,
 //     LIVE or CLOSED (owner's informed ruling, accepting that the old one-click
 //     等我回覆 jump becomes two steps). It carries 標記重複 + 終止, plus the
 //     「查看等我回覆卡」 jump as an EXTRA item only while status = 等我回覆.
@@ -204,7 +204,7 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
   // genuinely different moments and the first one is the one that broke:
   // a COLLAPSED card has no steps yet (they arrive with the detail hydrate), so
   // a steps-only gate rendered nothing exactly where owner wants the item.
-  it("等待外部 jump: on a COLLAPSED waiting_external card, first in the menu, and expands the card", async () => {
+  it("等待外部 jump: on a COLLAPSED waiting_external card, first in the menu, expands the card and reopens a folded 工作流程 to scroll to the step", async () => {
     __injectMockTask(
       mkTask({
         title: "等外部的",
@@ -267,6 +267,20 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
       expect(
         scrolled.some((el) => el.getAttribute("data-step-id") === "s-1")
       ).toBe(true);
+
+      const wfHead = within(card).getByTestId("task-workflow-section-head");
+      fireEvent.click(wfHead);
+      expect(wfHead.getAttribute("aria-expanded")).toBe("false");
+      expect(card.querySelector('[data-testid="task-step"]')).toBeNull();
+      scrolled.length = 0;
+      fireEvent.click(within(card).getByTestId("task-status"));
+      fireEvent.click(within(card).getByTestId("task-status-jump-external"));
+      expect(wfHead.getAttribute("aria-expanded")).toBe("true");
+      await waitFor(() => {
+        expect(
+          scrolled.some((el) => el.getAttribute("data-step-id") === "s-1")
+        ).toBe(true);
+      });
     } finally {
       spy.mockRestore();
       if (!had) delete proto.scrollIntoView;
@@ -449,13 +463,10 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
     }
   });
 
-  // ready_for_done is DERIVED and NOT terminal (T-182): a finished plan lands
-  // there and waits for mark_task_done. The badge renders through
+  // ready_for_done is DERIVED and NOT terminal (T-182). The name comes from
   // `t.tasks.status[task.status] ?? task.status`, so a missing dictionary entry
-  // does not throw — it prints the raw identifier and the chip falls back to the
-  // default colour. That is what this pins: the translated word AND the status's
-  // own class, for every live status, with the raw-key shape refused outright.
-  it("every live status badge renders its translated word and its own colour class, never the raw key", async () => {
+  // would print the raw identifier rather than throw — refused outright here.
+  it("every live status renders as its own coloured icon named by the translated status, whose menu is headed by that name", async () => {
     const statuses = [
       "not_started",
       "in_progress",
@@ -470,20 +481,34 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
     const cards = await findAllByTestId("task-card");
     expect(cards).toHaveLength(statuses.length);
 
+    const iconPaths = new Set<string>();
     for (const status of statuses) {
       const card = cards.find((c) =>
         c.querySelector(".task-card__title")?.textContent?.includes(
           `狀態字-${status}`
         )
       )!;
-      const badge = within(card).getByTestId("task-status");
-      expect(badge.textContent?.trim()).toBe(zh.tasks.status[status]);
-      expect(badge.textContent?.trim()).not.toMatch(/^[a-z_]+$/);
+      const icon = within(card).getByRole("button", { name: zh.tasks.status[status] });
+      expect(icon).toBe(within(card).getByTestId("task-status"));
+      expect(icon.getAttribute("title")).toBe(zh.tasks.status[status]);
+      expect(icon.getAttribute("aria-label")).not.toMatch(/^[a-z_]+$/);
+      expect(icon.textContent).toBe("");
       expect(
-        badge.classList.contains(`task-badge--status-${status}`),
+        icon.classList.contains(`task-card__status-icon--${status}`),
         `${status} lost its own colour class`
       ).toBe(true);
+      iconPaths.add(icon.querySelector("svg")!.innerHTML);
+
+      fireEvent.click(icon);
+      const menu = within(card).getByTestId("task-status-options");
+      expect(menu.firstElementChild).toBe(within(menu).getByTestId("task-status-current"));
+      expect(within(menu).getByTestId("task-status-current").textContent).toBe(
+        zh.tasks.status[status]
+      );
+      expect(within(menu).getByTestId("task-mark-duplicate")).toBeTruthy();
+      fireEvent.click(icon);
     }
+    expect(iconPaths.size).toBe(statuses.length);
   });
 
   // ── owner ruling 2026-07-17 (rc-12d552eed7ce), spec ② follow-up ──────────
@@ -533,7 +558,7 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
     for (const status of closedStatuses) {
       const card = byTitle(`已結案-${status}`);
       const badge = within(card).getByTestId("task-status");
-      // It IS a menu trigger now (it used to be a plain span).
+      expect(badge.getAttribute("aria-label")).toBe(zh.tasks.status[status]);
       expect(badge.getAttribute("aria-haspopup")).toBe("menu");
       fireEvent.click(badge);
 
@@ -543,6 +568,9 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
       // disabled-ness, not about a scope that is silently empty.
       expect(menu).toBeTruthy();
       expect(badge.getAttribute("aria-expanded")).toBe("true");
+      expect(
+        within(menu as HTMLElement).getByTestId("task-status-current").textContent
+      ).toBe(zh.tasks.status[status]);
       const dup = within(menu as HTMLElement).getByTestId("task-mark-duplicate");
       const term = within(menu as HTMLElement).getByTestId("task-terminate");
       expect(dup.textContent).toContain("標記重複");

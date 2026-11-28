@@ -1214,16 +1214,20 @@ for (const { width, language, squeezed } of LABEL_CASES) {
         }
         const value = row.querySelector(".disk-usage__value")!.getBoundingClientRect();
         const label = row.querySelector(".disk-usage__label")!.getBoundingClientRect();
-        // The grey description: each of its lines starts where the name does.
-        const desc = row.querySelector(".disk-usage__desc");
-        const descXs = (() => {
-          if (!desc) return [];
-          const r = document.createRange();
-          r.selectNodeContents(desc);
-          return Array.from(r.getClientRects()).filter((x) => x.width > 0).map((x) => x.left);
+        // The description's ⓘ: on the name's last line, after it, clear of the value.
+        const icon = row.querySelector(".info-hint");
+        const info = (() => {
+          if (!icon) return null;
+          const r = icon.getBoundingClientRect();
+          const mid = (r.top + r.bottom) / 2;
+          const last = groups[groups.length - 1];
+          return {
+            onLastLine: last.some((l) => mid >= l.top && mid <= l.bottom),
+            clearOfValue: r.right <= value.left + 0.5,
+          };
         })();
         return {
-          descXs,
+          info,
           text: name.textContent,
           sub: row.classList.contains("disk-usage__row--sub"),
           x: lines[0].left,
@@ -1246,7 +1250,7 @@ for (const { width, language, squeezed } of LABEL_CASES) {
       expect.arrayContaining([language === "zh" ? "日誌" : "Logs", language === "zh" ? "硬碟剩餘／總容量" : "Disk free / total"])
     );
     expect(rows.filter((r) => r.sub).length, "control: the members are sub rows").toBeGreaterThanOrEqual(3);
-    expect(rows.filter((r) => r.descXs.length > 0).length, "control: the categories carry descriptions").toBeGreaterThanOrEqual(6);
+    expect(rows.filter((r) => r.info).length, "control: the categories that need explaining carry an ⓘ").toBeGreaterThanOrEqual(2);
     if (squeezed || width <= 390) {
       expect(rows.some((r) => r.sub && r.lineXs.length > 1), "control: a sub row wraps").toBe(true);
     }
@@ -1267,9 +1271,8 @@ for (const { width, language, squeezed } of LABEL_CASES) {
       }
       if (!r.valueFits) bad.push(`${r.text}: value outside the box or over its label`);
       if (!r.slotBeside) bad.push(`${r.text}: swatch slot not before the text on its first line`);
-      for (const dx of r.descXs) {
-        if (Math.abs(dx - r.lineXs[0]) > 0.5) bad.push(`${r.text}: a description line at ${dx}, the name at ${r.lineXs[0]}`);
-      }
+      if (r.info && !r.info.onLastLine && !squeezed) bad.push(`${r.text}: its ⓘ is not on the name's last line`);
+      if (r.info && !r.info.clearOfValue) bad.push(`${r.text}: its ⓘ runs into the value`);
     }
     expect(bad).toEqual([]);
   });

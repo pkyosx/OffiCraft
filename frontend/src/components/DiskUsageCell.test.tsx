@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { DiskUsageBreakdown, DiskUsageCell } from "./DiskUsageCell";
 import type { MachineDiskUsageCategoryView, MachineDiskUsageMemberView, MachineDiskUsageView } from "../types";
+import { infoHintText } from "../test/infoHint";
 
 const NOW = new Date(2026, 9, 4, 10, 0, 0, 0);
 const NOW_S = NOW.getTime() / 1000;
@@ -96,11 +97,11 @@ function rows(): [string, string][] {
   ]);
 }
 
-/** Each row's name and its grey description ("" when none). */
+/** Each row's name and the description behind its ⓘ ("" when none). */
 function descriptions(): [string, string][] {
   return screen.getAllByTestId("disk-usage-row").map((row) => [
     row.querySelector(".disk-usage__name")?.textContent ?? "",
-    row.querySelector(".disk-usage__desc")?.textContent ?? "",
+    row.querySelector('[data-testid="info-hint"]') ? infoHintText(row) : "",
   ]);
 }
 
@@ -194,14 +195,14 @@ describe("DiskUsageBreakdown", () => {
     expect(screen.getByTestId("disk-usage-measured").textContent).toBe("量於 12m 前");
   });
 
-  it("puts a grey line under each known category saying what it holds, and none under members or the disk row", () => {
+  it("puts an ⓘ only on the categories whose contents are not obvious, and none on members or the disk row", () => {
     mountBreakdown({ ...FULL, members: SEVEN_MEMBERS.slice(0, 1), categories: [...CATEGORIES.slice(0, -1), cat("old_database_copies", 1, null, false), CATEGORIES[5]] });
     expect(descriptions()).toEqual([
-      ["資料庫", "成員、任務、聊天等所有資料"],
-      ["資料庫自動備份", "定期自動備份，保留最近幾份"],
-      ["成員 workspace", "各成員的工作目錄"],
+      ["資料庫", ""],
+      ["資料庫自動備份", ""],
+      ["成員 workspace", ""],
       ["Mira", ""],
-      ["日誌", "OffiCraft 程式的執行紀錄"],
+      ["日誌", ""],
       ["升級殘留", "升級時留下的舊版程式與舊資料庫副本，不會自動刪除"],
       ["舊資料庫副本", "資料庫旁留下的舊副本，不會自動刪除"],
       ["其他", "目前版本的程式、設定檔，以及手動放進來的檔案"],
@@ -214,10 +215,10 @@ describe("DiskUsageBreakdown", () => {
     try {
       mountBreakdown({ ...FULL, members: [] });
       expect(descriptions()).toEqual([
-        ["Database", "Members, tasks, chat and everything else"],
-        ["Automatic database backups", "Taken automatically; the latest few are kept"],
-        ["Member workspaces", "Each member's working directory"],
-        ["Logs", "What the OffiCraft programs have logged"],
+        ["Database", ""],
+        ["Automatic database backups", ""],
+        ["Member workspaces", ""],
+        ["Logs", ""],
         ["Upgrade leftovers", "Old programs and database copies left by upgrades; never deleted automatically"],
         ["Other", "The current programs, settings, and files put here by hand"],
         ["Disk free / total", ""],
@@ -302,7 +303,7 @@ describe("DiskUsageBreakdown", () => {
     expect(got.map(([key]) => key)).toEqual(expected.map(([key]) => key));
     got.forEach(([, width], i) => expect(width).toBeCloseTo(expected[i][1], 2));
     expect(swatches()).toEqual(["database", "backups", "workspaces", "logs", "old_version_backups", "other"]);
-    const bar = screen.getByRole("img");
+    const bar = screen.getByTestId("disk-usage-bar");
     expect(bar.getAttribute("data-testid")).toBe("disk-usage-bar");
     expect(bar.getAttribute("aria-label")).toBe(
       "OffiCraft 磁碟用量組成：資料庫 2.3 GB (6%)、資料庫自動備份 12.7 GB (31%)、成員 workspace 23.3 GB (56%)、日誌 351.6 MB (<1%)、升級殘留 1.9 GB (5%)、其他 1.1 GB (3%)",
@@ -390,7 +391,7 @@ describe("DiskUsageBreakdown", () => {
     window.localStorage.setItem("oc.language", "en");
     try {
       mountBreakdown({ ...EMPTY, totalBytes: kib(4194304), categories: [cat("database", kib(1048576)), cat("other", kib(3145728))] });
-      expect(screen.getByRole("img").getAttribute("aria-label")).toBe(
+      expect(screen.getByTestId("disk-usage-bar").getAttribute("aria-label")).toBe(
         "OffiCraft disk usage by category: Database 1.0 GB (25%), Other 3.0 GB (75%)",
       );
     } finally {

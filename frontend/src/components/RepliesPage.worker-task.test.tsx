@@ -118,7 +118,7 @@ afterEach(() => {
 });
 
 describe("RepliesPage — the asking outsource worker's current task", () => {
-  it("shows the worker's own task: number, type and title", async () => {
+  it("shows the worker's own task under the 開卡人 chip with no label: number, type and title", async () => {
     workerRows = [mkWorker({})];
     __injectMockReplyCard(
       mkCard({
@@ -129,7 +129,7 @@ describe("RepliesPage — the asking outsource worker's current task", () => {
     const { findByTestId } = renderPage();
 
     expect((await findByTestId("reply-card-rc-1-task-ow-a")).textContent).toBe(
-      "T-42",
+      "#T-42",
     );
     expect((await findByTestId("reply-card-rc-1-type-ow-a")).textContent).toBe(
       "OffiCraft · 開發",
@@ -137,6 +137,15 @@ describe("RepliesPage — the asking outsource worker's current task", () => {
     expect((await findByTestId("reply-card-task-title-rc-1")).textContent).toBe(
       "把請示卡列表補上外包正在做的任務",
     );
+    const meta = (await findCard()).querySelector(".card-meta")!;
+    expect(
+      Array.from(meta.children).map((el) => [el.getAttribute("data-testid") ?? el.className, el.textContent]),
+      "under the 開卡人 chip with no label of its own, like the office rail's row",
+    ).toEqual([
+      ["card-meta__label", "開卡人"],
+      ["reply-card-opener", "O-9"],
+      ["reply-card__worker-task", "#T-42OffiCraft · 開發把請示卡列表補上外包正在做的任務"],
+    ]);
   });
 
   it("carries the FULL title on the hover tooltip, like the rail row", async () => {
@@ -165,7 +174,7 @@ describe("RepliesPage — the asking outsource worker's current task", () => {
     const { findByTestId, findByText } = renderPage();
 
     expect((await findByTestId("reply-card-rc-1-task-ow-a")).textContent).toBe(
-      "T-42",
+      "#T-42",
     );
     expect((await findByTestId("reply-card-task-title-rc-1")).textContent).toBe(
       "把請示卡列表補上外包正在做的任務",
@@ -181,7 +190,7 @@ describe("RepliesPage — the asking outsource worker's current task", () => {
     const { findByTestId } = renderPage();
 
     expect((await findByTestId("reply-card-rc-1-task-ow-a")).textContent).toBe(
-      "T-42",
+      "#T-42",
     );
   });
 
@@ -245,7 +254,7 @@ describe("RepliesPage — the asking outsource worker's current task", () => {
     const { findByTestId } = renderPage();
 
     expect((await findByTestId("reply-card-rc-1-task-ow-a")).textContent).toBe(
-      "T-42",
+      "#T-42",
     );
   });
 

@@ -6,6 +6,7 @@ import { ChatGroupPanel } from "./ChatGroupPanel";
 import type { ChatGroup, ChatTab } from "../lib/chatGroups";
 import type { RowFacts } from "../lib/chatFilter";
 import { useEnglishLocale } from "../test/effortOptions";
+import { infoHintText } from "../test/infoHint";
 
 const NAMES: Record<string, string> = {
   mira: "Mira",
@@ -541,7 +542,8 @@ describe("ChatGroupPanel", () => {
     fireEvent.click(screen.getByTestId("chat-group-menu-autojoin"));
     expect(screen.queryByRole("menu")).toBeNull();
     const dialog = screen.getByRole("dialog", { name: "自動加入 · 審查" });
-    expect(within(dialog).getByText("勾選的任務類型，該類型的外包會自動加入這個群組。")).toBeTruthy();
+    expect(infoHintText(dialog)).toBe("勾選的任務類型，該類型的外包會自動加入這個群組。");
+    expect(within(dialog).queryByText("勾選的任務類型，該類型的外包會自動加入這個群組。")).toBeNull();
     expect(autoJoinRows()).toEqual([
       ["PR 審查", "false"],
       ["修 bug目前在「修復」", "false"],
@@ -563,10 +565,16 @@ describe("ChatGroupPanel", () => {
     fireEvent.click(screen.getByTestId("chat-group-autojoin-bugfix"));
     expect(latest[0].taskTypeKeys).toEqual([]);
 
+    const info = within(dialog).getByTestId("info-hint");
+    fireEvent.keyDown(document.activeElement!, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(info);
     fireEvent.keyDown(document.activeElement!, { key: "Tab", shiftKey: true });
     expect(document.activeElement).toBe(screen.getByTestId("chat-group-autojoin-done"));
     fireEvent.keyDown(document.activeElement!, { key: "Tab" });
+    expect(document.activeElement).toBe(info);
+    fireEvent.keyDown(document.activeElement!, { key: "Tab" });
     expect(document.activeElement).toBe(screen.getByTestId("chat-group-autojoin-review"));
+    fireEvent.keyDown(document.activeElement!, { key: "Tab", shiftKey: true });
     fireEvent.keyDown(document.activeElement!, { key: "Tab", shiftKey: true });
     expect(document.activeElement).toBe(screen.getByTestId("chat-group-autojoin-done"));
     fireEvent.click(screen.getByTestId("chat-group-autojoin-done"));

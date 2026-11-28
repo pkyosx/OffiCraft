@@ -1,10 +1,9 @@
-// CT story: the T-3451 current-task-title line in the chat HEADER — the peer
-// bar shape ChatArea emits, with the REAL full-title line (clamp={false}). The
-// full title must render un-truncated and wrap without forcing a page-level
-// horizontal scrollbar at the owner's phone widths.
+// CT story: the current-task-title line in the chat HEADER — the peer bar shape
+// ChatArea emits, with the same 2-line clamped title line. VERY_LONG_TITLE so
+// the clamp truncates even at the widest tested width.
 import { I18nProvider } from "../../src/i18n";
 import { CurrentTaskTitle } from "../../src/components/CurrentTaskTitle";
-import { LONG_TITLE } from "./currentTaskFixtures";
+import { VERY_LONG_TITLE } from "./currentTaskFixtures";
 
 export function CurrentTaskHeaderStory() {
   return (
@@ -22,8 +21,8 @@ export function CurrentTaskHeaderStory() {
                 </div>
                 <div className="chat__header-task">
                   <CurrentTaskTitle
-                    title={LONG_TITLE}
-                    clamp={false}
+                    title={VERY_LONG_TITLE}
+                    clamp
                     showEmpty={false}
                     testid="chat-header-task-title"
                   />

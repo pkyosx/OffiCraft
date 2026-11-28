@@ -343,35 +343,10 @@ func TestHandleInsertTaskStepApiTasksTaskIdStepsPost(t *testing.T) {
 		}
 	})
 
-	// The wedge case above only exercises rule 2 (contiguity), which reads the
-	// whole timeline. Rules 1 and 3 read the FRESH row alone, so dropping the
+	// The wedge case above only exercises contiguity, which reads the whole
+	// timeline. The one-lane rule reads the FRESH row alone, so dropping the
 	// second argument to ValidatePlanParallelShape leaves contiguity working and
-	// silently admits both of these — measured: 400 becomes 200 for each.
-	t.Run("a new step may not be a gate inside a parallel group", func(t *testing.T) {
-		api := newTasksTestServer(t)
-		task := createAdHocTask(t, api, "m-exec")
-		v1 := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
-			{"name": "lane a", "dod": "d", "parallel_group": "g1"},
-			{"name": "lane b", "dod": "d", "parallel_group": "g1"},
-		})
-		rec := insertStep(t, api, task.ID, "m-exec", map[string]any{
-			"name": "ask the owner", "dod": "d",
-			"parallel_group": "g1", "is_gate": true,
-			"before_step_id": v1.Steps[0].ID,
-		})
-		if rec.Code != http.StatusBadRequest {
-			t.Fatalf("a gate inside a group must 400, got %d %s", rec.Code, rec.Body.String())
-		}
-		want := "step 'ask the owner': a gate step cannot sit inside a parallel group — " +
-			"put the gate on its own step after the group's join step"
-		if got := decodeBody[ErrorEnvelopeDTO](t, rec).Error.Message; got != want {
-			t.Fatalf("refusal:\n got %q\nwant %q", got, want)
-		}
-		if v := getTaskView(t, api, task.ID); len(v.Steps) != 2 {
-			t.Fatalf("a refused insert must write nothing, got %v", stepNames(v.Steps))
-		}
-	})
-
+	// silently admits this — measured: 400 becomes 200.
 	t.Run("a new step may not open a parallel group of its own", func(t *testing.T) {
 		api := newTasksTestServer(t)
 		task := createAdHocTask(t, api, "m-exec")

@@ -234,6 +234,26 @@ const TOKEN_META: Record<string, TokenMeta> = {
     group: "status",
     label: { zh: "重新指派鎖", en: "Reassigning lock" },
   },
+  "--color-step-pending": {
+    group: "status",
+    label: { zh: "步驟待辦", en: "Step pending" },
+  },
+  "--color-step-waiting-owner": {
+    group: "status",
+    label: { zh: "步驟等我回覆", en: "Step waiting on owner" },
+  },
+  "--color-step-waiting-external": {
+    group: "status",
+    label: { zh: "步驟等待外部", en: "Step waiting external" },
+  },
+  "--color-step-done": {
+    group: "status",
+    label: { zh: "步驟完成", en: "Step done" },
+  },
+  "--color-step-superseded": {
+    group: "status",
+    label: { zh: "步驟已取代", en: "Step superseded" },
+  },
   "--color-wait-external": {
     group: "status",
     label: { zh: "等待外部", en: "Waiting external" },

@@ -812,9 +812,7 @@ const BOOT_DOC_SEEDS: Record<string, string> = {
 /** The documents the server SHOWS but refuses every write to — mirrors
  * bootDocRegistry's ReadOnly, so demo mode cannot validate a screen the real
  * server refuses. */
-const SHIPPED_BOOT_DOC_READ_ONLY: ReadonlySet<string> = new Set([
-  "term_glossary/global",
-]);
+const SHIPPED_BOOT_DOC_READ_ONLY: ReadonlySet<string> = new Set<string>();
 let BOOT_DOC_READ_ONLY: ReadonlySet<string> = SHIPPED_BOOT_DOC_READ_ONLY;
 
 /** Writable with developer mode off, like 使用者自訂 (bootDocRegistry's
@@ -1362,6 +1360,7 @@ const MOCK_LORE_SEEDS: readonly LoreEntryView[] = [
     sourceTaskId: "",
     state: "retired",
     retireReason: "已經寫進 SOP，這一筆不再需要單獨佔一格。",
+    retiredTs: 1788700000,
     effectiveTs: 1788300000,
     createdTs: 1788300000,
     updatedTs: 1788700000,
@@ -6518,6 +6517,7 @@ const mockApiImpl = {
         walk?.dropped.has(e.id) ? { ...e, dropped: walk.dropped.get(e.id) } : e
       ),
       limit,
+      total: ordered.length,
       offset,
       capChars: walk?.capChars ?? 0,
       firstDroppedId: line.id,
@@ -6525,6 +6525,10 @@ const mockApiImpl = {
       firstDroppedChars: line.chars,
       budgetSegments: walk ? structuredClone(walk.segments) : [],
     };
+  },
+
+  async countLoreEntries(): Promise<number | undefined> {
+    return mockLoreEntries.length;
   },
 
   async listLoreBudgets(): Promise<LoreBudgetTargetView[]> {
@@ -6643,11 +6647,14 @@ const mockApiImpl = {
         "no such 傳承 entry"
       );
     }
+    const now = Date.now() / 1000;
+    if (state !== "retired") delete e.retiredTs;
+    else if (e.state !== "retired") e.retiredTs = now;
     e.state = state;
     // Cleared by the two live states, exactly as the server does: a live entry
     // must not keep showing the explanation for a retirement that was undone.
     e.retireReason = state === "retired" ? (retireReason ?? "") : "";
-    e.updatedTs = Date.now() / 1000;
+    e.updatedTs = now;
   },
 
   async bumpLoreEntry(entryId: string): Promise<void> {

@@ -1,4 +1,4 @@
-// components/TaskArtifactsPopover.tsx — the task card's 「產物 N」 badge + its
+// components/TaskArtifactsPopover.tsx — the task card's 產物 count chip + its
 // artifact popover (T-3dc5). The badge renders ONLY when the count > 0 (0 ⇒ no
 // badge, by construction — the empty-set assertion).
 //
@@ -51,6 +51,7 @@ import {
   PaperclipIcon,
   TrashIcon,
 } from "./icons";
+import "./card-meta.css";
 
 /** Project a file/image artifact onto the ChatAttachmentView the shared
  * AttachmentStrip renders (id/url/filename/mime/isImage — the exact reuse
@@ -210,7 +211,7 @@ export function TaskArtifactsBadge({
     <span className="task-artifacts-anchor" ref={anchorRef}>
       <button
         type="button"
-        className="task-badge task-badge--artifacts"
+        className="card-meta__chip card-meta__chip--link task-card__artifacts-chip"
         data-testid="task-artifacts-badge"
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -221,8 +222,8 @@ export function TaskArtifactsBadge({
           setOpen((v) => !v);
         }}
       >
-        <PaperclipIcon size={12} />
-        {t.tasks.artifacts.badge} {count}
+        <PaperclipIcon size={13} />
+        <span>{t.tasks.artifacts.count(count)}</span>
       </button>
       {open && (
         <ArtifactsPopover

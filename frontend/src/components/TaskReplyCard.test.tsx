@@ -12,6 +12,7 @@ import { render, fireEvent, waitFor, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { TaskReplyCard } from "./TaskReplyCard";
 import type { ReplyCard } from "../api/adapter";
+import type { Member } from "../types";
 import { api } from "../api";
 import {
   __resetMock,
@@ -75,18 +76,21 @@ afterEach(() => {
 });
 
 describe("TaskReplyCard", () => {
-  // owner 2026-08-29: 「1 跟 2 變回去原本那樣」. The header 在聊天室回覆 control
+  // owner 2026-08-29: 「1 跟 2 變回去原本那樣」. The header 跳到原訊息 control
   // NAVIGATES — it writes #office/chat/<id>/msg/<msgId> and lets ChatArea
   // locate + highlight the ask (same hashRoute contract as RepliesPage's
   // 跳到原訊息). The accepted cost that comes back with it: an ask outside the
   // loaded window is not found and the room opens on the newest message,
   // silently. Deliberate — not a bug to patch here.
-  it("the header 在聊天室回覆 routes to the member's chat with the ask message id", async () => {
+  it("the header's icon-only 跳到原訊息 routes to the member's chat with the ask message id", async () => {
     __injectMockReplyCard(mkCard({}));
-    const { findByTestId, getByText } = renderCard();
+    const { findByTestId, getByRole } = renderCard();
     await findByTestId("task-reply-card");
 
-    fireEvent.click(getByText("在聊天室回覆"));
+    const jump = getByRole("button", { name: "跳到原訊息" });
+    expect(jump.getAttribute("title")).toBe("跳到原訊息");
+    expect(jump.textContent).toBe("");
+    fireEvent.click(jump);
 
     expect(window.location.hash).toBe("#office/chat/mira/msg/msg-1");
   });
@@ -151,7 +155,7 @@ describe("TaskReplyCard", () => {
   });
 
   // ── lazy-load: answered-hinted cards default NOT loaded (owner 已回覆卡預設不載) ─
-  function renderHinted(initialStatus: "waiting" | "answered") {
+  function renderHinted(initialStatus: "waiting" | "answered" | "expired") {
     return render(
       <I18nProvider>
         <TaskReplyCard
@@ -225,28 +229,75 @@ describe("TaskReplyCard", () => {
     const final = await findByTestId("final-answer");
     expect(final.textContent).toBe("你選的AI 建議先不要");
     expect(getSpy).toHaveBeenCalledTimes(1);
+    const card = await findByTestId("task-reply-card");
+    expect(card.querySelector('[data-testid="reply-status-icon"]')!.getAttribute("data-state")).toBe("answered");
+    expect(card.querySelector('[data-testid="reply-card-handled-at"]')!.textContent).toMatch(/^處理時間 \d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
+    const fold = card.querySelector('.reply-card__head [data-testid="task-reply-card-collapse"]')!;
+    expect(fold.getAttribute("aria-label")).toBe("收合回覆卡");
+    fireEvent.click(fold);
+    expect(await findByTestId("task-reply-card-expand")).toBeTruthy();
   });
 
-  it("a snoozed waiting card's head says 已延後 where a plain waiting one says 等你回覆, and 等你回覆 again once unsnoozed", async () => {
-    __injectMockReplyCard(mkCard({ id: "rc-1", snoozedUntilTs: Date.now() / 1000 + 3600 }));
+  it("expanding an EXPIRED-hinted card shows 處理時間 at the time it expired", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-28T12:00:00+08:00") });
+    try {
+      __injectMockReplyCard(
+        mkCard({ status: "expired", answeredTs: null, expiredTs: 1795793400 })
+      );
+      const { findByTestId } = renderHinted("expired");
+      fireEvent.click(await findByTestId("task-reply-card-expand"));
+      const card = await findByTestId("task-reply-card");
+      await waitFor(() =>
+        expect(card.querySelector('[data-testid="reply-status-icon"]')?.getAttribute("data-state")).toBe("expired")
+      );
+      expect(card.querySelector('[data-testid="reply-card-handled-at"]')!.textContent).toBe("處理時間 11/27 23:30");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an expanded card reads its status, own id and 跳到原訊息, then its title, 開卡人, the divider and the question", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-1a2b3c4d5e6f", body: "信已經寫好了", snoozedUntilTs: Date.now() / 1000 + 3600 }));
     __injectMockReplyCard(mkCard({ id: "rc-2" }));
+    const mira = { id: "mira", name: "Mira", kind: "staff" } as unknown as Member;
     render(
       <I18nProvider>
         <ReplyCardsProvider>
-          <TaskReplyCard replyCardId="rc-1" />
-          <TaskReplyCard replyCardId="rc-2" />
+          <TaskReplyCard replyCardId="rc-1a2b3c4d5e6f" members={[mira]} />
+          <TaskReplyCard replyCardId="rc-2" members={[mira]} />
         </ReplyCardsProvider>
       </I18nProvider>
     );
-    const headTag = (id: string) =>
-      document.querySelector(`[data-reply-card-id="${id}"] .task-reply-card__head .reply-tag`)?.textContent ?? null;
-    await waitFor(() => expect(headTag("rc-1")).toBe("已延後"));
-    expect(headTag("rc-2")).toBe("等你回覆");
+    const card = (id: string) => document.querySelector<HTMLElement>(`[data-reply-card-id="${id}"]`)!;
+    await waitFor(() => expect(card("rc-2").querySelector('[aria-label="跳到原訊息"]')).not.toBeNull());
+    await waitFor(() =>
+      expect(card("rc-1a2b3c4d5e6f").querySelector('[data-testid="reply-status-icon"]')?.getAttribute("data-state")).toBe("snoozed")
+    );
+    expect(card("rc-2").querySelector('[data-testid="reply-status-icon"]')?.getAttribute("data-state")).toBe("waiting");
 
-    await act(async () => {
-      await api.snoozeReplyCard("rc-1", null);
-    });
-    await waitFor(() => expect(headTag("rc-1")).toBe("等你回覆"));
+    const first = card("rc-1a2b3c4d5e6f");
+    const head = first.querySelector(".reply-card__head")!;
+    expect([...head.querySelectorAll("button")].map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual([
+      "複製完整請示卡 ID rc-1a2b3c4d5e6f",
+      "跳到原訊息",
+    ]);
+    expect(head.querySelector('[data-testid="reply-card-id"]')!.textContent).toBe("#rc-1a2b3c");
+    expect([...first.children].map((c) => c.className.split(" ")[0])).toEqual([
+      "reply-card__head",
+      "reply-card__summary",
+      "card-meta",
+      "reply-card__divider",
+      "reply-card__body",
+      "reply-card__options",
+      "reply-composer",
+    ]);
+    const meta = first.querySelector(".card-meta")!;
+    expect(meta.textContent).toBe("開卡人Mira");
+    expect(first.querySelector('[data-testid="reply-card-handled-at"]')).toBeNull();
+    expect(first.querySelector(".reply-card__task")).toBeNull();
+
+    fireEvent.click(meta.querySelector('[data-testid="reply-card-opener"]')!);
+    expect(window.location.hash).toBe("#office/chat/mira");
   });
 
   it("a WAITING-hinted card loads eagerly on mount (waiting 卡照常)", async () => {

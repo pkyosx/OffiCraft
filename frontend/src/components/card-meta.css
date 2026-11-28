@@ -1,0 +1,81 @@
+/* card-meta.css — the label/value rows of every card: 任務卡 (負責人／到期日…),
+ * 請示卡 (開卡人／處理時間), 金鑰卡, 檔案庫卡 and 傳承卡. One sheet
+ * so the five cannot drift apart: a label sits on the same column, in the same
+ * colour, centred on its value, on every card. Each component that draws these
+ * rows imports this file itself.
+ *
+ * The label column is one width on every card (owner): the longest label any
+ * card shows in that language — zh 「處理時間」 (4 characters), en "Handed over
+ * from" — plus room for a wider font, so values start at the same x on every
+ * card. ⚠️ Without that room a font a pixel wider (the CI runner's) makes the
+ * card with the longest label grow its own column. A longer label (a theme's
+ * wording) still widens its own card rather than wrapping. */
+.card-meta {
+  --card-meta-label-width: 9.1em;
+  display: grid;
+  grid-template-columns: minmax(var(--card-meta-label-width), max-content) minmax(0, 1fr);
+  align-items: center;
+  gap: 7px 12px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--color-text);
+}
+.card-meta:lang(zh) {
+  --card-meta-label-width: 4.4em;
+}
+.card-meta__label {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  opacity: 0.75;
+  white-space: nowrap;
+}
+/* A row that comes and goes as one unit; its two cells sit on the grid. */
+.card-meta__row {
+  display: contents;
+}
+/* A value chip: a pill holding the value and, on a link, a trailing icon (聊天泡泡
+ * / 齒輪 / 外連). justify-self:start keeps it hugging its content. */
+.card-meta__chip {
+  justify-self: start;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  text-decoration: none;
+  color: var(--color-text);
+}
+.card-meta__chip svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+button.card-meta__chip--link,
+a.card-meta__chip--link {
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.card-meta__chip--link:hover {
+  background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+.card-meta__chip--link:hover :is(span, svg) {
+  color: var(--color-accent);
+}
+.card-meta__chip--link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
+.card-meta__chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

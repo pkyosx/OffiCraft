@@ -1337,25 +1337,22 @@
 :is(.chat__msg--selecting, .reply-card--selecting) :is(a, img) {
   -webkit-touch-callout: none;
 }
-/* A card in the mode is its title and question only: its task row, question
- * attachments, errors and options cannot be quoted, and 標為過期 is not done
- * here (nor, on the 請示 page, the head with its asker, stamp and buttons, or a
- * read still loading). Hidden, not unmounted, so a half-written answer is
- * there again after the mode. A chat card's head left with nothing but those
- * goes too: empty, it would still add the card's 12px gap above the title (a
- * card with no task keeps its title in the head). */
+/* A card in the mode is its title and question only: its first line, task
+ * box, 開卡人 and settled rows and the line under them, question attachments,
+ * errors and options cannot be quoted, and 標為過期 is not done here (nor is a
+ * read still loading shown). Hidden, not unmounted, so a half-written answer
+ * is there again after the mode. */
 :is(.chat__msg--selecting, .reply-card--selecting)
   :is(
     .reply-card__answer-side,
     .reply-card__task,
-    .reply-card__icon-btn,
-    .reply-card__head,
+    button.card-head__icon-btn,
+    .reply-card__head, .card-meta,
+    .reply-card__divider,
     .reply-card__hint,
     .reply-card__question-atts,
     .reply-card__error
-  ),
-.chat__msg--selecting
-  .reply-card__chat-head:not(:has(> :not(.reply-card__task, .reply-card__icon-btn))) {
+  ) {
   display: none;
 }
 .chat__select-bar {
@@ -2044,18 +2041,17 @@
   .chat__header-actions-row {
     gap: 2px;
   }
-  /* Four or more buttons: two right-aligned rows (jumps on top, search +
-   * gallery below) so the name gets the width. The negative block margins sink
+  /* Four or more buttons: two right-aligned rows split evenly (6 → 3+3,
+   * 5 → 3+2) so the name gets the width: the box is exactly ceil(n/2)
+   * buttons (32px + 2px gap) wide and wraps. The negative block margins sink
    * the rows into the header's padding so the header does not grow:
    * `.chat__gallery` and `.chat-search__panel` hardcode their top offset onto
    * its height. */
   .chat__header-actions--stacked {
-    flex-direction: column;
-    align-items: flex-end;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    width: calc(var(--chat-header-action-cols) * 34px - 2px);
     margin: -5px 0 -18px;
-  }
-  .chat__header-actions--stacked .chat__header-actions-row {
-    display: flex;
   }
   .chat__header-action,
   .chat__search-toggle,
@@ -2861,6 +2857,9 @@ button.chat__msg-file {
   color: var(--color-dot-waking);
   background: color-mix(in srgb, var(--color-dot-waking) 8%, transparent);
 }
+.outsource-panel__pop-head .info-hint {
+  margin-left: -4px;
+}
 .outsource-panel__pop-title {
   font-size: 13px;
   font-weight: 700;
@@ -2877,12 +2876,6 @@ button.chat__msg-file {
   margin-top: 12px;
   display: flex;
   justify-content: flex-end;
-}
-.outsource-panel__pop-hint {
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--color-text-muted);
 }
 .outsource-panel__pop-row {
   margin-top: 10px;
@@ -3013,6 +3006,9 @@ button.chat__msg-file {
   cursor: pointer;
   transition: background 0.15s;
 }
+.outsource-row__chip--task svg {
+  flex: none;
+}
 .outsource-row__chip--task:hover,
 .outsource-row__chip--task:focus-visible {
   background: color-mix(in srgb, var(--color-dot-waking) 12%, transparent);
@@ -3063,7 +3059,7 @@ button.chat__msg-file {
 .outsource-row__task-line + .current-task-title {
   margin-top: 3px;
 }
-/* Chat-header full-title line — sits under the presence / task-type sub, a hair
+/* Chat-header task-title line — sits under the presence / task-type sub, a hair
  * stronger than the muted sub so the actual work reads as the header's point. */
 .chat__header-task {
   margin-top: 2px;

@@ -16,6 +16,7 @@ async function measure(page: Page) {
     const dd = document.querySelector(".profile-dd")!;
     const r = dd.getBoundingClientRect();
     const spills = Array.from(dd.querySelectorAll("*"))
+      .filter((el) => el.getClientRects().length > 0)
       .filter((el) => el.getBoundingClientRect().right > r.right + 0.5 || el.getBoundingClientRect().left < r.left - 0.5)
       .map((el) => el.className || el.tagName);
     return {

@@ -17,6 +17,7 @@ import {
 } from "../api/mock";
 import type { ReplyCard } from "../api/adapter";
 import { watchSecretValue } from "../test/secretValueWatch";
+import { openFilters, openFiltersWhenReady, selectRepliesTab } from "../test/tasksFilter";
 
 const SENTINEL = "dummy-aaaaaaaaaaaa";
 const CARD_ID = "rc-aaaaaaaaaaaa";
@@ -102,9 +103,8 @@ const surfaces: {
       fireEvent.click(article);
     },
     focusesOnOpen: true,
-    showSettled: async (u) => {
-      const toggle = await u.findByTestId("answered-toggle");
-      if (toggle.getAttribute("aria-expanded") === "false") fireEvent.click(toggle);
+    showSettled: async () => {
+      await selectRepliesTab("answered");
     },
   },
 ];
@@ -220,7 +220,8 @@ describe.each(surfaces)("$name", ({ mount, open, focusesOnOpen, showSettled }) =
 
 describe("the replies page's handled pane", () => {
   const openById = async (u: Utils) => {
-    const idField = await u.findByTestId("filter-reply-card-id");
+    await openFiltersWhenReady();
+    const idField = u.getByTestId("filter-reply-card-id");
     fireEvent.change(idField, { target: { value: CARD_ID } });
     fireEvent.keyDown(idField, { key: "Enter" });
     const article = await waitFor(() => {
@@ -364,6 +365,7 @@ describe("the replies page's handled pane", () => {
       () => new Promise<ReplyCard>((resolve) => (releaseOlder = resolve)),
     );
     await anyDelta("rc-aaaaaaaaaaa8");
+    openFilters();
     const idField = u.getByTestId("filter-reply-card-id");
     fireEvent.change(idField, { target: { value: "rc-aaaaaaaaaaa7" } });
     fireEvent.keyDown(idField, { key: "Enter" });
@@ -408,7 +410,7 @@ describe("the replies page's handled pane", () => {
     await waitFor(() => expect(u.getByTestId("secret-face").textContent).toBe("已取得"));
   });
 
-  it("stamps a settled secret card as answered or expired, with no time", async () => {
+  it("a settled secret card shows answered or expired by its status icon, with no 處理時間 row", async () => {
     const ts = Date.now() / 1000 - 60;
     const settled = { status: "answered" as const, answeredTs: ts };
     const answer = { optionIdxs: null, text: "", attachments: [] };
@@ -435,16 +437,69 @@ describe("the replies page's handled pane", () => {
         </ReplyCardsProvider>,
       ),
     );
-    fireEvent.click(await u.findByTestId("answered-toggle"));
+    await selectRepliesTab("answered");
     const stamp = async (id: string) =>
       waitFor(() => {
-        const el = u.container.querySelector(`[data-reply-card-id="${id}"] .reply-card__answered-at`);
-        expect(el).not.toBeNull();
-        return el!.textContent;
+        const card = u.container.querySelector(`[data-reply-card-id="${id}"]`);
+        const icon = card?.querySelector('[data-testid="reply-status-icon"]');
+        expect(icon).toBeTruthy();
+        return [icon!.getAttribute("data-state"), card!.querySelector('[data-testid="reply-card-handled-at"]')];
       });
-    expect(await stamp("rc-aaaaaaaaaaa1")).toBe("已回覆");
-    expect(await stamp("rc-aaaaaaaaaaa2")).toBe("已回覆");
-    expect(await stamp("rc-aaaaaaaaaaa3")).toBe("已過期");
+    expect(await stamp("rc-aaaaaaaaaaa1")).toEqual(["answered", null]);
+    expect(await stamp("rc-aaaaaaaaaaa2")).toEqual(["answered", null]);
+    expect(await stamp("rc-aaaaaaaaaaa3")).toEqual(["expired", null]);
+  });
+});
+
+describe("the chat and task cards' handled row", () => {
+  it("a settled secret card shows answered or expired by its status icon, with no 處理時間 row", async () => {
+    const ts = Date.now() / 1000 - 60;
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-aaaaaaaaaaa1",
+        status: "answered",
+        answeredTs: ts,
+        answer: { optionIdxs: null, text: "", attachments: [] },
+        secret: { state: "provided", providedTs: ts, retrievedTs: null, expiresTs: ts + 3600 },
+      }),
+    );
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-aaaaaaaaaaa3",
+        status: "expired",
+        expiredTs: ts,
+        secret: { state: "expired", providedTs: ts, retrievedTs: null, expiresTs: null },
+      }),
+    );
+    const stamp = async (id: string) => {
+      const u = render(
+        withBystander(<ChatReplyCard replyCardId={id} fallbackSummary="部署金鑰" initialStatus="waiting" />),
+      );
+      fireEvent.click(u.getByTestId("chat-reply-card-expand"));
+      await u.findByTestId("secret-face");
+      const shown = [
+        u.getByTestId("reply-status-icon").getAttribute("data-state"),
+        u.queryByTestId("reply-card-handled-at"),
+      ];
+      u.unmount();
+      return shown;
+    };
+    expect(await stamp("rc-aaaaaaaaaaa1")).toEqual(["answered", null]);
+    expect(await stamp("rc-aaaaaaaaaaa3")).toEqual(["expired", null]);
+
+    const taskStamp = async (id: string, status: "answered" | "expired") => {
+      const u = render(withBystander(<TaskReplyCard replyCardId={id} initialStatus={status} />));
+      fireEvent.click(u.getByTestId("task-reply-card-expand"));
+      await u.findByTestId("secret-face");
+      const shown = [
+        u.getByTestId("reply-status-icon").getAttribute("data-state"),
+        u.queryByTestId("reply-card-handled-at"),
+      ];
+      u.unmount();
+      return shown;
+    };
+    expect(await taskStamp("rc-aaaaaaaaaaa1", "answered")).toEqual(["answered", null]);
+    expect(await taskStamp("rc-aaaaaaaaaaa3", "expired")).toEqual(["expired", null]);
   });
 });
 

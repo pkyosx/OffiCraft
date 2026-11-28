@@ -2703,6 +2703,7 @@ func prepareStepHeldByCardOn(
 ) (*Task, error) {
 	step.Status = StepStatusWaitingOwner
 	step.ReplyCardID = cardID
+	step.IsGate = true
 	if step.StartedTS == 0 {
 		step.StartedTS = now
 	}

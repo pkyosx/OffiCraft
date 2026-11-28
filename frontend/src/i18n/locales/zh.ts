@@ -4,8 +4,19 @@ export const zh = {
   orgName: "AI 工作室",
   user: "CEO（你）",
   common: {
+    // 卡片 label:value 列沒有值時寫這個（owner：沒有值就顯示「-」）。
+    emptyValue: "-",
     apply: "套用",
     cancel: "取消",
+    filterButton: "篩選",
+    filterDone: "完成",
+    filterAppliedLead: "已套用",
+    filterAppliedTailOne: "個條件",
+    filterAppliedTailMany: "個條件",
+    textShowAll: "展開全文",
+    infoAboutLead: "關於 ",
+    infoAboutTail: "",
+    textShowLess: "收起",
   },
   // ── 逐行比對（components/DiffView）——版本紀錄的差異呈現 ──
   diff: {
@@ -110,8 +121,8 @@ export const zh = {
     scopeUnknown: "未知範圍",
     openManualLabel: "開啟任務手冊",
     copyEntryIdLabel: "複製條目編號",
-    authorUnknown: "—",
     authorLabel: "撰寫人",
+    messageAuthor: "傳訊息給撰寫人",
     effectiveLabel: "生效期",
     retireReasonLabel: "失效理由",
     // 適用範圍徽章與選單
@@ -140,6 +151,7 @@ export const zh = {
     stagedSavedRereadFailed: "已儲存，但重新讀取失敗，請重新整理頁面",
     // 篩選列
     clearFilters: "清除篩選",
+    filterDialogTitle: "篩選傳承",
     idSearchLabel: "編號或標題",
     loreTypeInstructionConflict: "指示衝突",
     loreTypeInstructionSupplement: "指示補充",
@@ -157,6 +169,8 @@ export const zh = {
     kindManual: "任務手冊",
     entryCountTailOne: " 筆",
     entryCountTailMany: " 筆",
+    listedCountOne: "筆傳承",
+    listedCountMany: "筆傳承",
     charsTail: " 字",
     everyoneReadByAll: "・每位成員都會讀",
     droppedTail: " 筆讀不到",
@@ -167,7 +181,9 @@ export const zh = {
     legendCapLead: "上限 ",
     // 讀不到的條目縮成一列
     droppedTag: "讀不到",
-    collapseDropped: "收合",
+    // 條目卡片收合成一列、再展開
+    collapseEntry: "收合",
+    expandEntry: "展開",
     // 卡片右上的動作
     actionEdit: "編輯",
     // 就地編輯
@@ -186,16 +202,15 @@ export const zh = {
   sharedDocs: {
     loadFailed: "讀不到檔案庫，請稍後再試",
     empty: "檔案庫裡還沒有檔案",
+    listedCountOne: "份檔案",
+    listedCountMany: "份檔案",
     add: "新增",
     uploadFile: "上傳檔案",
     addLink: "新增連結",
     linkUrlPlaceholder: "https://",
     linkNamePlaceholder: "名稱（留空就從網址取）",
-    colId: "ID",
-    colFile: "檔案",
-    colUpdated: "最後修改",
-    colActions: "操作",
-    copyIdLabel: "複製檔案 ID",
+    copyIdLabel: "複製完整檔案 ID",
+    idCopied: "已複製",
     kindFile: "檔案",
     kindLink: "連結",
     kindImage: "圖片",
@@ -216,8 +231,10 @@ export const zh = {
     descriptionLabel: "說明",
     editHintLead: "下載後在電腦上修改，再用「",
     editHintTail: "」換上去。",
-    uploadVersionUnavailable: "連結的網址請用名稱旁的鉛筆修改",
+    uploadVersionUnavailable: "連結的網址請用「編輯連結」修改",
     openHistory: "查看版本紀錄",
+    createdByLabel: "建立者",
+    updatedLabel: "最後更新",
     kindMismatchImage: "這份是圖片，新版本也要是圖片",
     kindMismatchFile: "這份不是圖片，不能換成圖片；圖片請另外上傳成一份新檔案",
     versions: "版本紀錄",
@@ -244,10 +261,11 @@ export const zh = {
     colNote: "備註",
     colUpdated: "最後更新",
     colLastAccessed: "最後存取",
-    neverAccessed: "尚未使用",
     copyIdLabel: "複製密鑰 ID",
     idCopied: "已複製",
-    add: "新增密鑰",
+    add: "新增",
+    listedCountOne: "把密鑰",
+    listedCountMany: "把密鑰",
     createTitle: "新增密鑰",
     editTitle: "編輯密鑰",
     nameLabel: "名稱",
@@ -284,11 +302,14 @@ export const zh = {
     // 空狀態 ×2(SPEC §2.3 指定文案)
     emptyNone: "目前沒有任務",
     emptyFiltered: "沒有符合篩選條件的任務",
+    listedCountOne: "個任務",
+    listedCountMany: "個任務",
     loadError: "載入任務失敗，請稍後重試",
     loadingMore: "載入中…",
     // 篩選列(任一生效顯「清除篩選」)
     filterIdLabel: "任務編號",
     clearFilters: "清除篩選",
+    filterDialogTitle: "篩選任務",
     // 「所有人」→「所有負責人」(T-17be): 這顆篩的是 executor,但「所有人」在中文
     // 有兩讀 ——「所有的人」與「所有權人(owner)」——「所有」本身就是所有權的
     // 意思,而這個座艙裡真的有 owner 這個角色,兩讀都講得通。補上被篩的名詞就
@@ -329,7 +350,6 @@ export const zh = {
     creatorLabel: "建立者",
     keyLabel: "識別鍵",
     // 舊任務無建立者資料 → 顯示「—」不可點
-    creatorUnknown: "—",
     // 任務類型列(齒輪)點了跳該類型的設定頁
     typeSettingsLink: "開啟任務類型設定",
     // 負責人／建立者列點了開對應聊天視窗、輸入框帶 [任務編號] 前綴
@@ -338,14 +358,6 @@ export const zh = {
     // 前任列(T-ba04 轉派交接)：轉派後任務卡顯示「前任」給接手人交接對話
     previousAssigneeLabel: "前任",
     messagePreviousAssignee: "傳訊息給前任",
-    // 外包執行者顯示「代號 · 模型 · 投入度」的投入度字樣
-    effortOf: {
-      low: "低投入",
-      medium: "中投入",
-      high: "高投入",
-      xhigh: "極高投入",
-      max: "最高投入",
-    } as Record<string, string>,
     // 八態(SPEC 核心名詞;文案照 spec,不用 mockup 的「等我核可/等待外部事件」)
     status: {
       not_started: "尚未執行",
@@ -367,27 +379,17 @@ export const zh = {
       low: "低",
       frozen: "凍結",
     } as Record<string, string>,
-    // 節點狀態徽章
+    // 節點狀態(時間軸圖示的名稱)
     stepStatus: {
       pending: "待辦",
       in_progress: "進行中",
       done: "完成",
       waiting_owner: "等我回覆",
-      // 等待外部(T-6f11):與任務層 status.waiting_external / 特殊徽章
-      // stepWaitingExternal 同詞 —— 三處必須一致,兩層才讀成同一件事。
-      // resolver(lib/stepBadge.ts)平常走特殊徽章;這條 map 項是它的後防,
-      // 讓任何走到 plain status 徽章的 waiting_external 都不會漏出原始 key。
+      // 等待外部:與任務層 status.waiting_external 同詞,兩層才讀成同一件事。
       waiting_external: "等待外部",
       // re-plan 凍結的已答卡節點(T-1aea):終態、灰階、只留問答史料
       superseded: "已取代",
     } as Record<string, string>,
-    // 節點等待外部徽章(T-9ca5):步驟自身的「等待外部」,有別於 等我回覆
-    stepWaitingExternal: "等待外部",
-    // gate 預告(虛線)與生效(實心)同詞
-    gateAnnounced: "等我回覆",
-    // 綁定卡已非 waiting 時的 step 徽章(T-d64f):已答但 step 尚未被接手/已過期
-    stepCardAnswered: "已回覆",
-    stepCardExpired: "已過期",
     // 頭部:進度用 server 算好的 progress_done/total(SPEC §3.1);文案照
     // mockup「步驟 N/M」(owner 2026-07-13)
     progressLabel: "步驟",
@@ -398,6 +400,10 @@ export const zh = {
     collapseCard: "收合工作流程",
     // 工作流程時間軸
     workflow: "工作流程",
+    workflowStepCount: (n: number) => `${n} 個步驟`,
+    workflowDone: (done: number, total: number) => `${done}/${total} 完成`,
+    workflowCurrent: (name: string) => `進行中：${name}`,
+    descTitle: "任務描述",
     dod: "DoD",
     parallel: (n: number) => `同時進行 · ${n} 項並行`,
     // 過渡態(SPEC §3.1):外包未指派 → 等待指派;有執行者但零節點 →
@@ -441,6 +447,7 @@ export const zh = {
     messageError: "訊息送出失敗，請稍後重試",
     // owner 動作:狀態 badge 下拉(標記重複+終止,二次確認 — v5 從 ⋮ 搬過來,
     // ⋮ 本身隨後由 owner 裁示刪除);優先權改卡面 chip 就地編輯(v2)
+    metaTypeLabel: "類型",
     statusMenuLabel: "狀態操作",
     priorityLabel: "優先權",
     dueLabel: "到期日",
@@ -456,11 +463,7 @@ export const zh = {
     dueLeadMinuteOne: "分鐘",
     dueLeadMinuteMany: "分鐘",
     dueLeadRangeError: "快到期提醒要是 1 分鐘到 30 天之間的整數，這次沒有變更",
-    overdueDaysLead: "已逾期",
-    overdueDaysTailOne: "天",
-    overdueDaysTailMany: "天",
-    dueRemainingLead: "還有",
-    dueRemainingTail: "",
+    dueOverdueHint: "已逾期",
     dueEditLabel: "設定到期日",
     dueUnset: "未設定",
     duePickerLabel: "到期日",
@@ -476,6 +479,7 @@ export const zh = {
     groupByPriority: "優先權",
     groupByNone: "不分組",
     displayOptions: "顯示方式",
+    displayOptionsChangedLead: "顯示方式：已改為",
     laneExecutorLead: "負責人：",
     laneTypeLead: "類型：",
     laneStatusLead: "狀態：",
@@ -568,7 +572,7 @@ export const zh = {
     // 強制結案之後怎麼讀回來。被強制結案的票一定說得出來;理由可能沒有,
     // 沒有就顯示成沒有。
     forcedDoneLabel: "強制結案",
-    forcedDoneNoReason: "未填理由",
+    messageForcedDoneBy: "傳訊息給強制結案的人",
     // 結案被拒絕時顯示:卡片要說出這張票「現在」在哪個狀態,因為只講「操作
     // 失敗」不足以讓 owner 判斷該重試、該展開卡片、還是什麼都不用做。
     //
@@ -604,24 +608,20 @@ export const zh = {
     reassignNotePlaceholder: "想交代新負責人的事…",
     reassignConfirm: "確認轉派",
     reassignError: "轉派失敗，請稍後重試",
-    // 內嵌請示卡(重用 M2 ReplyCardBody;可多張;內嵌在所屬 step 內)
-    replyHeader: "請示",
-    replyBadge: "等你回覆",
-    replyInChat: "在聊天室回覆",
-    // 審批持久標記:曾經開過卡/標過 gate 的 step,做完後仍看得出(owner
-    // 2026-07-14:不消失的標記)
-    gateMark: "審批",
+    // 審批步驟的盾牌角標:曾經開過卡/標過 gate 的 step,做完後仍看得出
+    needsApproval: "需要你核可",
     // 卡片一律收合成一行摘要(可展開),標籤說明它現在的狀態
     replyAnsweredTag: "已回覆",
     replyWaitingTag: "待回覆",
     replySnoozedTag: "已延後",
     expandReply: "展開回覆卡",
     collapseReply: "收合回覆卡",
-    // 產物集(T-3dc5):任務卡上釘的交付物(檔案/圖片/連結)。徽章「產物 N」
-    // 在彩色徽章列;點開浮層是一份依 檔案→圖片→連結 分組的單一清單(T-49fb 之前是三個
-    // 分頁)。0 個產物時徽章不出現。
+    // 產物集(T-3dc5):任務卡上釘的交付物(檔案/圖片/連結)。展開的卡片裡的
+    // 「產物」列顯示數量;點開浮層是一份依 檔案→圖片→連結 分組的單一清單。
+    // 0 個產物時整列不出現。
     artifacts: {
-      badge: "產物",
+      label: "產物",
+      count: (n: number) => `${n} 個`,
       open: "查看產物",
       panelTitle: "產物",
       // T-49fb: the three tabs are gone (one list). What is left of the trio is
@@ -668,18 +668,29 @@ export const zh = {
   // 整組 `filterPanel` 詞條**已經刪掉**，不是整理，是 owner 2026-09-06
   // c-c3d681fe05da 把每一個帶字的控制項都拿掉了：「篩選」漏斗鈕與「取消」／
   // 「套用篩選」兩顆鈕一起消失，「N 筆」／「已篩選：」／「清除全部」／「移除篩選」
-  // 隨那條摘要列一起消失。取代它的那一列只有欄位、沒有任何自己的字，所以這裡
-  // 不留空殼；欄位的標籤本來就分別住在 `tasks.*` 與 `replies.*`，兩頁各自措辭。
+  // 隨那條摘要列一起消失，所以這裡不留空殼；欄位的標籤本來就分別住在 `tasks.*`
+  // 與 `replies.*`，兩頁各自措辭。漏斗左邊的「5 個任務」（owner 2026-11-28）不是
+  // 那條摘要列復活：它只有一個數字、沒有「已篩選」，詞條在各頁的 `listedCount*`。
   replies: {
-    waitingTitle: "請示",
-    handledTitle: "近期已處理",
-    handledHint: "已回覆或已標為過期的事項 · 已回覆的可重新決定",
+    // 清單上方的三個標籤。tabSnoozed 跟延後動作同一個詞。
+    tabsLabel: "請示卡",
+    tabWaiting: "等待回覆",
+    tabSnoozed: "稍後再看",
+    tabAnswered: "近期已回覆",
+    tabWaitingShort: "待回覆",
+    tabSnoozedShort: "稍後",
+    tabAnsweredShort: "已回覆",
+    tabAnsweredHint: "近 24 小時",
+    listedCountOne: "張請示卡",
+    listedCountMany: "張請示卡",
     // 全部處理完的空狀態
     empty: "✓ 目前沒有待處理的請示",
     // 篩掉之後什麼都不剩的空狀態。跟上面那句是兩件事:上面是「你回完了」,
     // 這句是「還有卡,只是沒有一張符合」——沿用任務頁 emptyNone/emptyFiltered
     // 的同一個分法。
     emptyFiltered: "沒有符合篩選條件的請示",
+    emptySnoozed: "沒有稍後再看的請示卡",
+    emptyAnswered: "最近 24 小時沒有已回覆的請示卡",
     // 開卡人軸（T-118，owner 2026-09-06 c-782404ee53d8）。用詞跟任務頁的負責人
     // 那顆對齊：**都沒勾**時說「所有<名詞>」，勾一個說那個名字，勾多個說
     // 「<名詞> · N」。⚠️ 全勾不再說「所有<名詞>」（owner 2026-09-06
@@ -688,8 +699,8 @@ export const zh = {
     filterOpenerNoun: "開卡人",
     filterOpenerAll: "所有開卡人",
     filterIdLabel: "請示卡編號",
-    filterWaitingOnly: "只看待回覆",
     clearFilters: "清除篩選",
+    filterDialogTitle: "篩選請示卡",
     // ── 篩選面板（T-93 第二輪）──
     // 🔴 三種結局三句話，不可合併成一句。第一輪只有「沒有符合篩選條件的請示」，
     // 於是「這張卡不存在」與「這張卡只是沒被載進來」在畫面上長得一模一樣——
@@ -707,10 +718,9 @@ export const zh = {
     waitedHourMany: "小時",
     waitedMinuteOne: "分",
     waitedMinuteMany: "分",
-    // 開卡/已回覆一律絕對時間含日期(如 7/13 09:05),不用相對或「今天」。
+    // 開卡/處理時間一律絕對時間含日期(如 7/13 09:05),不用相對或「今天」。
     openedAtLabel: "開卡",
-    answeredAtLabel: "已回覆",
-    expiredAtLabel: "已過期",
+    handledAtLabel: "處理時間",
     // 標為過期(終態、不是回答、不可復原)——按鈕開二次確認。
     // ⚠️「owner 專用」這句在本包之前就已經是假話,不是本包造成的:T-6020(owner
     // 2026-07-26)起 admin 助理也按得動;owner 2026-08-07 於卡 rc-3ff94b116970
@@ -763,8 +773,12 @@ export const zh = {
     redecidePlaceholder: "或直接打字改寫回覆…",
     quoteLabel: "引用原文",
     quoteCancel: "取消引用",
-    // §3.6 請示 → 任務：純聊天請示不顯示任務列。請示頁的任務列另外帶任務編號、
-    // 優先序與期限；聊天視窗裡的卡只顯示標題。
+    copyIdLabel: "複製完整請示卡 ID",
+    idCopied: "已複製",
+    copyWholeCard: "複製整張卡片內容",
+    taskDueLabel: "到期",
+    openerLabel: "開卡人",
+    messageOpener: "傳訊息給開卡人",
     openTask: "查看任務",
     expandCard: "展開這張請示卡",
     collapseCard: "收合這張請示卡",
@@ -795,8 +809,6 @@ export const zh = {
     snoozeTooFar: "最多只能延後 90 天",
     snoozeError: "延後失敗，請稍後重試",
     snoozeStale: "這張卡已經回覆或標為過期，不能再延後",
-    snoozedTitle: "已延後",
-    snoozedHint: "時間到會自動回到請示",
     unsnooze: "取消延後",
     unsnoozeError: "取消延後失敗，請稍後重試",
     unsnoozeStale: "這張卡已經回覆或標為過期，不用再取消延後",
@@ -914,15 +926,13 @@ export const zh = {
       workerSub: (n: number) => `${n} 人`,
       capSuffix: (cap: string) => ` · 上限 ${cap}`,
       // 外包身分標籤「外包 · 代號」的單一來源是 compose.ts 的 outsourceLabel(直接組
-      // 上面的 title,不另存同字模板):聊天 header/寄件者標籤、任務卡 chip、
-      // 監控頁 session 全走它。唯一例外(owner 裁定):側欄外包分頁的列只顯示
-      // 代號——分頁本身已寫「外包」,英文的完整標籤在側欄會換行。
+      // 上面的 title,不另存同字模板):聊天 header/寄件者標籤、監控頁 session
+      // 全走它。例外(owner 裁定):側欄外包分頁的列與卡片上的人名 chip 只顯示代號。
       // 並行上限;0 ＝ 暫停指派（要註明）
       paused: "已暫停指派",
       // 上限 popover（照 seth-member-2 mockup，owner 2026-07-13）；
       // -1 ＝ 無限（header 顯 ∞），0 ＝ 暫停指派
       capTitle: "外包上限設定",
-      capHint: "設定同時可雇用的外包數量上限；設為無限則不限制。",
       capMaxLabel: "最多雇用",
       capUnlimited: "無限",
       capDecrease: "減少",
@@ -1260,7 +1270,6 @@ export const zh = {
     rename: "改名",
     renamePlaceholder: "輸入名字",
     preferences: "偏好設定",
-    preferencesSub: "外觀、語言、版面",
     logout: "登出",
     back: "偏好設定",
     theme: "主題",
@@ -1300,7 +1309,8 @@ export const zh = {
     langEn: "English",
     languageSub: "成員對你使用的語言也跟著換（成員下次開機生效）。",
     pushContactEmail: "通知信箱",
-    pushContactEmailSub: "填寫後才會送出通知。這個信箱會提供給瀏覽器的推播服務，請用可公開的信箱。",
+    pushContactEmailUnsetWarning: "填寫後才會送出通知。",
+    pushContactEmailPrivacy: "這個信箱會提供給瀏覽器的推播服務，請用可公開的信箱。",
     pushContactEmailPlaceholder: "name@company.com",
     pushContactEmailError: "請填入可公開使用的信箱。",
     layout: "版面",
@@ -1308,7 +1318,6 @@ export const zh = {
     layoutWide: "寬版",
     seasonalTheme: "顯示應景主題",
     changePassword: "修改密碼",
-    changePasswordSub: "登入這個主控台用的密碼",
     currentPasswordPlaceholder: "目前密碼",
     newPasswordPlaceholder: "新密碼（至少 8 個字）",
     confirmPasswordPlaceholder: "再輸入一次新密碼",
@@ -1368,10 +1377,8 @@ export const zh = {
     mfaErrorLoad: "讀不到兩步驟驗證的狀態",
     mfaRetry: "重試",
     accountSecurity: "帳號安全",
-    accountSecuritySub: "修改密碼、兩步驟驗證、通行密鑰",
     // ── 通行密鑰(WebAuthn) ──
     passkeys: "通行密鑰",
-    passkeysSub: "用手機或電腦本身的解鎖方式登入，例如 Face ID、Touch ID、指紋或裝置密碼",
     passkeysLoading: "讀取中…",
     passkeysEmpty: "還沒有註冊任何通行密鑰",
     passkeysErrorLoad: "讀不到通行密鑰清單",
@@ -2093,12 +2100,8 @@ export const zh = {
       othersTailOne: " 位合計",
       othersTailMany: " 位合計",
       other: "其他",
-      // One grey line under each row's name: what the row holds.
+      // Behind the ⓘ after a category's name: what it holds, only where the name does not say it.
       desc: {
-        database: "成員、任務、聊天等所有資料",
-        backups: "定期自動備份，保留最近幾份",
-        workspaces: "各成員的工作目錄",
-        logs: "OffiCraft 程式的執行紀錄",
         oldVersionBackups: "升級時留下的舊版程式與舊資料庫副本，不會自動刪除",
         oldDatabaseCopies: "資料庫旁留下的舊副本，不會自動刪除",
         other: "目前版本的程式、設定檔，以及手動放進來的檔案",
@@ -2423,11 +2426,13 @@ export const zh = {
     title: "設定",
     // landing entries
     software: "系統更新與備份",
+    security: "安全性",
     // 全域情境 (T-a241) — 事件程序文件那一區從「角色誌」抽出來，成為〈設定〉底下
     // 自己一塊，排在「系統更新與備份」與「角色誌」之間。角色誌只剩角色定義。
     globalContext: "全域情境",
     roles: "角色",
     params: "一般設定",
+    advanced: "進階設定",
     // ── 主題管理 (T-16a1 P3b): moved here from the profile dropdown ──
     themeManage: "主題",
     themeTabAppearance: "外觀",
@@ -2465,7 +2470,6 @@ export const zh = {
     themeWordingTag: "用詞",
     // ── 字型 (T-16a1 P4): 從安全字型白名單挑內文／標題字型 ──
     themeFontsSection: "字型",
-    themeFontsHint: "從內建的安全字型中挑選;維持預設則沿用主題原字型。",
     themeFontBody: "內文字型",
     themeFontTitle: "標題字型",
     themeFontDefault: "預設(主題字型)",
@@ -2526,16 +2530,13 @@ export const zh = {
     updateSettings: "更新設定",
     // ── 系統更新與備份 toggle(receive_beta / auto_update)──
     receiveBeta: "接收 Beta 版本",
-    receiveBetaSub: "更新檢查也納入 GitHub 預發佈(prerelease)· 關閉 = 只看正式 release",
     autoUpdate: "自動更新",
-    autoUpdateSub: "偵測到新版本時於背景自動升級並重啟",
+    autoUpdateWarning: "升級完伺服器會自己重啟。",
     updateCheckInterval: "更新檢查間隔",
     updateCheckIntervalSub:
       "背景多久向 GitHub 確認一次有沒有新版本；按「檢查更新」與升級一律即時查詢，不受這個間隔影響（1–60 分鐘）",
     minutes: "分鐘",
     announceFeatures: "讓助理告訴我新版本的功能",
-    announceFeaturesSub:
-      "升級到有新功能公告的正式版後，助理會在聊天裡跟你說這版多了什麼",
     upgradeFailed: "升級失敗",
     upgradeRestarting:
       "升級中——新版本已安裝完成,伺服器重啟中;此頁面將自動重新載入。",
@@ -2550,22 +2551,23 @@ export const zh = {
     // ── 角色誌 ──
     // 十份文件依 owner 的讀法分三組（定稿 2026-08-24）：上線 → 下線 → 任務事件。
     // 分組是版面上的分群，不是「能不能改」的真相來源（那是 server 的答案）。
-    // 使用者自訂單獨排在最上面，不在任何一組裡。上線這組依 boot context 的
+    // 使用者語言與使用者自訂排在最上面的「使用者偏好」，不在這三組裡。上線這組依 boot context 的
     // 組裝順序排：系統互動 → 啟動步驟（那一列開的是 claude / codex 兩份文件的索引）。
     // UI 不露檔名。
+    userPrefsSection: "使用者偏好",
     globalSection: "上線（BOOT）",
     systemName: "系統互動",
     systemSub: "每位成員開機時都會讀到的系統運作說明",
     customName: "使用者自訂",
-    customSub: "每位成員開機時都會讀到的自訂內容 · 可編輯",
-    bootDocEditableSuffix: " · 可編輯",
+    customSub: "每位成員開機時都會讀到的自訂內容",
+    bootDocEditableTag: "可編輯",
+    bootDocReadOnlyTag: "不能編輯",
     dutyHeading: "職責（Duty）",
     dutyNote:
       "其他成員看這段，判斷什麼事要找這個角色；會出現在每位成員開機看到的名冊上。",
     userLanguageName: "使用者語言",
     userLanguageSub: "成員跟你說話用的語言 · 沒改過時跟著顯示語言",
     termGlossaryName: "名詞對照表",
-    termGlossarySub: "功能的英文與中文名稱對照 · 隨版本更新，不能編輯",
     // 兩份**不同**的文件，分別開自己的頁：只有 Codex 那一份要求成員在開機
     // 那一輪結束時把控制權交回旁邊的程序，兩份不能互換，
     // 所以清單上不併成一列、詳情頁也不並排。
@@ -2573,33 +2575,24 @@ export const zh = {
     // and its history list — the row no longer names a runtime because you
     // pick one after you are inside.
     bootName: "啟動步驟",
-    bootSub: "AI 開機時照著做的步驟 · 兩種執行環境各一份",
     bootRuntimeClaude: "一般",
     bootRuntimeCodex: "Codex",
     bootClaudeName: "啟動步驟（Claude Code）",
-    bootClaudeSub: "Claude Code 執行環境的開機 SOP",
     bootCodexName: "啟動步驟（Codex CLI）",
-    bootCodexSub: "Codex App Server 執行環境的開機 SOP",
     // 〈停止〉（T-c9c0）——不進開機情境，是 server 要收掉這個 session 時
     // 夾帶給 agent 的收尾指示，所以在清單上自成一列，排在啟動步驟之後。
     offboardName: "停止",
-    offboardSub: "成員被停止時會收到的收尾指示",
     // ── T-3201：其餘六份生命週期文件 ──
     // 分組標題。上線那組沿用既有的 globalSection；下線、任務是另外兩組。
     stopSection: "下線（STOP）",
     taskEventSection: "任務事件（TASK）",
     acceleratedStopName: "加速停止",
-    acceleratedStopSub: "被要求提前收工時給 agent 的指示 · 有截止時間",
     taskCloseoutName: "任務結案",
-    taskCloseoutSub: "任務被判定結束時給 agent 的收尾指示",
     taskReassignPredecessorName: "任務轉派 · 給前任",
-    taskReassignPredecessorSub: "手上的任務被轉給別人時給 agent 的交接指示",
     taskTakeoverWithPredecessorName: "任務轉派 · 給接手人",
     taskTakeoverWithPredecessorSub: "接手任務時給 agent 的指示（有沒有前任都用這份）",
     taskUnblockedName: "擋住你任務的任務已解開",
-    taskUnblockedSub: "依賴的任務放行時給 agent 的通知",
     taskReadyForDoneName: "你手上的任務可以結案了",
-    taskReadyForDoneSub: "任務每次進到可結案時給 agent 的通知",
     bootDocSaveConfirmAcceleratedStop:
       "要儲存這份加速停止程序嗎？之後每一個被要求提前收工的 agent 都會讀到這份內容，而且是在只剩下一小段時間的情況下讀——寫得完才算數。",
     bootDocSaveConfirmTaskEvent:
@@ -2614,6 +2607,8 @@ export const zh = {
       "要儲存這份啟動步驟嗎？寫壞會讓之後開機的成員無法上線，而且不會有任何錯誤訊息。存檔前請確認看過預覽；出事就到版本紀錄打開「預設內容」，按「同步預設內容」。",
     bootDocSaveConfirmSystem:
       "要儲存這份系統互動說明嗎？之後開機的每一個 agent 都會讀到這份內容。",
+    bootDocSaveConfirmTermGlossary:
+      "要儲存這份名詞對照表嗎？之後開機的每一位成員都會用它對照你說的中文畫面名稱。",
     bootDocSaveConfirmOffboard:
       "要儲存這份〈停止〉嗎？之後每一位被停止的成員都會讀到它，而且當下沒有人可以問、也沒有時間限制；有時限的情況讀的是〈加速停止〉。",
     bootDocSaveConfirmAction: "確認儲存",
@@ -2623,6 +2618,7 @@ export const zh = {
     docCollapse: "收合這份文件",
     historyBootSystemTitle: "系統互動的版本紀錄",
     historyUserLanguageTitle: "使用者語言的版本紀錄",
+    historyTermGlossaryTitle: "名詞對照表的版本紀錄",
     historyBootClaudeTitle: "啟動步驟（Claude Code）的版本紀錄",
     historyBootCodexTitle: "啟動步驟（Codex CLI）的版本紀錄",
     historyBootOffboardTitle: "停止的版本紀錄",
@@ -2645,12 +2641,6 @@ export const zh = {
     cancel: "取消",
     reset: "重置",
     editorPlaceholder: "以 Markdown 撰寫…",
-    // 「儲存＝整份取代」的提示（T-c33e）。開機情境那三塊的編輯器從逐段改成
-    // 單一編輯框，原本由段落列隱含說出的事就必須明講：按下去送出的是整份文件。
-    // T-3201 起，「整份」指的是可編輯的那一半：唯讀區不在編輯框裡，也沒有任何
-    // 方式可以送出，所以能被這一次儲存蓋掉的只有下半。
-    docReplaceNote:
-      "儲存會用編輯框的內容取代可編輯的部分；沒有放進編輯框的段落會消失。",
     // 唯讀區那一塊的標籤（T-3201）。owner 的裁定是他必須看得見改不動的那一半
     //（「以前 global context 是固定內容 我們也是會顯示 只是不給改」），所以它
     // 被畫出來但沒有編輯框；標籤要說清楚它為什麼不是壞掉的輸入框。
@@ -2760,7 +2750,6 @@ export const zh = {
     paramsLoadError: "載入設定失敗，請稍後重試",
     paramsSaveError: "沒存成，請再試一次",
     sessionTtl: "登入有效期",
-    sessionTtlSub: "登入後多久需要重新輸入密碼",
     agentTokenTtl: "成員登入有效期",
     agentTokenTtlSub: "新啟動的成員與外包，多久需要重新取得登入憑證",
     ttl12h: "12 小時",
@@ -2785,10 +2774,12 @@ export const zh = {
       "按下加速停止之後，成員還有多少秒可以收尾。這個時刻會原文告訴成員（10–3600）",
     reassignHandoverTimeout: "轉派交接逾時秒數",
     reassignHandoverTimeoutSub:
-      "轉派後，外包前任多久沒有更新任務就會被回收；每次更新任務都會重新計時，正職前任不受影響（60–86400）",
+      "轉派後，外包前任可以多久不更新任務；每次更新任務都會重新計時，正職前任不受影響（60–86400）",
+    reassignHandoverTimeoutWarning: "逾時沒更新任務的外包前任會被回收。",
     wardenCredentialLifetime: "機器憑證壽命",
     wardenCredentialLifetimeSub:
-      "機器登入憑證的有效期。機器會在到期前自動換新；錯過換新的機器要重新安裝。調小不影響已經發出的憑證。（86400–34560000 秒）",
+      "機器登入憑證的有效期。機器會在到期前自動換新。調小不影響已經發出的憑證。（86400–34560000 秒）",
+    wardenCredentialLifetimeWarning: "錯過換新的機器要重新安裝。",
     runtimeLoginCheckInterval: "登入檢查間隔",
     runtimeLoginCheckIntervalSub:
       "Claude 或 Codex 已登入時，每台機器多久再檢查一次。改動會在各機器下一次回報時生效（30–3600 秒）",
@@ -2816,36 +2807,21 @@ export const zh = {
     // 裝箱的區塊,「調低不弄壞既有內容」在兩邊成立的理由並不一樣。
     // T-8:備份保留份數 N。說明文字必須把整數本身講不出來的兩件事講明——
     // 「是份數不是天數」與「是每一池不是每個資料夾」——因為需要知道的是轉這個
-    // 旋鈕的人。
+    // 旋鈕的人。「每類各計」只放在 ⓘ,欄位旁的單位只寫「份」(owner)。
     backupRetain: "備份保留份數",
     backupRetainSub:
-      "資料庫備份要保留幾份（1–20）。超過的會在下一次備份時永久刪除。算的是份數不是天數；日常備份與升級前備份各自保留這個份數，所以磁碟上最多會有兩倍的檔案。",
-    backupRetainUnit: "份（每類各計）",
+      "資料庫備份要保留幾份（1–20）。算的是份數不是天數；日常備份與升級前備份各自保留這個份數，所以磁碟上最多會有兩倍的檔案。",
+    backupRetainWarning: "超過的會在下一次備份時永久刪除。",
+    backupRetainUnit: "份",
     // T-122:建議回覆清單(T-33 加上第三份)。刻意是一格一個訊息框而不是共用
     // 一格——請示卡的回覆、任務訊息與傳承條目的訊息是三件不同的對話,同一句話
     // 放錯格子就不合用(owner 裁定)。
-    //
-    // 🔴 說明文各一句,句號結束,不要再長回去。owner 走了五輪把它砍到這樣,逐項
-    // 否決的東西都有理由,再加回來就是把他刪過的東西塞回去:
-    //   * 不解釋位置(「回覆框下面那排」)——標題已經寫了是哪一格;
-    //   * 不寫「留空就不顯示」;
-    //   * 不寫上限數字——打超過的時候紅字會當場說(suggestedRepliesTooLong);
-    //   * 不寫「兩格各自獨立」——分開擺、標題不同,看得出來;
-    //   * 不寫「點一下不會送出」——那是用的時候的事,不是設定頁的事。
-    // 第二句用「任務中傳送訊息」而不是「傳訊息給成員」:後者聽起來像一般聊天
-    // 視窗,而那一格是任務上的訊息框。開頭也刻意沒有「在」(不是「在任務中傳送
-    // 訊息時…」),那是 owner 明確要求拿掉的。
+    // 四格的標題已說明是哪一格，不加 ⓘ 說明；只有讀者從標題看不出來、又需要知道
+    // 的事才加（frontend/.claude/rules/css-layout-traps.md「說明收進 ⓘ」）。
     suggestedRepliesReplyCard: "請示卡建議回覆",
-    suggestedRepliesReplyCardSub: "回覆請示卡時可一鍵帶入的句子。",
     suggestedRepliesTaskMessage: "任務訊息建議回覆",
-    suggestedRepliesTaskMessageSub: "任務中傳送訊息時可一鍵帶入的句子。",
-    // T-33 的第三格。同一條規矩:一句,句號結束,不解釋位置、不寫留空、不寫上限
-    // 數字。「傳承條目」而不是「傳承」:那一格的收件人是寫下那一條的人,不是
-    // 一份文件。
     suggestedRepliesLoreMessage: "傳承訊息建議回覆",
-    suggestedRepliesLoreMessageSub: "在傳承條目的訊息框可一鍵帶入的句子。",
     suggestedRepliesChat: "聊天室建議回覆",
-    suggestedRepliesChatSub: "與任一成員對話時可一鍵帶入的句子。",
     suggestedReplyPlaceholder: "例:收到,照這樣做",
     suggestedReplyAdd: "新增一句",
     suggestedReplyRemove: "刪除這一句",
@@ -2865,24 +2841,28 @@ export const zh = {
     // 旋鈕的人最容易誤以為連帶變寬的東西。
     loreCapRole: "成員傳承字數上限",
     loreCapRoleSub:
-      "每位成員開機時最多讀多少字的成員傳承。放不下的整筆不會被讀到，也不會有錯誤訊息。可以調低，不會影響已寫好的條目。",
+      "每位成員開機時最多讀多少字的成員傳承。可以調低，不會影響已寫好的條目。",
+    loreCapRoleWarning: "放不下的整筆不會被讀到，也不會有錯誤訊息。",
     loreCapManual: "任務傳承字數上限",
     loreCapManualSub:
       "讀任務手冊時最多附帶多少字的任務傳承。與成員傳承各自計算，可以調低。",
     loreCapTitle: "傳承標題字數上限",
     loreCapTitleSub:
-      "一筆傳承的標題最多幾個字。超過的寫入會被拒絕,一個字都不會寫進去。可以調低,調低只擋接下來的寫入,已經存好的條目不受影響。",
+      "一筆傳承的標題最多幾個字。可以調低,調低只擋接下來的寫入,已經存好的條目不受影響。",
     loreCapBody: "傳承內容字數上限",
     loreCapBodySub:
-      "一筆傳承的內容最多幾個字。超過的寫入會被拒絕,一個字都不會寫進去。可以調低,已經存好的條目不受影響。",
+      "一筆傳承的內容最多幾個字。可以調低,已經存好的條目不受影響。",
+    loreCapEntryWarning: "超過的寫入會被拒絕，一個字都不會寫進去。",
     secretCardDurationUnit: "單位",
     secretCardUnretrievedTtl: "Secret 請示卡的等待取得時間",
     secretCardUnretrievedTtlSub:
-      "你提供內容後，成員多久沒取得就刪除內容、這張卡失效（1 分鐘到 30 天）。只影響之後提供的內容。",
+      "你提供內容後，等成員取得的時間（1 分鐘到 30 天）。只影響之後提供的內容。",
+    secretCardUnretrievedTtlWarning: "時間到還沒取得，內容就會刪除，這張卡失效。",
     secretCardUnretrievedTtlRange: "等待取得時間請填 1 分鐘到 30 天之間的整數",
     secretCardRetention: "Secret 請示卡的取得後保留時間",
     secretCardRetentionSub:
-      "成員第一次取得後，內容還保留多久（0 秒到 1 天）；這段時間內成員可以再取得，時間一到就刪除，填 0 是取得當下就刪除。只影響之後的取得。",
+      "成員第一次取得後，內容還保留多久（0 秒到 1 天）；這段時間內成員可以再取得。只影響之後的取得。",
+    secretCardRetentionWarning: "時間一到就刪除；填 0 是第一次取得當下就刪除。",
     secretCardRetentionRange: "取得後保留時間請填 0 秒到 1 天之間的整數",
     stepNoteCap: "任務步驟備註字數上限",
     stepNoteCapSub:
@@ -2930,7 +2910,6 @@ export const zh = {
     manualQ2Hint:
       "執行前一定要有的欄位。把其中一個設成 🔑識別鍵，接案窗口就用它判斷是不是同一個任務（例如同一個 PR 連結 = 同一個任務，後續訊息會併入而非開新任務）。",
     manualQ3: "該怎麼做？",
-    manualQ3Hint: "執行手冊 · AI 參考它規劃 workflow",
     // 三塊各自編輯（owner 2026-07-31 選定 P1）：每一塊的標頭各有一顆 編輯，
     // 三顆長得一樣，所以無障礙名稱要把區塊名帶進去。
     manualEditSectionLead: "編輯「",
@@ -2977,7 +2956,6 @@ export const zh = {
     assigneeNoMembers: "沒有可指定的成員",
     // 任務規劃段（hub 的兩張子頁入口卡）
     manualPlanningSection: "任務規劃",
-    manualDefEntrySub: "這是什麼任務、需要哪些資訊、該怎麼做",
     manualSuggestedRepliesSection: "建議回覆",
     manualSuggestedRepliesSub: "回覆這類任務的請示卡、在這類任務上傳訊息，或跟負責這類任務的外包聊天時，可一鍵帶入的句子。",
     manualSuggestedRepliesEmpty: "這類任務還沒有專屬的句子。",

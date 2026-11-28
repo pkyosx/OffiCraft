@@ -20,10 +20,28 @@
 //   ⑤ the task card's red overdue / orange due-soon 到期日 date clears AA
 //      (≥4.5:1) as text on its chip, and so does the time left beside it, in
 //      those tones and in the muted grey, on the card.
+//   ⑦ every workflow step's title clears AA on its status-tinted box, the
+//      faded 已取代 row included (its opacity and greyscale applied), and so
+//      does the 等待中 reason label on the 等待外部 box — in the built-ins and
+//      in every shipped theme file.
+//   ⑧ the six step status icons, in every theme: each clears 3:1 on the card;
+//      the four live ones (進行中、等我回覆、等待外部、完成) carry a visible hue
+//      (OKLCH chroma ≥ 0.06), sit ≥ 30° of hue apart from each other and stand
+//      off the title ink (OKLab ΔE ≥ 0.2 from --color-text-strong — a dark text
+//      token reads as a black icon at any contrast); all six differ pairwise
+//      by OKLab ΔE ≥ 0.04. In office, 進行中 also sits ≥ 30° of hue from
+//      可結案 (--color-ready-for-done) and 轉派中 (--color-lock-reassigning),
+//      which share the card head with it.
+//   ⑨ a theme that does not set the --color-step-* tokens still paints each
+//      icon in the colour its own pack gives the token that status follows.
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { ThemeContrastStory } from "./stories/ThemeContrastStory";
 import { TaskCardDueStory } from "./stories/TaskCardDueStory";
+import { TaskCardSectionsStory } from "./stories/TaskCardSectionsStory";
 import {
   BUILTIN_THEME_IDS,
   expectBuiltinApplied,
@@ -252,7 +270,7 @@ for (const theme of BUILTIN_THEME_IDS) {
 }
 
 for (const theme of BUILTIN_THEME_IDS) {
-  test(`${theme}: the task card's red overdue and orange due-soon date, and the time left beside it, clear AA (≥4.5:1)`, async ({
+  test(`${theme}: the task card's red overdue and orange due-soon date clear AA (≥4.5:1)`, async ({
     mount,
     page,
   }) => {
@@ -269,7 +287,6 @@ for (const theme of BUILTIN_THEME_IDS) {
       await cmp.update(<TaskCardDueStory dueTs={dueTs} />);
       for (const [part, loc] of [
         ["date", cmp.getByTestId("task-due")],
-        ["left", cmp.getByTestId("task-due-remaining")],
       ] as const) {
         if (tone === "later" && part === "date") continue;
         await expect(loc).toBeVisible();
@@ -300,3 +317,232 @@ for (const theme of THEMES) {
     expect(ratio).toBeGreaterThanOrEqual(2.5);
   });
 }
+
+function grayscale({ r, g, b }: Rgba): Rgba {
+  const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return { r: y, g: y, b: y, a: 1 };
+}
+
+function mix(top: Rgba, under: Rgba, opacity: number): Rgba {
+  return over({ ...top, a: opacity }, under);
+}
+
+/** A text colour on the step box it sits in, as painted: the box's tint over
+ * the card, then the box's own filter and opacity over what is behind it. */
+async function stepTextContrast(loc: import("@playwright/test").Locator): Promise<number> {
+  const s = await loc.evaluate((el) => {
+    const step = el.closest('[data-testid="task-step"]') as HTMLElement;
+    const inside: string[] = [];
+    for (let n: HTMLElement | null = el as HTMLElement; n; n = n.parentElement) {
+      inside.push(getComputedStyle(n).backgroundColor);
+      if (n === step) break;
+    }
+    const outside: string[] = [];
+    for (let n = step.parentElement; n; n = n.parentElement) outside.push(getComputedStyle(n).backgroundColor);
+    const cs = getComputedStyle(step);
+    return { color: getComputedStyle(el).color, inside, outside, opacity: parseFloat(cs.opacity), filter: cs.filter };
+  });
+  const behind = foldZone(s.outside);
+  let box = behind;
+  for (let i = s.inside.length - 1; i >= 0; i--) box = over(parseColor(s.inside[i]), box);
+  let fg = over(parseColor(s.color), box);
+  if (s.filter.includes("grayscale(1)")) {
+    fg = grayscale(fg);
+    box = grayscale(box);
+  }
+  return contrast(mix(fg, behind, s.opacity), mix(box, behind, s.opacity));
+}
+
+const THEMES_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../themes");
+const BUILTIN_FILES = new Set(BUILTIN_THEME_IDS.map((id) => `${id}.theme.json`));
+const OFFICE_COLOURS: Record<string, string> = JSON.parse(
+  fs.readFileSync(path.join(THEMES_DIR, "office.theme.json"), "utf8")
+).colors;
+const PACKS: { id: string; colors: Record<string, string> }[] = fs
+  .readdirSync(THEMES_DIR)
+  .filter((f) => f.endsWith(".theme.json") && !BUILTIN_FILES.has(f))
+  .sort()
+  .map((f) => JSON.parse(fs.readFileSync(path.join(THEMES_DIR, f), "utf8")));
+
+/** Paint a pack the way applyThemeToRoot does: each colour as an inline custom
+ * property on <html>, over the office :root. */
+async function applyPack(page: Page, colors: Record<string, string>) {
+  await page.evaluate((c) => {
+    for (const [k, v] of Object.entries(c)) document.documentElement.style.setProperty(k, v);
+  }, colors);
+}
+
+type StepTheme = { kind: "builtin"; id: (typeof BUILTIN_THEME_IDS)[number] } | { kind: "pack"; id: string; colors: Record<string, string> };
+const STEP_THEMES: StepTheme[] = [
+  ...BUILTIN_THEME_IDS.map((id) => ({ kind: "builtin" as const, id })),
+  ...PACKS.map((p) => ({ kind: "pack" as const, id: p.id, colors: p.colors })),
+];
+
+async function mountAllSteps(
+  mount: import("@playwright/experimental-ct-react").ComponentFixtures["mount"],
+  page: Page,
+  theme: StepTheme
+) {
+  await page.setViewportSize({ width: 1280, height: 1400 });
+  if (theme.kind === "builtin") await selectBuiltinTheme(page, theme.id);
+  else await applyPack(page, theme.colors);
+  const cmp = await mount(<TaskCardSectionsStory description="short" steps="all" />);
+  await cmp.locator(".task-card__head").first().click();
+  await expect(cmp.getByTestId("task-step")).toHaveCount(9);
+  if (theme.kind === "builtin") await expectBuiltinApplied(page, theme.id);
+  else
+    expect(
+      await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--color-card").trim()),
+      `--color-card at capture time — is ${theme.id} really applied?`
+    ).toBe(theme.colors["--color-card"]);
+  return cmp;
+}
+
+for (const theme of STEP_THEMES) {
+  test(`${theme.id}: every step title clears AA (≥4.5:1) on its status-tinted box`, async ({ mount, page }) => {
+    const cmp = await mountAllSteps(mount, page, theme);
+    const steps = cmp.getByTestId("task-step");
+    const ratios: Record<string, string> = {};
+    for (let i = 0; i < 9; i++) {
+      const step = steps.nth(i);
+      const id = (await step.getAttribute("data-step-id"))!;
+      ratios[id] = (await stepTextContrast(step.locator(".task-step__name"))).toFixed(2);
+    }
+    ratios["s-external reason"] = (
+      await stepTextContrast(cmp.getByTestId("step-waiting-reason").locator(".task-step__waiting-label"))
+    ).toFixed(2);
+    console.log(`${theme.id} step title contrast: ${JSON.stringify(ratios)}`);
+    for (const [which, ratio] of Object.entries(ratios)) {
+      expect.soft(Number(ratio), `${which}: ${ratio}:1`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+}
+
+function oklab({ r, g, b }: Rgba): [number, number, number] {
+  const lin = (v: number) => {
+    const c = v / 255;
+    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  const [R, G, B] = [lin(r), lin(g), lin(b)];
+  const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B);
+  const m = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B);
+  const s = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ];
+}
+const deltaE = (x: Rgba, y: Rgba) => {
+  const [p, q] = [oklab(x), oklab(y)];
+  return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+};
+const chroma = (x: Rgba) => Math.hypot(oklab(x)[1], oklab(x)[2]);
+const hue = (x: Rgba) => ((Math.atan2(oklab(x)[2], oklab(x)[1]) * 180) / Math.PI + 360) % 360;
+const hueGap = (x: Rgba, y: Rgba) => {
+  const d = Math.abs(hue(x) - hue(y));
+  return Math.min(d, 360 - d);
+};
+
+const STEP_STATUSES = ["pending", "in_progress", "waiting_owner", "waiting_external", "done", "superseded"] as const;
+const LIVE_STATUSES = new Set(["in_progress", "waiting_owner", "waiting_external", "done"]);
+
+/** Each status icon as painted, over the card disc the marker draws under it. */
+async function markerColours(page: Page) {
+  const out: Record<string, { icon: Rgba; card: Rgba }> = {};
+  for (const status of STEP_STATUSES) {
+    const s = await sample(page.locator(`.task-timeline__marker--${status}`).first());
+    const card = foldZone([s.background, ...s.layers]);
+    out[status] = { icon: over(parseColor(s.color), card), card };
+  }
+  return out;
+}
+
+async function resolveToken(page: Page, tok: string): Promise<string> {
+  return page.evaluate((t) => {
+    const probe = document.createElement("div");
+    probe.style.color = `var(${t})`;
+    document.body.appendChild(probe);
+    const c = getComputedStyle(probe).color;
+    probe.remove();
+    return c;
+  }, tok);
+}
+
+for (const theme of STEP_THEMES) {
+  test(`${theme.id}: the six step status icons clear 3:1 on the card and read as six different colours`, async ({
+    mount,
+    page,
+  }) => {
+    await mountAllSteps(mount, page, theme);
+    const m = await markerColours(page);
+    const ink = parseColor(await resolveToken(page, "--color-text-strong"));
+    const failures: string[] = [];
+    const report: Record<string, string> = {};
+    for (const s of STEP_STATUSES) {
+      const { icon, card } = m[s];
+      const ratio = contrast(icon, card);
+      report[s] = `${ratio.toFixed(2)}:1 C${chroma(icon).toFixed(3)} h${hue(icon).toFixed(0)}`;
+      if (ratio < 3) failures.push(`${s} on card ${ratio.toFixed(2)}:1 < 3`);
+      if (!LIVE_STATUSES.has(s)) continue;
+      if (chroma(icon) < 0.06) failures.push(`${s} chroma ${chroma(icon).toFixed(3)} < 0.06`);
+      if (deltaE(icon, ink) < 0.2) failures.push(`${s} ΔE ${deltaE(icon, ink).toFixed(3)} from title ink < 0.2`);
+    }
+    for (let i = 0; i < STEP_STATUSES.length; i++) {
+      for (let j = i + 1; j < STEP_STATUSES.length; j++) {
+        const [a, b] = [STEP_STATUSES[i], STEP_STATUSES[j]];
+        const d = deltaE(m[a].icon, m[b].icon);
+        if (d < 0.04) failures.push(`${a}/${b} ΔE ${d.toFixed(3)} < 0.04`);
+        if (LIVE_STATUSES.has(a) && LIVE_STATUSES.has(b)) {
+          const gap = hueGap(m[a].icon, m[b].icon);
+          if (gap < 30) failures.push(`${a}/${b} hue ${gap.toFixed(0)}° apart < 30°`);
+        }
+      }
+    }
+    for (const tok of theme.id === "office" ? ["--color-ready-for-done", "--color-lock-reassigning"] : []) {
+      const other = over(parseColor(await resolveToken(page, tok)), m.in_progress.card);
+      const gap = hueGap(m.in_progress.icon, other);
+      if (gap < 30) failures.push(`in_progress/${tok} hue ${gap.toFixed(0)}° apart < 30°`);
+    }
+    console.log(`${theme.id} step icons: ${JSON.stringify(report)}`);
+    expect(failures).toEqual([]);
+  });
+}
+
+const STEP_TOKEN_DEFAULTS: Record<(typeof STEP_STATUSES)[number], [step: string, follows: string]> = {
+  pending: ["--color-step-pending", "--color-text-muted"],
+  in_progress: ["--color-step-progress", "--color-step-progress"],
+  waiting_owner: ["--color-step-waiting-owner", "--color-dot-waking"],
+  waiting_external: ["--color-step-waiting-external", "--color-wait-external"],
+  done: ["--color-step-done", "--color-success"],
+  superseded: ["--color-step-superseded", "--color-status-duplicated"],
+};
+
+test("a shipped theme that leaves the step tokens out paints each step icon in its own followed colour", async ({
+  mount,
+  page,
+}) => {
+  const pack = PACKS.find((p) => p.id === "national-day-2026")!;
+  const newTokens = Object.values(STEP_TOKEN_DEFAULTS)
+    .map(([step]) => step)
+    .filter((t) => t !== "--color-step-progress");
+  expect(newTokens.filter((t) => t in pack.colors), "precondition: the pack omits the step tokens").toEqual([]);
+  await mountAllSteps(mount, page, { kind: "pack", id: pack.id, colors: pack.colors });
+  for (const status of STEP_STATUSES) {
+    const follows = STEP_TOKEN_DEFAULTS[status][1];
+    expect(pack.colors[follows], `precondition: the pack sets ${follows}`).toBeTruthy();
+    const marker = page.locator(`.task-timeline__marker--${status}`).first();
+    const painted = await marker.evaluate((el) => getComputedStyle(el).color);
+    expect(painted, `${status} icon follows the pack's ${follows}`).toBe(await resolveToken(page, follows));
+    expect(painted, `${status} icon is the pack's colour, not office's`).not.toBe(
+      await page.evaluate((v) => {
+        const probe = document.createElement("div");
+        probe.style.color = v;
+        document.body.appendChild(probe);
+        const c = getComputedStyle(probe).color;
+        probe.remove();
+        return c;
+      }, OFFICE_COLOURS[follows])
+    );
+  }
+});

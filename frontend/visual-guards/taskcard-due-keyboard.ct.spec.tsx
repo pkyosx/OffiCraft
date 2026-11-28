@@ -229,31 +229,74 @@ const OVERDUE_2020_1541 = Math.floor(new Date(2020, 0, 1, 15, 41, 0).getTime() /
 const sameLine = (a: { y: number; height: number }, b: { y: number; height: number }) =>
   Math.abs(a.y + a.height / 2 - (b.y + b.height / 2));
 
-for (const width of [320, 390]) {
-  for (const [label, dueTs] of [
-    ["without a time", OVERDUE_2020],
-    ["with 15:41", OVERDUE_2020_1541],
-  ] as const) {
-    test(`at ${width}px the 到期日 row with its red date and the days overdue, and the due popover ${label} with date and time on one line and 「[n] [unit] 前」 on one line, stay inside the card`, async ({
+const TWO_HOURS_OVERDUE = Math.floor(Date.now() / 1000 / 60) * 60 - 2 * 3600 - 30;
+const shortStamp = (ts: number) => {
+  const d = new Date(ts * 1000);
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
+const isoDay = (ts: number) => {
+  const d = new Date(ts * 1000);
+  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
+};
+
+const DUE_ROW_CASES = [320, 375, 390].flatMap((width) =>
+  (["zh", "en"] as const).flatMap((language) =>
+    (
+      [
+        ["without a time", OVERDUE_2020, "2020/1/1"],
+        ["with 15:41", OVERDUE_2020_1541, "2020/1/1 15:41"],
+        ["two hours overdue", TWO_HOURS_OVERDUE, shortStamp(TWO_HOURS_OVERDUE)],
+      ] as const
+    ).map(([label, dueTs, text]) => ({ width, language, label, dueTs, text }))
+  )
+);
+
+for (const { width, language, label, dueTs, text } of DUE_ROW_CASES) {
+  {
+    test(`at ${width}px ${language} the 到期日 row with its red date written month/day, and the due popover ${label} with date and time on one line and 「[n] [unit] 前」 on one line, stay inside the card`, async ({
       mount,
       page,
     }) => {
       await page.setViewportSize({ width, height: 700 });
-      const cmp = await mount(<TaskCardDueStory dueTs={dueTs} />);
+      const cmp = await mount(<TaskCardDueStory dueTs={dueTs} language={language} />);
+      await expect(cmp.getByTestId("task-due")).toBeVisible();
+      await expect(cmp.getByTestId("task-meta-more-toggle")).toHaveCount(0);
+      await expect(cmp.getByTestId("task-meta-more")).toHaveCount(0);
       const card = (await cmp.locator(".task-card").boundingBox())!;
-      const content = (await cmp.locator(".task-card__meta").boundingBox())!;
+      const content = (await cmp.locator(".card-meta").boundingBox())!;
       const chip = (await cmp.getByTestId("task-due").boundingBox())!;
       expect(chip.x + chip.width).toBeLessThanOrEqual(content.x + content.width);
-      const left = (await cmp.getByTestId("task-due-remaining").boundingBox())!;
-      expect(left.x + left.width).toBeLessThanOrEqual(content.x + content.width);
+      await expect(cmp.getByTestId("task-due")).toHaveText(text);
       expect(
         await cmp.locator(".task-card").evaluate((el) => el.scrollWidth - el.clientWidth)
       ).toBe(0);
 
+      const rows = await cmp.locator(".card-meta").evaluate((meta) => {
+        const plain = (r: DOMRect) => ({ top: r.top, bottom: r.bottom, left: r.left, right: r.right });
+        const box = (el: Element | null) => plain(el!.getBoundingClientRect());
+        const firstLine = (el: Element) => {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          return plain(range.getClientRects()[0]);
+        };
+        const labels = [...meta.querySelectorAll(":scope > .card-meta__label")];
+        return {
+          assigneeLabel: firstLine(labels[0]),
+          assigneeChip: box(meta.querySelector(".task-card__assignee-cell > :first-child")),
+          dueLabel: firstLine(labels[1]),
+          dueCell: box(meta.querySelector(".task-card__due")),
+          dueDateText: firstLine(meta.querySelector("[data-testid='task-due']")!),
+        };
+      });
+      const mid = (b: { top: number; bottom: number }) => (b.top + b.bottom) / 2;
+      expect.soft(Math.abs(mid(rows.dueLabel) - mid(rows.dueDateText)), "到期日 label on the date's line").toBeLessThan(2);
+      expect.soft(Math.abs(mid(rows.assigneeLabel) - mid(rows.assigneeChip)), "負責人 label on the chip's line").toBeLessThan(2);
+      expect.soft(rows.dueCell.top, "到期日 row below 負責人").toBeGreaterThanOrEqual(rows.assigneeChip.bottom);
+
       await cmp.getByTestId("task-due").click();
       const pop = (await cmp.getByTestId("task-due-pop").boundingBox())!;
       const datePick = cmp.getByTestId("task-due-date-pick");
-      await expect(datePick).toHaveText("2020/01/01");
+      await expect(datePick).toHaveText(isoDay(dueTs));
       const date = (await datePick.boundingBox())!;
       const time = (await cmp.getByTestId("task-due-time-pick").boundingBox())!;
       const last = (await cmp.locator(".task-card__due-when > :last-child").boundingBox())!;

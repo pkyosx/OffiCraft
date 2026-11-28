@@ -36,16 +36,14 @@
 //   desc      — the 詳細敘述 markdown, BELOW the message box (owner 2026-07-17
 //               「task details 應該在回覆訊息的下面」 — only this block moved;
 //               the head's meta column stayed put). Expanded-only.
-//   workflow  — the step timeline: name + DoD + status badge + 耗時; parallel
-//               stages grouped 「同時進行 · N 項並行」; gate projection dashed
-//               (announced) vs solid (armed).
+//   workflow  — the step timeline: status icon + tinted box (name + DoD + 耗時 pill); parallel
+//               stages grouped 「同時進行 · N 項並行」.
 //               Card-bearing steps embed their reply card INSIDE the step row
 //               (owner 2026-07-14: 卡內嵌在所屬 step 內, 不再懸在 task 頂部;
 //               TaskReplyCard — the SHARED M2 ReplyCardBody interior, never a
 //               re-implementation; answered cards collapse to one line).
-//               Steps that EVER carried an approval (is_gate, or a bound
-//               reply card — plain non-gate steps included) keep a permanent
-//               審批 marker after they finish (owner 2026-07-14: 持久標記).
+//               Gate steps (is_gate — the server sets it for good when a
+//               card is bound) carry the shield (需要你核可) badge, also after they finish.
 //               Transitional states when there are no steps yet: unassigned →
 //               等待指派; assigned-but-no-plan → 「等待 ○○ 建立 Steps」 (○○ = the
 //               executor's display name; owner 2026-07). But a task the light
@@ -73,8 +71,8 @@ import { api } from "../api";
 // `reportCloseRefused` needs it because force-done's three refusals want three
 // different sentences; see that function.
 import { isHttpStatus } from "../api/errors";
-import { formatDuration } from "../lib/duration";
-import { copyText } from "../lib/clipboard";
+import { formatDuration, formatDurationShort } from "../lib/duration";
+import { isCardToggleClick, isCardToggleKey } from "../lib/cardToggle";
 import { resolveStepBadge } from "../lib/stepBadge";
 import { autosizeTextarea } from "../lib/autosize";
 import { navigateHash } from "../lib/hashRoute";
@@ -91,10 +89,9 @@ import {
   LEAD_UNIT_MINUTES,
   LEAD_UNITS,
   type LeadUnit,
-  dueRemaining,
   effectiveLeadMinutes,
+  formatDue,
   dueTsFromInputs,
-  hasDueTime,
   leadMinutesFromDraft,
   splitLeadMinutes,
   toDateInputValue,
@@ -127,22 +124,33 @@ import { useSuggestedRepliesTaskMessage } from "../hooks/useSuggestedReplies";
 import { useTaskManualSuggestedRepliesContext } from "../hooks/useTaskManualSuggestedReplies";
 import { mergeSuggestedReplies } from "../lib/suggestedReplies";
 import { ConfirmModal } from "./ConfirmModal";
+import { ClampedText } from "./ClampedText";
 import { Markdown } from "./Markdown";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 import { TaskArtifactsBadge } from "./TaskArtifactsPopover";
 import { TaskReassignDialog } from "./TaskReassignDialog";
 import { TaskReplyCard } from "./TaskReplyCard";
-import { Avatar } from "./Avatar";
+import { MemberChatChip, MemberChip } from "./MemberChip";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { OWNER_ID } from "../lib/ownerUnread";
 import { docCommentRecipient } from "../lib/docComments";
 import { AttachmentLinkCommentsContext } from "../hooks/useAttachmentOpener";
 import {
-  ChatBubbleIcon,
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  CircleCheckIcon,
+  CircleDashedIcon,
+  CircleProgressIcon,
+  CircleArrowOutUpRightIcon,
+  CircleSlashIcon,
+  ShieldIcon,
+  UserClockIcon,
+  CircleXIcon,
   CloseIcon,
+  CopyIcon,
+  FlagIcon,
+  HourglassIcon,
   FileTextIcon,
   ClockIcon,
   ExternalLinkIcon,
@@ -152,7 +160,11 @@ import {
   SwapIcon,
   TasksIcon,
 } from "./icons";
+import { CopyIdChip, idChipText } from "./IdChips";
 import "./inline-edit.css";
+import "./card-head.css";
+import "./card-meta.css";
+import "./replies.css";
 import "./card-composer.css";
 
 /** Terminal statuses (已完成/終止/重複) — owner actions and ticking stop here. */
@@ -178,6 +190,46 @@ function openDuePicker(input: HTMLInputElement | null) {
 function leadAmountText(minutes: number, unit: LeadUnit): string {
   const amount = minutes / LEAD_UNIT_MINUTES[unit];
   return String(Number.isInteger(amount) ? amount : Number(amount.toFixed(2)));
+}
+
+const STATUS_ICONS: Record<string, (p: { size: number }) => React.JSX.Element> = {
+  not_started: CircleDashedIcon,
+  in_progress: CircleProgressIcon,
+  waiting_owner: UserClockIcon,
+  waiting_external: CircleArrowOutUpRightIcon,
+  ready_for_done: FlagIcon,
+  done: CircleCheckIcon,
+  terminated: CircleXIcon,
+  duplicated: CopyIcon,
+};
+
+function TaskStatusIcon({ status, size }: { status: string; size: number }) {
+  const Icon = STATUS_ICONS[status] ?? CircleDashedIcon;
+  return <Icon size={size} />;
+}
+
+const STEP_ICONS: Record<string, (p: { size: number }) => React.JSX.Element> = {
+  pending: CircleDashedIcon,
+  in_progress: CircleProgressIcon,
+  waiting_owner: UserClockIcon,
+  waiting_external: CircleArrowOutUpRightIcon,
+  done: CircleCheckIcon,
+  superseded: CircleSlashIcon,
+};
+
+function StepMarker({ status, label }: { status: string; label: string }) {
+  const Icon = STEP_ICONS[status] ?? CircleDashedIcon;
+  return (
+    <span
+      className={`task-timeline__marker task-timeline__marker--${status}`}
+      role="img"
+      title={label}
+      aria-label={label}
+      data-testid="step-marker"
+    >
+      <Icon size={16} />
+    </span>
+  );
 }
 
 /** True when the 識別鍵 value is a link → the badge renders target=_blank. */
@@ -233,7 +285,7 @@ export function TaskCard({
 }: {
   task: TaskView;
   members: Member[];
-  /** LIVE outsource workers — resolves the 外包 codename/model/effort. */
+  /** LIVE outsource workers — resolves the 外包 codename. */
   workers: OutsourceWorkerView[];
   /** True once `members` and `workers` have both loaded without error. Before
    * that, an executor missing from them may simply not have arrived yet, so the
@@ -327,13 +379,10 @@ export function TaskCard({
           (w) => w.id === task.executorId || w.taskId === task.id
         )
       : undefined;
-  // 外包 display: 「外包 代號 · 模型 · 投入度」 while the worker is LIVE; a
-  // released worker (closed task) keeps its REAL codename via the lazy per-id
-  // read (never fabricated — resolved from the server row), degrading to the
-  // bare 外包 label only while/if unresolvable. A member, listed or dismissed,
-  // is just the bare name (T-705e: the chip sits under the 負責人 label, so the
-  // old "· 成員" role tag is redundant and the spec chip shows the name alone —
-  // 外包 keeps its substantive 代號·模型·投入度 line).
+  // The chips show the bare name only (owner): a member's name, a worker's
+  // codename — no 外包 prefix, model or effort. A released worker keeps its
+  // REAL codename via the lazy per-id read (never fabricated), degrading to
+  // the bare 外包 label only while/if unresolvable.
   const releasedExecutorCodename = unlistedNames.get(task.executorId);
   // A departed staff member or a released worker: POST /api/tasks/{id}/message
   // refuses them, so the card offers no message box at all.
@@ -351,11 +400,9 @@ export function TaskCard({
           : t.tasks.outsource;
   const executorText = unassigned
     ? t.tasks.unassigned
-    : task.executorKind === "outsource" && worker
-      ? `${executorName} · ${worker.model || "—"} · ${
-          t.tasks.effortOf[worker.effort] ?? worker.effort
-        }`
-      : executorName;
+    : task.executorKind === "staff"
+      ? staffExecutorName
+      : worker?.codename || releasedExecutorCodename || t.tasks.outsource;
   const executorRecipient = unassigned
     ? null
     : docCommentRecipient(
@@ -373,8 +420,10 @@ export function TaskCard({
     return docCommentRecipient(id, name, !isUnlisted(id), rosterSettled);
   };
 
-  // 類型 chip text: the manual's display name (T-fa76), falling back to the
-  // raw key (deleted manual / legacy type), then the ad-hoc word.
+  const statusName = t.tasks.status[task.status] ?? task.status;
+
+  // 類型 chip text: the manual's display name, falling back to the raw key
+  // (deleted manual / legacy type), then the ad-hoc word.
   const typeLabel = task.typeKey
     ? typeNames?.get(task.typeKey) || task.typeKey
     : t.tasks.adhoc;
@@ -397,25 +446,22 @@ export function TaskCard({
   const assigneePeerId = unassigned ? "" : task.executorId;
 
   // Creator row → the creator's chat. The creator is a verified token sub: a
-  // roster member (name, clickable), an outsource worker id ("ow-…" → 外包
+  // roster member (name, clickable), an outsource worker id ("ow-…" → its
   // 代號 when resolvable, else the raw id; chat reachable either way), a
   // dismissed member (name via the per-id read, clickable to the read-only
-  // history), "" on a pre-column task ("—", not clickable), or any other value
+  // history), "" on a pre-column task ("-", not clickable), or any other value
   // ("owner", an unresolvable id) which is shown as plain text and NOT
   // clickable — there is no self-chat, and fabricating one would be a lie
   // (owner ruling).
   const creator = ((): { text: string; peerId: string } => {
-    if (task.creatorId === "") return { text: t.tasks.creatorUnknown, peerId: "" };
+    if (task.creatorId === "") return { text: t.common.emptyValue, peerId: "" };
     const m = members.find((x) => x.id === task.creatorId);
     if (m) return { text: m.name, peerId: task.creatorId };
     if (task.creatorId.startsWith("ow-")) {
       const cn =
         workers.find((x) => x.id === task.creatorId)?.codename ??
         unlistedNames.get(task.creatorId);
-      return {
-        text: cn ? msg.outsourceLabel(cn) : task.creatorId,
-        peerId: task.creatorId,
-      };
+      return { text: cn || task.creatorId, peerId: task.creatorId };
     }
     const dismissedName = unlistedNames.get(task.creatorId);
     if (dismissedName) return { text: dismissedName, peerId: task.creatorId };
@@ -424,7 +470,7 @@ export function TaskCard({
 
   // 前任 row (T-ba04 轉派交接) → the predecessor's chat. Same resolution shape
   // as the creator row: a member (name, clickable), an outsource worker
-  // ("ow-…" → 外包 代號 when resolvable, else the raw id; chat reachable either
+  // ("ow-…" → its 代號 when resolvable, else the raw id; chat reachable either
   // way), and — since the id is chat-addressable regardless — always clickable.
   // reassignedFrom "" (never reassigned) → no row at all (null).
   const previousAssignee = ((): { text: string; peerId: string } | null => {
@@ -433,7 +479,7 @@ export function TaskCard({
     if (task.reassignedFromKind === "outsource" || id.startsWith("ow-")) {
       const cn =
         workers.find((x) => x.id === id)?.codename ?? unlistedNames.get(id);
-      return { text: cn ? msg.outsourceLabel(cn) : id, peerId: id };
+      return { text: cn || id, peerId: id };
     }
     const m = members.find((x) => x.id === id);
     return { text: m?.name ?? unlistedNames.get(id) ?? id, peerId: id };
@@ -484,32 +530,11 @@ export function TaskCard({
   // jump promises visibility — a collapsed card would hide exactly what the
   // link came to show).
   const [expanded, setExpanded] = useState(false);
+  const [descOpen, setDescOpen] = useState(true);
+  const [workflowOpen, setWorkflowOpen] = useState(true);
   useEffect(() => {
     if (located) setExpanded(true);
   }, [located]);
-
-  // 任務編號 chip 點擊複製(owner 2026-07-19 圈截圖):點 chip → 把顯示的任務
-  // 編號(task.taskNo)寫進剪貼簿,給一個短暫「已複製」回饋。T-5291 之後那個編號
-  // 「就是」內部 id ——「非內部 id」這句原本寫在這裡,已是相反的事實,刪掉;複製
-  // 出去的字串等於 task id 這件事由 TaskCard.copy-taskno.test.tsx 釘住。chip 本身
-  // 是個 <button>,所以 onCardToggleClick 的 closest("button,…") 濾網會自動放行
-  // (點它不會展開卡片),Enter/Space 由 button 原生觸發、也不會冒泡去 toggle 卡。
-  // 只有真的寫入成功才亮「已複製」—— copyText 失敗回 false,絕不假成功。
-  const [copied, setCopied] = useState(false);
-  const copiedTimer = useRef<number | null>(null);
-  useEffect(
-    () => () => {
-      if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current);
-    },
-    []
-  );
-  async function copyTaskNo() {
-    const ok = await copyText(task.taskNo);
-    if (!ok) return;
-    setCopied(true);
-    if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current);
-    copiedTimer.current = window.setTimeout(() => setCopied(false), 1600);
-  }
 
   // 等我回覆 status-badge jump (v3): clicking the badge expands the card and,
   // once the hydrated workflow has rendered the embedded reply card, scrolls
@@ -525,30 +550,13 @@ export function TaskCard({
   const [stepScrollPending, setStepScrollPending] = useState(false);
   const rootRef = useRef<HTMLElement>(null);
 
-  // Whole-card toggle with an interaction filter: clicks that land on (or
-  // inside) any interactive element — the 狀態/優先權 dropdowns, the meta chips (chat /
-  // type-settings / 識別鍵 links), the message composer (paperclip / textarea
-  // / 送出), embedded reply-card controls, attachment thumbnails
-  // (img[role=button] → Lightbox, T-5e8a), markdown links, modals — must do
-  // their own job, never flip the card. closest() covers them all without
-  // sprinkling stopPropagation over every child. The [role='button'] entry
-  // ALSO matches the card itself (the article carries role=button), so a hit
-  // only vetoes the toggle when it is NOT the card — otherwise every card-body
-  // click would be swallowed (review fix on c891881). An in-progress text
-  // selection (a drag that ends on the card) is not a toggle intent either.
+  // Whole-card toggle with an interaction filter (isCardToggleClick): clicks
+  // that land on any interactive element — the 狀態/優先權 dropdowns, the meta
+  // chips (chat / type-settings / 識別鍵 links), the message composer, embedded
+  // reply-card controls, attachment thumbnails (img[role=button] → Lightbox,
+  // T-5e8a), markdown links, modals — do their own job, never flip the card.
   function onCardToggleClick(e: React.MouseEvent<HTMLElement>) {
-    const target = e.target as HTMLElement;
-    const hit = target.closest(
-      "button, a, textarea, input, select, [role='button'], [role='menu'], [role='dialog'], [role='listbox']"
-    );
-    if (hit && hit !== e.currentTarget) return;
-    // A non-collapsed selection at click time means the click ended a drag-
-    // selection (a plain click collapses any prior selection first) — reading
-    // is not a toggle intent. isCollapsed over toString(): jsdom implements
-    // the former faithfully, and an all-whitespace drag still counts.
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0 && !sel.isCollapsed) return;
-    setExpanded((v) => !v);
+    if (isCardToggleClick(e)) setExpanded((v) => !v);
   }
 
   // 🔴 T-6630 ③ — collapsing the WHOLE task must leave you looking at that task.
@@ -591,11 +599,7 @@ export function TaskCard({
   // Only keys on the card ITSELF toggle — an Enter bubbling out of the
   // message textarea (send) or any nested control must never flip the card.
   function onCardToggleKeyDown(e: React.KeyboardEvent<HTMLElement>) {
-    if (e.target !== e.currentTarget) return;
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      setExpanded((v) => !v);
-    }
+    if (isCardToggleKey(e)) setExpanded((v) => !v);
   }
 
   // ── heavy detail (steps + description): the list is the LIGHT projection, so
@@ -647,6 +651,18 @@ export function TaskCard({
   const forcedDoneByNames = useWorkerCodenames(
     isUnlisted(forcedDoneBy) ? [forcedDoneBy] : [],
   );
+  // The owner has no chat with themself, so they, like an id nothing
+  // resolves, are plain text.
+  const forcedDoneByPerson = ((): { text: string; peerId: string } => {
+    const m = members.find((x) => x.id === forcedDoneBy);
+    if (m) return { text: m.name, peerId: forcedDoneBy };
+    const name =
+      workers.find((x) => x.id === forcedDoneBy)?.codename ??
+      forcedDoneByNames.get(forcedDoneBy);
+    if (name) return { text: name, peerId: forcedDoneBy };
+    if (forcedDoneBy.startsWith("ow-")) return { text: forcedDoneBy, peerId: forcedDoneBy };
+    return { text: forcedDoneBy, peerId: "" };
+  })();
   // A task with no detail yet: show a loading placeholder while hydrating,
   // and an error+retry state if the fetch failed — never the transitional
   // empty state, which would be a silent lie. (The workflow render below ALSO
@@ -835,25 +851,12 @@ export function TaskCard({
   };
   const dueEditable = !closed && onSetDue !== undefined;
   const { nowSec, due } = useDueState(dueTs, leadMinutes, !closed);
-  const dueRemainingText =
-    dueTs === null || closed ? null : msg.taskDueRemaining(dueRemaining(dueTs, nowSec));
-  const dueDateText =
-    dueTs === null
-      ? null
-      : hasDueTime(dueTs)
-        ? msg.taskDueDateTime(dueTs)
-        : msg.taskDueDate(dueTs);
+  const dueDateText = dueTs === null ? null : formatDue(dueTs, nowSec);
   const dueRowShown = dueTs !== null || dueEditable;
   const dueTone = due === null || closed || due.kind === "later" ? null : due.kind;
   const dueToneClass = dueTone ? ` task-card__due-date--${dueTone}` : "";
-  const dueRemainingId = useId();
-  const dueSoonId = useId();
-  const dueDescribedBy =
-    dueRemainingText === null
-      ? undefined
-      : dueTone === "soon"
-        ? `${dueRemainingId} ${dueSoonId}`
-        : dueRemainingId;
+  const dueStatusId = useId();
+  const dueDescribedBy = dueTone === null ? undefined : dueStatusId;
   const [confirmOpen, setConfirmOpen] = useState(false);
   // 強制結案 (T-192) gets its own confirm rather than sharing one with
   // 標記重複/終止: collapsing named closes into one dialog with a status
@@ -1311,120 +1314,90 @@ export function TaskCard({
   }
 
   // ── embedded reply cards ────────────────────────────────────────────────────
-  // Each step carrying a card (non-empty replyCardId — an armed gate OR an
-  // ad-hoc ask bound to a plain step) embeds one TaskReplyCard INSIDE its step row.
+  // Each step carrying a card (non-empty replyCardId) embeds one TaskReplyCard
+  // INSIDE its step row.
 
   // ── header stamps ──────────────────────────────────────────────────────────
   // 已歷時 ticks from created_ts (含 等待指派/等待建立 Steps — spec §3.1); a CLOSED
   // task freezes at closed_ts. created_ts 0 (no real stamp) → honest "—".
   const elapsedEnd = task.closedTs ?? nowTs;
-  const elapsedText =
-    task.createdTs > 0 ? formatDuration(elapsedEnd - task.createdTs) : "—";
+  const elapsedSeconds = task.createdTs > 0 ? elapsedEnd - task.createdTs : null;
   const progressPct =
     task.progressTotal > 0
       ? Math.min(100, (task.progressDone / task.progressTotal) * 100)
       : 0;
 
-  // ── step badge — resolveStepBadge (lib/stepBadge.ts) is the ONE decision
-  // source: 等我回覆 renders only while the bound card really WAITS; an
-  // answered/expired card shows its own badge even if the step is still held
-  // at waiting_owner (T-d64f).
-  function renderStepBadge(step: TaskStepView) {
-    const badge = resolveStepBadge(step);
-    switch (badge.kind) {
-      case "gate-announced":
-        return (
-          <span
-            className="task-step-badge task-step-badge--gate-announced"
-            data-testid="gate-announced"
-          >
-            {t.tasks.gateAnnounced}
-          </span>
-        );
-      case "card-answered":
-        return (
-          <span
-            className="task-step-badge task-step-badge--card-answered"
-            data-testid="step-card-answered"
-          >
-            {t.tasks.stepCardAnswered}
-          </span>
-        );
-      case "card-expired":
-        return (
-          <span
-            className="task-step-badge task-step-badge--card-expired"
-            data-testid="step-card-expired"
-          >
-            {t.tasks.stepCardExpired}
-          </span>
-        );
-      case "waiting-external":
-        return (
-          <span
-            className="task-step-badge task-step-badge--waiting-external"
-            data-testid="step-waiting-external"
-          >
-            {t.tasks.stepWaitingExternal}
-          </span>
-        );
-      default:
-        return (
-          <span className={`task-step-badge task-step-badge--${badge.status}`}>
-            {/* Map miss → show the raw key DELIBERATELY (honest, debuggable —
-             * never a blank badge). This branch must stay unreachable for the
-             * closed set: stepBadge.i18n.test.ts enumerates STEP_STATUSES ×
-             * every locale and goes red the moment a status lacks its
-             * translations (T-6f11), so the raw key can only surface for a
-             * value the whole frontend doesn't know yet. */}
-            {t.tasks.stepStatus[badge.status] ?? badge.status}
-          </span>
-        );
-    }
+  // Map miss → the raw key DELIBERATELY (honest, debuggable — never a blank
+  // name). stepBadge.i18n.test.ts walks STEP_STATUSES × every locale, so the
+  // raw key can only surface for a value the whole frontend doesn't know yet.
+  function stepStatusName(status: string): string {
+    return t.tasks.stepStatus[status] ?? status;
+  }
+
+  function stepMarkerLabel(step: TaskStepView): string {
+    const name = stepStatusName(resolveStepBadge(step));
+    return step.isGate ? `${name} · ${t.tasks.needsApproval}` : name;
   }
 
   // Step 耗時 — only from REAL stamps: done = finished-started; running/waiting
-  // = now-started; pending (no start) renders nothing (never fabricated).
-  function stepDuration(step: TaskStepView): string | null {
+  // = now-started; pending (no start) gets no time (never fabricated).
+  function stepDuration(step: TaskStepView): number | null {
     if (step.startedTs <= 0) return null;
-    if (step.finishedTs > 0) {
-      return formatDuration(step.finishedTs - step.startedTs);
-    }
-    if (step.status === "in_progress" || step.status === "waiting_owner") {
-      return formatDuration(nowTs - step.startedTs);
+    if (step.finishedTs > 0) return step.finishedTs - step.startedTs;
+    if (
+      step.status === "in_progress" ||
+      step.status === "waiting_owner" ||
+      step.status === "waiting_external"
+    ) {
+      return nowTs - step.startedTs;
     }
     return null;
   }
 
   function renderStep(step: TaskStepView) {
     const dur = stepDuration(step);
-    // The PERMANENT approval marker: a step that is a declared gate OR ever
-    // had a reply card bound (the pointer persists after the step finishes)
-    // stays recognisable as an approval step forever (owner 2026-07-14).
-    const everApproval = step.isGate || step.replyCardId !== "";
     return (
       <div
         key={step.id}
-        className={`task-step task-step--${step.status}`}
+        className={`task-step task-step--${resolveStepBadge(step)}`}
         data-testid="task-step"
         /* T-c514: the 等待外部 menu jump needs to land on a SPECIFIC step, and
            data-testid alone can't tell two steps apart. Same addressing trick
            the reply-card jump already uses (data-reply-card-id). */
         data-step-id={step.id}
       >
+        {step.isGate && (
+          <span
+            className="task-step__gate"
+            role="img"
+            title={t.tasks.needsApproval}
+            aria-label={t.tasks.needsApproval}
+            data-testid="step-gate"
+          >
+            <ShieldIcon size={12} />
+          </span>
+        )}
         <div className="task-step__row">
           <span className="task-step__name">{step.name}</span>
-          {everApproval && (
-            <span className="task-step__gate-mark" data-testid="gate-mark">
-              {t.tasks.gateMark}
+          {/* Same pill as the 請示 page's waited stamp (replies.css); an empty
+              one keeps a step with no time in the same column. */}
+          {dur === null ? (
+            <span
+              className="reply-card__waited-pill task-step__time task-step__time--empty"
+              aria-hidden="true"
+            />
+          ) : (
+            <span
+              className="reply-card__waited-pill task-step__time"
+              role="img"
+              title={msg.taskElapsed(formatDuration(dur))}
+              aria-label={msg.taskElapsed(formatDuration(dur))}
+              data-testid="step-duration"
+            >
+              <HourglassIcon size={12} />
+              <span>{formatDurationShort(dur)}</span>
             </span>
           )}
-          {dur && (
-            <span className="task-step__duration">
-              <ClockIcon size={12} /> {dur}
-            </span>
-          )}
-          {renderStepBadge(step)}
         </div>
         {step.dod && (
           <div className="task-step__dod">
@@ -1493,7 +1466,7 @@ export function TaskCard({
             text → <Markdown>; label on its own line (always-stack). */}
         {step.status === "waiting_external" && step.waitingReason && (
           <div className="task-step__waiting" data-testid="step-waiting-reason">
-            <ClockIcon size={12} />
+            <CircleArrowOutUpRightIcon size={12} />
             <span className="task-step__waiting-label">
               {t.tasks.waitingLabel}
             </span>
@@ -1513,6 +1486,8 @@ export function TaskCard({
             initialStatus={step.replyCardStatus}
             fallbackSummary={step.name}
             commentRecipientFor={docCommentRecipientFor}
+            members={members}
+            workers={workers}
           />
         )}
       </div>
@@ -1520,6 +1495,18 @@ export function TaskCard({
   }
 
   const timeline = buildTimeline(view.steps);
+  const currentStep = view.steps.find((s) => s.status === "in_progress");
+  const workflowSummary =
+    task.progressTotal === 0
+      ? ""
+      : workflowOpen
+        ? `${t.tasks.workflowStepCount(task.progressTotal)} · ${t.tasks.workflowDone(task.progressDone, task.progressTotal)}`
+        : [
+            t.tasks.workflowDone(task.progressDone, task.progressTotal),
+            currentStep && t.tasks.workflowCurrent(currentStep.name),
+          ]
+            .filter(Boolean)
+            .join(" · ");
 
   const card = (
     <article
@@ -1536,99 +1523,28 @@ export function TaskCard({
       onClick={onCardToggleClick}
       onKeyDown={onCardToggleKeyDown}
     >
-      {/* ── head (v4 layout — owner 2026-07-17「這兩排應該要對調」): the v2
-           order SWAPPED. Row 1 is the badge row (☑ #<task id> badge · 優先權
-           chip (in-place editable) · 狀態 badge) and row 2 the title; the ▸/▾
-           expand indicator holds the card's top-right corner, riding row 1
-           alongside the badges — the corner is the anchor, not the title
-           (T-70fb behaviour 1, now served by the triangle instead of the
-           deleted ⋮). No avatar; no chevron — the whole card toggles. ── */}
+      {/* ── head: row 1 is the badge row (狀態 icon · ☑ #<task id> · 優先權 ·
+           轉派中), with the ▸/▾ expand indicator in the card's top-right
+           corner; row 2 is the title. No avatar; the whole card toggles. ── */}
       <header className="task-card__head">
         <div className="task-card__head-top">
-          {/* Row 1 — the fixed badge row: #<task id> · 優先權 · 狀態 (v3 order —
-              the id leads). The priority chip edits in place (owner v2/v3):
-              clicking it drops a vertical select-style menu (same visual
-              vocabulary as the 狀態 dropdown popover); picking one calls
-              setTaskPriority — the card never has to expand. A closed task's
-              priority is frozen history → plain span. A 等我回覆 status badge
-              is itself a jump: click → expand the card + scroll to the embedded
-              reply card (v3); every other status is a plain badge. */}
+          {/* Row 1 — the fixed badge row. The status is a line icon in the
+              status colour (its name is the button's accessible name and the
+              menu's header line); the priority chip edits in place, and a
+              closed task's priority is frozen history → plain span. */}
           <div className="task-card__badge-row">
-            <button
-              type="button"
-              className="task-card__id-badge task-card__id-badge--copy"
-              data-testid="task-no"
-              aria-label={msg.taskCopyTaskNo(task.taskNo)}
-              title={msg.taskCopyTaskNo(task.taskNo)}
-              onClick={copyTaskNo}
-            >
-              {copied ? <CheckIcon size={13} /> : <TasksIcon size={13} />}#
-              {task.taskNo}
-              {copied && (
-                <span
-                  className="task-card__id-badge-copied"
-                  role="status"
-                  data-testid="task-no-copied"
-                >
-                  {t.tasks.taskNoCopied}
-                </span>
-              )}
-            </button>
-            {closed ? (
-              <TaskPriorityBadge priority={task.priority} testId="task-priority" />
-            ) : (
-              <div className="task-card__prio" ref={prioRef}>
-                <button
-                  type="button"
-                  className={`task-badge task-badge--prio-${task.priority} task-card__prio-chip`}
-                  title={t.tasks.priorityLabel}
-                  aria-label={t.tasks.priorityLabel}
-                  aria-haspopup="menu"
-                  aria-expanded={prioOpen}
-                  data-testid="task-priority"
-                  onClick={() => setPrioOpen((o) => !o)}
-                >
-                  {t.tasks.priority[task.priority] ?? task.priority}
-                </button>
-                {prioOpen && (
-                  <div
-                    className="task-card__menu-pop task-card__prio-pop"
-                    role="menu"
-                    aria-label={t.tasks.priorityLabel}
-                    data-testid="task-priority-options"
-                  >
-                    {PRIORITIES.map((p) => (
-                      <button
-                        key={p}
-                        type="button"
-                        role="menuitem"
-                        className={`task-card__menu-item${
-                          task.priority === p
-                            ? " task-card__menu-item--active"
-                            : ""
-                        }`}
-                        data-testid={`priority-${p}`}
-                        onClick={() => void doSetPriority(p)}
-                      >
-                        {t.tasks.priority[p]}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
             <div className="task-card__status" ref={statusRef}>
               <button
                 type="button"
-                className={`task-badge task-badge--status-${task.status} task-card__status-chip`}
-                title={t.tasks.statusMenuLabel}
-                aria-label={t.tasks.statusMenuLabel}
+                className={`card-head__status-icon task-card__status-icon--${task.status}`}
+                title={statusName}
+                aria-label={statusName}
                 aria-haspopup="menu"
                 aria-expanded={statusOpen}
                 data-testid="task-status"
                 onClick={() => setStatusOpen((o) => !o)}
               >
-                {t.tasks.status[task.status] ?? task.status}
+                <TaskStatusIcon status={task.status} size={18} />
               </button>
               {statusOpen && (
                 <div
@@ -1637,6 +1553,13 @@ export function TaskCard({
                   aria-label={t.tasks.statusMenuLabel}
                   data-testid="task-status-options"
                 >
+                  <div
+                    className="task-card__menu-head"
+                    aria-hidden="true"
+                    data-testid="task-status-current"
+                  >
+                    {statusName}
+                  </div>
                   {/* ── JUMPS FIRST (T-c514, owner 2026-07-20) ──
                       Both jumps mean "take me to where this is stuck", and both
                       now sit ABOVE 標記重複/終止. Owner's wording: 「跳到等我回覆
@@ -1661,6 +1584,7 @@ export function TaskCard({
                       onClick={() => {
                         setStatusOpen(false);
                         setExpanded(true);
+                        setWorkflowOpen(true);
                         setReplyScrollPending(true);
                       }}
                     >
@@ -1712,6 +1636,7 @@ export function TaskCard({
                       onClick={() => {
                         setStatusOpen(false);
                         setExpanded(true);
+                        setWorkflowOpen(true);
                         setStepScrollPending(true);
                       }}
                     >
@@ -1803,8 +1728,59 @@ export function TaskCard({
               )}
             </div>
 
+            <CopyIdChip
+              value={task.taskNo}
+              text={task.taskNo}
+              label={msg.taskCopyTaskNo(task.taskNo)}
+              copiedLabel={t.tasks.taskNoCopied}
+              testId="task-no"
+              copiedTestId="task-no-copied"
+            />
+            {closed ? (
+              <TaskPriorityBadge priority={task.priority} testId="task-priority" />
+            ) : (
+              <div className="task-card__prio" ref={prioRef}>
+                <button
+                  type="button"
+                  className={`task-badge task-badge--prio-${task.priority} task-card__prio-chip`}
+                  title={t.tasks.priorityLabel}
+                  aria-label={t.tasks.priorityLabel}
+                  aria-haspopup="menu"
+                  aria-expanded={prioOpen}
+                  data-testid="task-priority"
+                  onClick={() => setPrioOpen((o) => !o)}
+                >
+                  {t.tasks.priority[task.priority] ?? task.priority}
+                </button>
+                {prioOpen && (
+                  <div
+                    className="task-card__menu-pop task-card__prio-pop"
+                    role="menu"
+                    aria-label={t.tasks.priorityLabel}
+                    data-testid="task-priority-options"
+                  >
+                    {PRIORITIES.map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        role="menuitem"
+                        className={`task-card__menu-item${
+                          task.priority === p
+                            ? " task-card__menu-item--active"
+                            : ""
+                        }`}
+                        data-testid={`priority-${p}`}
+                        onClick={() => void doSetPriority(p)}
+                      >
+                        {t.tasks.priority[p]}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {/* 轉派中 LOCK overlay (T-9ca5): ORTHOGONAL to status — a reassigned
-                task keeps its honest derived status badge AND shows this while
+                task keeps its honest derived status icon AND shows this while
                 task.lock === "reassigning" (never a status value any more). */}
             {task.lock === "reassigning" && (
               <span
@@ -1814,64 +1790,6 @@ export function TaskCard({
                 {t.tasks.lockReassigning}
               </span>
             )}
-
-            {/* 任務類型 — row 1, a COLOURED .task-badge, same vocabulary as the
-                優先權/狀態 badges beside it (owner picked 候選 A, 2026-07-17).
-                It used to be a neutral .task-card__chip (4% white fill) down in
-                the .task-card__meta label grid, which read as a third-class
-                field while type is in fact one of the card's identifying
-                facts. Its own teal (--color-task-type) — NOT --color-accent —
-                because in_progress is already accent green and two same-
-                coloured badges side by side would read as one status pair.
-                The 齒輪 deep-link into the type's settings hub is unchanged;
-                only the styling and the slot moved.
-                390px: the badge row is flex-wrap, so a type name that does not
-                fit WRAPS to a second line rather than truncating. Owner ruled
-                on this explicitly (「手機上 type 自己一行我接受」) after seeing
-                the 候選 B truncation measured: cutting to 6 chars +「…」 STILL
-                wrapped at 390px, so truncation bought nothing and cost the
-                name. Wrapping is the accepted outcome, not a bug to fix. */}
-            {typeClickable ? (
-              <button
-                type="button"
-                className="task-badge task-badge--type task-card__type-chip"
-                title={t.tasks.typeSettingsLink}
-                data-testid="task-type-link"
-                onClick={openTypeSettings}
-              >
-                <GearIcon size={13} />
-                <span className="task-card__type" data-testid="task-type">
-                  {typeLabel}
-                </span>
-              </button>
-            ) : (
-              <span
-                className="task-badge task-badge--type"
-                data-testid="task-type-row"
-              >
-                <span className="task-card__type" data-testid="task-type">
-                  {typeLabel}
-                </span>
-              </span>
-            )}
-            {/* 產物 N — the artifact-set count badge (T-3dc5, owner design A):
-                the rightmost coloured badge in this row; renders ONLY when the
-                count > 0, and clicking opens the tabbed popover. It deliberately
-                does NOT touch the top-right chevron slot (spec ③). */}
-            {/* T-2654: a CLOSED task's deliverable set is frozen in BOTH
-                directions (the server 409s un-pin exactly like add), so drop
-                the 移除 affordance instead of letting the click fail. Gating
-                here rather than at the call site covers every caller at once. */}
-            {/* T-66 / T-92: no hydrate seam any more. The task read carries a
-                COUNT of the artifacts and nothing else (owner rc-15016959ad4d),
-                so the popover fetches every row itself when it opens. */}
-            <TaskArtifactsBadge
-              task={view}
-              commentRecipient={executorRecipient}
-              onRemoveArtifact={
-                TERMINAL.has(view.status) ? undefined : onRemoveArtifact
-              }
-            />
           </div>
 
           {/* ── expand indicator (v6, owner 2026-07-17): a ChevronRight
@@ -1961,58 +1879,42 @@ export function TaskCard({
           </div>
         )}
 
-        {/* Below the badge row: an aligned label column (任務類型 / 負責人 /
-            建立者 / 到期日 / 識別鍵) — task_no left the stack for the badge row (v2)
-            (owner spec 2026-07-15). A CSS grid gives every label cell the same
-            max-content width so the value chips line up across rows and across
-            languages. Each row emits two grid children: the muted label span
-            and the value chip. The chip — not the label — carries the icon and
-            the click, so the jump target sits inside the pill (spec):
-              類型 chip (齒輪) → #settings/manuals/<typeKey>
-              負責人/建立者 chip (聊天泡泡) → 該對象聊天 compose. */}
-        <div className="task-card__meta">
-          {/* 任務類型 left this grid for the badge row (v6) — see the head. */}
-
+        {/* Below the badge row: an aligned label column. A CSS grid gives
+            every label cell the same max-content width so the value chips line
+            up across rows and languages. Each row emits two grid children: the
+            muted label span and the value chip, which carries the icon and the
+            click. 負責人 / 到期日 (+ 前任 / 識別鍵 when set) are always shown;
+            類型 / 產物 / 建立者 join them, right under 到期日, only while the
+            card is expanded. */}
+        <div className="card-meta">
           {/* 負責人 (聊天泡泡 in the chip when reachable) + 轉派 icon to its right
               (owner 2026-07-18): 轉派 is a hand-the-task-to-a-new-executor
               action, so it belongs beside WHO owns the task. The chip and the
               icon share the grid's value cell through .task-card__assignee-cell
-              (inline-flex): the chip stays shrinkable so a long 外包
-              代號·模型·投入度 line still ellipses, and the icon is flex:none, so
-              at 390px the name wraps/ellipses but the button never clips. The
+              (inline-flex): the chip stays shrinkable so a long name still
+              ellipses, and the icon is flex:none, so at 390px the name
+              wraps/ellipses but the button never clips. The
               button is a real interactive element (closest() in the card-toggle
               filter already excludes it), shown only while the task is
               non-terminal — the server 409s a reassign on a closed task. */}
-          <span className="task-card__meta-label">{t.tasks.assigneeLabel}</span>
+          <span className="card-meta__label">{t.tasks.assigneeLabel}</span>
           <div className="task-card__assignee-cell">
             {assigneePeerId ? (
-              <button
-                type="button"
-                className="task-card__chip task-card__chip--link"
-                title={t.tasks.messageAssignee}
-                aria-label={t.tasks.messageAssignee}
-                data-testid="task-assignee-link"
-                onClick={() => openChat(assigneePeerId)}
-              >
-                {assigneeAvatar ? (
-                  <Avatar size={18} kind={assigneeAvatar.kind} src={assigneeAvatar.src} />
-                ) : null}
-                <span className="task-card__executor" data-testid="task-executor">
-                  {executorText}
-                </span>
-                <ChatBubbleIcon size={13} />
-              </button>
+              <MemberChatChip
+                name={executorText}
+                avatar={assigneeAvatar}
+                label={t.tasks.messageAssignee}
+                onOpen={() => openChat(assigneePeerId)}
+                testId="task-assignee-link"
+                nameTestId="task-executor"
+              />
             ) : (
-              <span className="task-card__chip" data-testid="task-assignee-row">
-                <span className="task-card__executor" data-testid="task-executor">
-                  {executorText}
-                </span>
-              </span>
+              <MemberChip name={executorText} avatar={null} testId="task-assignee-row" nameTestId="task-executor" />
             )}
             {!closed && (
               <button
                 type="button"
-                className="task-card__reassign"
+                className="card-head__icon-btn"
                 title={t.tasks.reassign}
                 aria-label={t.tasks.reassign}
                 data-testid="task-reassign"
@@ -2023,47 +1925,14 @@ export function TaskCard({
             )}
           </div>
 
-          {/* 建立者 — member/外包 可點(聊天泡泡); ""→— 與 未知值 純文字(無圖示).
-              Hidden entirely when the creator IS the assignee (v6, owner
-              2026-07-17): the row would restate the line directly above it. */}
-          {!creatorIsExecutor && (
-            <>
-              <span className="task-card__meta-label">{t.tasks.creatorLabel}</span>
-              {creator.peerId ? (
-                <button
-                  type="button"
-                  className="task-card__chip task-card__chip--link"
-                  title={t.tasks.messageCreator}
-                  aria-label={t.tasks.messageCreator}
-                  data-testid="task-creator-link"
-                  onClick={() => openChat(creator.peerId)}
-                >
-                  {creatorAvatar ? (
-                    <Avatar size={18} kind={creatorAvatar.kind} src={creatorAvatar.src} />
-                  ) : null}
-                  <span className="task-card__creator" data-testid="task-creator">
-                    {creator.text}
-                  </span>
-                  <ChatBubbleIcon size={13} />
-                </button>
-              ) : (
-                <span className="task-card__chip" data-testid="task-creator-row">
-                  <span className="task-card__creator" data-testid="task-creator">
-                    {creator.text}
-                  </span>
-                </span>
-              )}
-            </>
-          )}
-
           {dueRowShown && (
             <>
-              <span className="task-card__meta-label">{t.tasks.dueLabel}</span>
+              <span className="card-meta__label">{t.tasks.dueLabel}</span>
               <div className="task-card__due" ref={dueRef}>
                 {dueEditable ? (
                   <button
                     type="button"
-                    className={`task-card__chip task-card__chip--link${
+                    className={`card-meta__chip card-meta__chip--link${
                       dueDateText === null ? " task-card__due-date--unset" : dueToneClass
                     }`}
                     title={t.tasks.dueEditLabel}
@@ -2080,25 +1949,16 @@ export function TaskCard({
                   </button>
                 ) : (
                   <span
-                    className={`task-card__chip${dueToneClass}`}
+                    className={`card-meta__chip${dueToneClass}`}
                     aria-describedby={dueDescribedBy}
                     data-testid="task-due"
                   >
                     {dueDateText}
                   </span>
                 )}
-                {dueRemainingText !== null && (
-                  <span
-                    id={dueRemainingId}
-                    className={`task-card__due-remaining${dueToneClass}`}
-                    data-testid="task-due-remaining"
-                  >
-                    {dueRemainingText}
-                  </span>
-                )}
-                {dueTone === "soon" && (
-                  <span id={dueSoonId} className="task-card__due-status" data-testid="task-due-alert">
-                    {t.tasks.dueSoonHint}
+                {dueTone !== null && (
+                  <span id={dueStatusId} className="task-card__due-status" data-testid="task-due-alert">
+                    {dueTone === "soon" ? t.tasks.dueSoonHint : t.tasks.dueOverdueHint}
                   </span>
                 )}
                 {dueOpen && (
@@ -2271,44 +2131,97 @@ export function TaskCard({
             </>
           )}
 
+          {expanded && (
+            <div className="task-card__more" data-testid="task-meta-more">
+              <span className="card-meta__label">{t.tasks.metaTypeLabel}</span>
+              {typeClickable ? (
+                <button
+                  type="button"
+                  className="card-meta__chip card-meta__chip--link"
+                  title={t.tasks.typeSettingsLink}
+                  data-testid="task-type-link"
+                  onClick={openTypeSettings}
+                >
+                  <GearIcon size={13} />
+                  <span className="task-card__type" data-testid="task-type">
+                    {typeLabel}
+                  </span>
+                </button>
+              ) : (
+                <span className="card-meta__chip" data-testid="task-type-row">
+                  <span className="task-card__type" data-testid="task-type">
+                    {typeLabel}
+                  </span>
+                </span>
+              )}
+
+              {(view.artifactCount ?? 0) > 0 && (
+                <div className="task-card__artifacts-row">
+                  <span className="card-meta__label">
+                    {t.tasks.artifacts.label}
+                  </span>
+                  {/* A closed task's deliverable set is frozen (the server
+                      409s un-pin like add), so the 移除 affordance is dropped. */}
+                  <TaskArtifactsBadge
+                    task={view}
+                    commentRecipient={executorRecipient}
+                    onRemoveArtifact={
+                      TERMINAL.has(view.status) ? undefined : onRemoveArtifact
+                    }
+                  />
+                </div>
+              )}
+
+              {/* 建立者 — member/外包 可點(聊天泡泡); ""→— 與 未知值 純文字(無圖示).
+                  Hidden entirely when the creator IS the assignee (v6, owner
+                  2026-07-17): the row would restate the line directly above it. */}
+              {!creatorIsExecutor && (
+                <>
+                  <span className="card-meta__label">{t.tasks.creatorLabel}</span>
+                  {creator.peerId ? (
+                    <MemberChatChip
+                      name={creator.text}
+                      avatar={creatorAvatar}
+                      label={t.tasks.messageCreator}
+                      onOpen={() => openChat(creator.peerId)}
+                      testId="task-creator-link"
+                      nameTestId="task-creator"
+                    />
+                  ) : (
+                    <MemberChip name={creator.text} avatar={null} testId="task-creator-row" nameTestId="task-creator" />
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {/* 前任 (T-ba04 轉派交接) — the predecessor to hand over WITH; shown
               only while/after a reassign stamped one (reassignedFrom !== "").
               Always a chat-reachable chip (the id is addressable regardless of
               whether the peer still resolves to a live roster/worker row). */}
           {previousAssignee && (
             <>
-              <span className="task-card__meta-label">
+              <span className="card-meta__label">
                 {t.tasks.previousAssigneeLabel}
               </span>
-              <button
-                type="button"
-                className="task-card__chip task-card__chip--link"
-                title={t.tasks.messagePreviousAssignee}
-                aria-label={t.tasks.messagePreviousAssignee}
-                data-testid="task-previous-assignee-link"
-                onClick={() => openChat(previousAssignee.peerId)}
-              >
-                {previousAvatar ? (
-                  <Avatar size={18} kind={previousAvatar.kind} src={previousAvatar.src} />
-                ) : null}
-                <span
-                  className="task-card__creator"
-                  data-testid="task-previous-assignee"
-                >
-                  {previousAssignee.text}
-                </span>
-                <ChatBubbleIcon size={13} />
-              </button>
+              <MemberChatChip
+                name={previousAssignee.text}
+                avatar={previousAvatar}
+                label={t.tasks.messagePreviousAssignee}
+                onOpen={() => openChat(previousAssignee.peerId)}
+                testId="task-previous-assignee-link"
+                nameTestId="task-previous-assignee"
+              />
             </>
           )}
 
           {/* 識別鍵 — URL 值可外連(chip 內帶外連圖示); 空值整列不顯示 (ad-hoc) */}
           {task.dedupeKey && (
             <>
-              <span className="task-card__meta-label">{t.tasks.keyLabel}</span>
+              <span className="card-meta__label">{t.tasks.keyLabel}</span>
               {isUrl(task.dedupeKey) ? (
                 <a
-                  className="task-card__chip task-card__chip--link task-card__key-chip"
+                  className="card-meta__chip card-meta__chip--link task-card__key-chip"
                   href={task.dedupeKey}
                   target="_blank"
                   rel="noreferrer"
@@ -2320,7 +2233,7 @@ export function TaskCard({
                 </a>
               ) : (
                 <span
-                  className="task-card__chip task-card__key-chip"
+                  className="card-meta__chip task-card__key-chip"
                   data-testid="task-key-row"
                 >
                   <span className="task-card__key" data-testid="task-key">
@@ -2532,7 +2445,8 @@ export function TaskCard({
                 </span>
                 {depClosed ? <CheckIcon size={13} /> : <ClockIcon size={13} />}
                 <span className="task-card__dep-no">
-                  {msg.taskBlockedBy(dep.taskNo)}
+                  {t.tasks.blockedByLabel} <ExternalLinkIcon size={11} />
+                  {idChipText(dep.taskNo)}
                 </span>
                 {/* Full text on hover: the row truncates at one line, and the
                     title attribute is the only affordance that survives both
@@ -2540,7 +2454,6 @@ export function TaskCard({
                 <span className="task-card__dep-title" title={dep.title}>
                   {dep.title}
                 </span>
-                <ExternalLinkIcon size={11} />
               </button>
             );
           })}
@@ -2551,13 +2464,24 @@ export function TaskCard({
       <div className="task-card__progress">
         <div className="task-card__progress-bar">
           <div
-            className={`task-card__progress-fill task-card__progress-fill--${task.status}`}
+            className="task-card__progress-fill"
             style={{ width: `${progressPct}%` }}
           />
         </div>
-        <span className="task-card__progress-text" data-testid="task-progress">
-          {msg.taskProgress(task.progressDone, task.progressTotal)} ·{" "}
-          {msg.taskElapsed(elapsedText)}
+        <span className="task-card__progress-line">
+          <span className="task-card__progress-text" data-testid="task-progress">
+            {msg.taskProgress(task.progressDone, task.progressTotal)}
+          </span>
+          <span
+            className="reply-card__waited-pill"
+            role="img"
+            title={msg.taskElapsed(elapsedSeconds === null ? "—" : formatDuration(elapsedSeconds))}
+            aria-label={msg.taskElapsed(elapsedSeconds === null ? "—" : formatDuration(elapsedSeconds))}
+            data-testid="task-elapsed"
+          >
+            <HourglassIcon size={12} />
+            <span>{elapsedSeconds === null ? "—" : formatDurationShort(elapsedSeconds)}</span>
+          </span>
         </span>
       </div>
 
@@ -2578,17 +2502,17 @@ export function TaskCard({
         <div className="task-card__duplicate" data-testid="task-duplicate-of">
           <button
             type="button"
-            className="task-card__chip task-card__chip--link"
+            className="card-meta__chip card-meta__chip--link"
             title={t.tasks.duplicateJump}
             data-testid="task-duplicate-link"
             onClick={() =>
               navigateHash({ page: "tasks", taskId: task.duplicateOf })
             }
           >
-            <span>
-              {msg.taskDuplicateOf(deriveTaskNo(task.duplicateOf))}
-            </span>
             <ExternalLinkIcon size={11} />
+            <span>
+              {msg.taskDuplicateOf(idChipText(deriveTaskNo(task.duplicateOf)))}
+            </span>
           </button>
         </div>
       )}
@@ -2608,19 +2532,26 @@ export function TaskCard({
            identically to one that was never rendered. ── */}
       {view.forcedDoneBy && (
         <div className="task-card__forced-done" data-testid="task-forced-done">
-          <span className="task-card__meta-label">{t.tasks.forcedDoneLabel}</span>
-          <span className="task-card__forced-done-by">
-            {members.find((m) => m.id === forcedDoneBy)?.name ??
-              forcedDoneByNames.get(forcedDoneBy) ??
-              forcedDoneBy}
-          </span>
-          <span
-            className={`task-card__forced-done-reason${
-              view.forcedDoneReason ? "" : " task-card__forced-done-reason--none"
-            }`}
-            data-testid="task-forced-done-reason"
-          >
-            {view.forcedDoneReason || t.tasks.forcedDoneNoReason}
+          <span className="card-meta__label">{t.tasks.forcedDoneLabel}</span>
+          {forcedDoneByPerson.peerId ? (
+            <MemberChatChip
+              name={forcedDoneByPerson.text}
+              avatar={identityAvatar(forcedDoneBy)}
+              label={t.tasks.messageForcedDoneBy}
+              onOpen={() => openChat(forcedDoneByPerson.peerId)}
+              testId="task-forced-done-by-link"
+              nameTestId="task-forced-done-by"
+            />
+          ) : (
+            <MemberChip
+              name={forcedDoneByPerson.text}
+              avatar={null}
+              testId="task-forced-done-by-row"
+              nameTestId="task-forced-done-by"
+            />
+          )}
+          <span className="task-card__forced-done-reason" data-testid="task-forced-done-reason">
+            {view.forcedDoneReason || t.common.emptyValue}
           </span>
         </div>
       )}
@@ -2676,7 +2607,7 @@ export function TaskCard({
                 : task.executorKind === "staff"
                   ? staffExecutorName
                   : worker
-                    ? msg.outsourceLabel(worker.codename)
+                    ? worker.codename
                     : t.tasks.outsource
             )}
             data-testid="task-msg-input"
@@ -2739,22 +2670,36 @@ export function TaskCard({
            compact — and still hydrated from the full task, so it appears once
            detail lands. ── */}
       {expanded && (hasDetail || view.description) && (
-        <div className="task-card__desc-block">
-          {/* T-e5b1 (owner 2026-08-15): READ-ONLY. The in-place description
-              editor and its 編輯敘述 affordance were removed with the title's;
-              the capability is untouched. T-646a: the MCP tool is now
-              `update_task`, and POST /api/tasks/{id}/description stays on the
-              HTTP surface for this client. */}
-          {view.description ? (
-            <Markdown
-              source={view.description}
-              className="task-card__desc doc-md"
-              tableSizing="content-aware"
-            />
-          ) : (
-            <div className="task-card__desc-empty">{t.tasks.descEmpty}</div>
-          )}
-        </div>
+        <TaskCardSection
+          icon={<FileTextIcon size={14} />}
+          title={t.tasks.descTitle}
+          open={descOpen}
+          onToggle={() => setDescOpen((v) => !v)}
+          testId="task-desc-section"
+        >
+          <div className="task-card__desc-block">
+            {/* T-e5b1 (owner 2026-08-15): READ-ONLY. The in-place description
+                editor and its 編輯敘述 affordance were removed with the title's;
+                the capability is untouched. T-646a: the MCP tool is now
+                `update_task`, and POST /api/tasks/{id}/description stays on the
+                HTTP surface for this client. */}
+            {view.description ? (
+              <ClampedText
+                lines={6}
+                className="task-card__desc-clamp"
+                testId="task-desc"
+              >
+                <Markdown
+                  source={view.description}
+                  className="task-card__desc doc-md"
+                  tableSizing="content-aware"
+                />
+              </ClampedText>
+            ) : (
+              <div className="task-card__desc-empty">{t.tasks.descEmpty}</div>
+            )}
+          </div>
+        </TaskCardSection>
       )}
 
       {/* ── workflow timeline / transitional states (expanded only) ──
@@ -2763,8 +2708,15 @@ export function TaskCard({
        * so pre-binding data degrades to exactly the old surface, never a
        * crash. */}
       {expanded && (
+      <TaskCardSection
+        icon={<TasksIcon size={14} />}
+        title={t.tasks.workflow}
+        summary={workflowSummary}
+        open={workflowOpen}
+        onToggle={() => setWorkflowOpen((v) => !v)}
+        testId="task-workflow-section"
+      >
       <div className="task-card__workflow">
-        <div className="task-card__workflow-title">{t.tasks.workflow}</div>
         {detailFailed ? (
           // The hydrate failed — say so and offer a retry (re-clicking re-runs
           // the fetch) instead of silently rendering a fake 規劃中 empty state.
@@ -2808,8 +2760,7 @@ export function TaskCard({
           ) : (
             // Genuinely no leaves yet — assigned but the executor has not created
             // any steps. 「等待 ○○ 建立 Steps」, ○○ = the executor's display name
-            // (member name / 外包 代號; owner ruling 2026-07). Resolved the same
-            // way as the message-box placeholder above.
+            // (member name / 外包 代號; owner ruling 2026-07).
             <div className="task-card__transition" data-testid="task-transition">
               {msg.taskPlanningBy(
                 task.executorKind === "staff"
@@ -2825,8 +2776,9 @@ export function TaskCard({
             {timeline.map((row) =>
               row.kind === "single" ? (
                 <div key={row.step.id} className="task-timeline__row">
-                  <span
-                    className={`task-timeline__dot task-timeline__dot--${row.step.status}`}
+                  <StepMarker
+                    status={resolveStepBadge(row.step)}
+                    label={stepMarkerLabel(row.step)}
                   />
                   {renderStep(row.step)}
                 </div>
@@ -2835,21 +2787,23 @@ export function TaskCard({
                 // hold the SAME group split into two stages (submit_plan now
                 // refuses new ones, stored rows are never rewritten) and two
                 // rows must not collide on one React key.
-                <div key={row.steps[0].id} className="task-timeline__row">
-                  <span
-                    className={`task-timeline__dot task-timeline__dot--${
-                      row.steps.some((s) => s.status === "in_progress")
-                        ? "in_progress"
-                        : row.steps.every((s) => s.status === "done")
-                          ? "done"
-                          : "pending"
-                    }`}
-                  />
+                <div
+                  key={row.steps[0].id}
+                  className="task-timeline__row task-timeline__row--parallel"
+                >
                   <div className="task-parallel" data-testid="task-parallel">
                     <div className="task-parallel__label">
                       ‖ {t.tasks.parallel(row.steps.length)}
                     </div>
-                    {row.steps.map(renderStep)}
+                    {row.steps.map((step) => (
+                      <div key={step.id} className="task-parallel__item">
+                        <StepMarker
+                          status={resolveStepBadge(step)}
+                          label={stepMarkerLabel(step)}
+                        />
+                        {renderStep(step)}
+                      </div>
+                    ))}
                   </div>
                 </div>
               )
@@ -2857,6 +2811,7 @@ export function TaskCard({
           </div>
         )}
       </div>
+      </TaskCardSection>
       )}
 
       {confirmOpen && (
@@ -3086,5 +3041,53 @@ function DuplicateTargetPicker({
         </div>
       )}
     </>
+  );
+}
+
+function TaskCardSection({
+  icon,
+  title,
+  summary,
+  open,
+  onToggle,
+  testId,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  summary?: string;
+  open: boolean;
+  onToggle: () => void;
+  testId: string;
+  children: React.ReactNode;
+}) {
+  const bodyId = useId();
+  return (
+    <section className="task-section" data-testid={testId}>
+      <button
+        type="button"
+        className="task-section__head"
+        aria-expanded={open}
+        aria-controls={open ? bodyId : undefined}
+        data-testid={`${testId}-head`}
+        onClick={onToggle}
+      >
+        <span className="task-section__icon" aria-hidden="true">{icon}</span>
+        <span className="task-section__title">{title}</span>
+        {summary && (
+          <span className="task-section__summary" data-testid={`${testId}-summary`}>
+            {summary}
+          </span>
+        )}
+        <span className="task-section__chevron" aria-hidden="true">
+          {open ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />}
+        </span>
+      </button>
+      {open && (
+        <div id={bodyId} className="task-section__body">
+          {children}
+        </div>
+      )}
+    </section>
   );
 }

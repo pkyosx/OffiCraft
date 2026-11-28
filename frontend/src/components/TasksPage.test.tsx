@@ -13,7 +13,7 @@
 //   4. Filters: 執行者 (外包/未指派/各成員) · 類型 (各手冊類型/自由代辦) ·
 //      狀態 (六態全部).
 //   5. Card rendering: six status badges (spec copy), executor display
-//      (member name / 外包 代號·模型·投入度 / 未指派), SERVER progress
+//      (member name / 外包 代號 / 未指派), SERVER progress
 //      passthrough, transitional states (未指派→等待指派, 有執行者無節點→
 //      規劃中), gate projection (announced dashed vs armed solid), parallel
 //      stage label, deps chips, waiting_external reason row.
@@ -50,6 +50,7 @@ import {
   clearAllFilters,
   openDisplayOptions,
   toggleLane,
+  openFiltersWhenReady,
 } from "../test/tasksFilter";
 import { useEnglishLocale } from "../test/effortOptions";
 import type { TaskView, TaskStepView, ReplyCard } from "../api/adapter";
@@ -117,6 +118,11 @@ function mkCard(over: Partial<ReplyCard>): ReplyCard {
     answer: null,
     ...over,
   };
+}
+
+/** The timeline icon drawn for a step or a parallel stage. */
+function markerOf(el: Element): Element {
+  return el.closest(".task-parallel__item, .task-timeline__row")!.querySelector('[data-testid="step-marker"]')!;
 }
 
 function renderPage() {
@@ -536,6 +542,7 @@ describe("TasksPage", () => {
     // asked for the button back (c-2423dba8b65b) and it is back in the field
     // row, so the original assertion stands unchanged.
     expect((await findAllByTestId("task-card")).length).toBe(3);
+    await openFiltersWhenReady();
     expect(queryByTestId("tasks-filter-clear")).not.toBeNull();
 
     // 執行者 = 外包 (assigned outsource only — 未指派 is its own option).
@@ -606,6 +613,7 @@ describe("TasksPage", () => {
 
     const { findAllByTestId, getByTestId } = renderPage();
     await findAllByTestId("task-card");
+    await openFiltersWhenReady();
     fireEvent.click(getByTestId("filter-type"));
     // The option row shows the human label, never the tm- key…
     const named = getByTestId("filter-type-opt-tm-aaaabbbbcccc");
@@ -656,14 +664,14 @@ describe("TasksPage", () => {
     await waitFor(() => {
       const badges = [
         ...document.querySelectorAll('[data-testid="task-status"]'),
-      ].map((b) => b.textContent);
+      ].map((b) => b.getAttribute("aria-label"));
       for (const [, label] of specs) {
         expect(badges).toContain(label);
       }
     });
   });
 
-  it("shows executor identity: member name, 外包 代號·模型·投入度, and 未指派", async () => {
+  it("shows executor identity: member name, 外包 bare 代號, and 未指派", async () => {
     __injectMockTask(mkTask({ title: "成員任務", executorId: "mira" }));
     const outsourced = mkTask({
       title: "外包任務",
@@ -695,7 +703,7 @@ describe("TasksPage", () => {
     expect(
       byTitle("外包任務").querySelector('[data-testid="task-executor"]')
         ?.textContent
-    ).toBe("外包 · O-7 · Opus 4.6 · 高投入");
+    ).toBe("O-7");
     expect(
       byTitle("未指派任務").querySelector('[data-testid="task-executor"]')
         ?.textContent
@@ -731,7 +739,7 @@ describe("TasksPage", () => {
     expect(
       card.querySelector('[data-testid="task-dep"] .task-card__dep-no')
         ?.textContent
-    ).toBe("等 T-7d40");
+    ).toBe("等 #T-7d40");
   });
 
   it("shows the transitional states: 未指派 → 等待指派, 有執行者但零節點 → 等待 ○○ 建立 Steps", async () => {
@@ -795,7 +803,7 @@ describe("TasksPage", () => {
     expect(queryByTestId("task-step")).toBeNull();
   });
 
-  it("renders the timeline: step DoD + 耗時, parallel stage label, gate announced (dashed) vs armed (solid)", async () => {
+  it("renders the timeline: step DoD + 耗時, parallel stage label, a waiting gate reads 等我回覆 and a pending gate its plain status", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(mkCard({ id: "rc-armed" }));
     __injectMockTask(
@@ -852,63 +860,56 @@ describe("TasksPage", () => {
     // DoD renders under the node name; the finished step carries its 耗時 (6m).
     expect(steps[0].textContent).toContain("產出可部署的 build artifact");
     expect(steps[0].textContent).toContain("6m");
-    expect(steps[0].textContent).toContain("完成");
+    expect(markerOf(steps[0]).getAttribute("aria-label")).toBe("完成");
     // Parallel stage: one block labelled 同時進行 · 2 項並行.
     const parallel = await findByTestId("task-parallel");
     expect(parallel.textContent).toContain("同時進行 · 2 項並行");
     expect(
       parallel.querySelectorAll('[data-testid="task-step"]')
     ).toHaveLength(2);
-    // ARMED gate: solid 等我回覆 badge (waiting_owner class, no dashed one).
-    expect(
-      steps[3].querySelector(".task-step-badge--waiting_owner")?.textContent
-    ).toBe("等我回覆");
-    expect(steps[3].querySelector('[data-testid="gate-announced"]')).toBeNull();
-    // ANNOUNCED gate: dashed preview badge even while the step is pending.
-    expect(
-      steps[4].querySelector('[data-testid="gate-announced"]')?.textContent
-    ).toBe("等我回覆");
+    expect(markerOf(steps[3]).getAttribute("aria-label")).toBe("等我回覆 · 需要你核可");
+    expect(markerOf(steps[4]).getAttribute("aria-label")).toBe("待辦 · 需要你核可");
+    expect(steps[4].querySelector('[data-testid="step-gate"]')).not.toBeNull();
   });
 
-  it("aggregates the parallel stage dot: any in_progress → 藍, all done → 綠, else pending", async () => {
+  it("gives every step in a parallel stage its own timeline icon and the stage header none", async () => {
     const now = Date.now() / 1000;
     __injectMockTask(
       mkTask({
-        title: "三段並行",
+        title: "兩段並行",
         steps: [
-          // Stage 1: every lane done → the stage dot is done.
-          mkStep({ name: "a1", status: "done", parallelGroup: "pg-done", orderIdx: 0, startedTs: now - 900, finishedTs: now - 600 }),
-          mkStep({ name: "a2", status: "done", parallelGroup: "pg-done", orderIdx: 1, startedTs: now - 900, finishedTs: now - 700 }),
-          // Stage 2: one lane running → in_progress wins the dot.
-          mkStep({ name: "b1", status: "done", parallelGroup: "pg-run", orderIdx: 2, startedTs: now - 500, finishedTs: now - 400 }),
-          mkStep({ name: "b2", status: "in_progress", parallelGroup: "pg-run", orderIdx: 3, startedTs: now - 500 }),
-          // Stage 3: some done but none running → still pending as a stage.
-          mkStep({ name: "c1", status: "done", parallelGroup: "pg-wait", orderIdx: 4, startedTs: now - 300, finishedTs: now - 200 }),
-          mkStep({ name: "c2", status: "pending", parallelGroup: "pg-wait", orderIdx: 5 }),
+          mkStep({ name: "a1", status: "done", parallelGroup: "pg-a", orderIdx: 0, startedTs: now - 900, finishedTs: now - 600 }),
+          mkStep({ name: "a2", status: "waiting_external", parallelGroup: "pg-a", orderIdx: 1, startedTs: now - 900 }),
+          mkStep({ name: "b1", status: "in_progress", parallelGroup: "pg-b", orderIdx: 2, startedTs: now - 500 }),
+          mkStep({ name: "b2", status: "pending", parallelGroup: "pg-b", orderIdx: 3 }),
         ],
       })
     );
     const { findByTestId, findAllByTestId } = renderPage();
     fireEvent.click(await findByTestId("task-card"));
-    const stages = await findAllByTestId("task-parallel");
-    expect(stages).toHaveLength(3);
-    const dotOf = (stage: Element) =>
-      stage.parentElement!.querySelector('[class*="task-timeline__dot--"]')!
-        .className;
-    expect(dotOf(stages[0])).toContain("task-timeline__dot--done");
-    expect(dotOf(stages[1])).toContain("task-timeline__dot--in_progress");
-    expect(dotOf(stages[2])).toContain("task-timeline__dot--pending");
+    const steps = await findAllByTestId("task-step");
+    expect(steps.map((step) => markerOf(step).getAttribute("aria-label"))).toEqual([
+      "完成",
+      "等待外部",
+      "進行中",
+      "待辦",
+    ]);
+    expect(steps.map((step) => markerOf(step).className)).toEqual([
+      "task-timeline__marker task-timeline__marker--done",
+      "task-timeline__marker task-timeline__marker--waiting_external",
+      "task-timeline__marker task-timeline__marker--in_progress",
+      "task-timeline__marker task-timeline__marker--pending",
+    ]);
+    expect(await findAllByTestId("step-marker")).toHaveLength(4);
   });
 
-  it("renders legacy dirty parallel data defensively: gate-in-group keeps its badge, a split group folds into two separate stages", async () => {
-    // submit_plan now refuses these shapes (400), but rows written before the
-    // gate landed are never rewritten — the timeline must stay honest, not crash.
+  it("renders a gate inside a parallel group with its shield, and folds a legacy split group into two separate stages", async () => {
+    // submit_plan refuses a split group (400), but rows written before that
+    // check landed are never rewritten — the timeline must stay honest, not crash.
     __injectMockTask(
       mkTask({
         title: "髒資料",
         steps: [
-          // A gate INSIDE a parallel group (pre-gate legacy): the announced
-          // dashed badge still renders inside the stage.
           mkStep({ name: "lane", status: "in_progress", parallelGroup: "pg-x", orderIdx: 0 }),
           mkStep({ name: "approve", status: "pending", parallelGroup: "pg-x", isGate: true, replyCardId: "", orderIdx: 1 }),
           // The SAME group key split by a plain step: two stages, each with
@@ -924,10 +925,10 @@ describe("TasksPage", () => {
     expect(stages).toHaveLength(2);
     expect(stages[0].textContent).toContain("同時進行 · 2 項並行");
     expect(stages[1].textContent).toContain("同時進行 · 1 項並行");
-    // The in-group announced gate still shows its dashed 等我回覆 preview.
-    expect(
-      stages[0].querySelector('[data-testid="gate-announced"]')?.textContent
-    ).toBe("等我回覆");
+    const inGroup = stages[0].querySelectorAll('[data-testid="task-step"]');
+    expect(inGroup[1].querySelector('[data-testid="step-gate"]')).not.toBeNull();
+    expect(markerOf(inGroup[0]).getAttribute("aria-label")).toBe("進行中");
+    expect(markerOf(inGroup[1]).getAttribute("aria-label")).toBe("待辦 · 需要你核可");
   });
 
   it("終止 double-confirms; the terminated task leaves the default view, and 終止 reveals it in the list again (action hidden on closed tasks)", async () => {
@@ -956,7 +957,7 @@ describe("TasksPage", () => {
       '[data-testid="task-card"]'
     )!;
     expect(
-      card.querySelector('[data-testid="task-status"]')?.textContent
+      card.querySelector('[data-testid="task-status"]')?.getAttribute("aria-label")
     ).toBe("終止");
     // Terminal task: the badge STILL drops its menu (owner ruling 2026-07-17 —
     // 「照字面永遠出，已結案時兩項變灰不可點」), but 終止 there is now greyed and
@@ -1105,7 +1106,7 @@ describe("TasksPage", () => {
     fireEvent.change(input, { target: { value: "2099-10-30" } });
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(async () =>
-      expect((await findByTestId("task-due")).textContent).toBe("2099/10/30（五）")
+      expect((await findByTestId("task-due")).textContent).toBe("2099/10/30")
     );
   });
 
@@ -1249,17 +1250,19 @@ describe("TasksPage", () => {
     expect(getByTestId("tasks-filter").previousElementSibling).toBeNull();
   });
 
-  it("applies the filters before grouping and leaves out a lane the filters emptied", async () => {
+  it("applies the filters before grouping and leaves out a lane the filters emptied, the count left of the funnel adding up every lane, collapsed ones included", async () => {
     seedDueTasks(Date.now() / 1000);
-    renderPage();
+    const { getByTestId } = renderPage();
     await chooseGroupBy("due");
     await waitFor(() =>
       expect(laneKeys()).toEqual(["overdue", "soon", "later", "nodue"])
     );
+    await waitFor(() => expect(getByTestId("tasks-filter-summary").textContent).toBe("8 個任務"));
     toggleFilter("filter-type", "deploy");
     await waitFor(() => expect(laneKeys()).toEqual(["overdue"]));
     expect(laneTitles("overdue")).toEqual(["逾期的手冊任務"]);
     expect(laneCount("overdue")).toBe(" · 1");
+    await waitFor(() => expect(getByTestId("tasks-filter-summary").textContent).toBe("1 個任務"));
   });
 
   it("filters by 到期 offering only 已逾期 / 快到期, OR'd, ANDed with the other axes, never counting a closed task as overdue, and 清除篩選 clears it", async () => {
@@ -1581,20 +1584,180 @@ describe("TasksPage", () => {
     expect(laneTitles("done")).toEqual(["結掉的"]);
   });
 
-  it("opens 顯示方式 at the end of the filter row, after 清除篩選, and closes it once a choice is made, on an outside click or Esc", async () => {
+  it("starts folded behind a funnel whose badge counts the default 狀態 as one condition", async () => {
+    __injectMockTask(mkTask({ title: "跑著的" }));
+    const { findByText, getByTestId, queryByTestId } = renderPage();
+    await findByText("跑著的");
+    const funnel = getByTestId("tasks-filter-toggle");
+    expect(funnel.getAttribute("aria-expanded")).toBe("false");
+    expect(funnel.getAttribute("aria-label")).toBe("篩選 · 1");
+    expect(getByTestId("tasks-filter-count").textContent).toBe("1");
+    expect(queryByTestId("tasks-filter-pop")).toBeNull();
+    expect(queryByTestId("filter-status")).toBeNull();
+  });
+
+  it("opens 篩選任務 with each field under its label, and a tick narrows the list and the count left of the funnel behind it while it stays open", async () => {
+    const now = Date.now() / 1000;
+    __injectMockTask(mkTask({ title: "跑著的", status: "in_progress" }));
+    __injectMockTask(mkTask({ title: "收工的", status: "done", closedTs: now - 10 }));
+    const { findByText, getByTestId, getByRole, queryByTestId } = renderPage();
+    expect(queryByTestId("tasks-filter-summary")).toBeNull();
+    await findByText("跑著的");
+    await waitFor(() => expect(getByTestId("tasks-filter-summary").textContent).toBe("1 個任務"));
+    fireEvent.click(getByTestId("tasks-filter-toggle"));
+
+    const dialog = getByRole("dialog", { name: "篩選任務" });
+    expect(dialog).toBe(getByTestId("tasks-filter-pop"));
+    const fields = [...dialog.querySelectorAll(".filter-panel__field")];
+    expect(fields.map((f) => f.querySelector(".filter-panel__label")!.textContent)).toEqual([
+      "任務編號",
+      "負責人",
+      "類型",
+      "狀態",
+      "到期",
+    ]);
+    expect(fields[0].classList.contains("filter-panel__field--wide")).toBe(true);
+    expect(fields[0].contains(getByTestId("filter-task-id"))).toBe(true);
+    expect(fields[3].contains(getByTestId("filter-status"))).toBe(true);
+    expect(getByTestId("tasks-filter-applied").textContent).toBe("已套用 1 個條件");
+
+    const realCount = api.getTaskPageCount.bind(api);
+    let releaseCount!: () => void;
+    const countGate = new Promise<void>((res) => {
+      releaseCount = res;
+    });
+    vi.spyOn(api, "getTaskPageCount").mockImplementationOnce((q) =>
+      countGate.then(() => realCount(q))
+    );
+    toggleFilter("filter-status", "done");
+    await act(async () => {});
+    expect(queryByTestId("tasks-filter-summary")).toBeNull();
+    releaseCount();
+    await findByText("收工的");
+    await waitFor(() => expect(getByTestId("tasks-filter-summary").textContent).toBe("2 個任務"));
+    toggleFilter("filter-type", "adhoc");
+    await waitFor(() => expect(getByTestId("tasks-filter-count").textContent).toBe("2"));
+    expect(getByTestId("tasks-filter-applied").textContent).toBe("已套用 2 個條件");
+    expect(getByTestId("tasks-filter-pop")).toBe(dialog);
+  });
+
+  it("清除篩選 in the panel empties every axis and takes the badge and the applied line with it", async () => {
+    __injectMockTask(mkTask({ title: "跑著的" }));
+    const { findByText, getByTestId, queryByTestId } = renderPage();
+    await findByText("跑著的");
+    toggleFilter("filter-type", "adhoc");
+    await waitFor(() => expect(getByTestId("tasks-filter-count").textContent).toBe("2"));
+
+    fireEvent.click(getByTestId("tasks-filter-clear"));
+    await waitFor(() => expect(queryByTestId("tasks-filter-count")).toBeNull());
+    expect(getByTestId("tasks-filter-toggle").getAttribute("aria-label")).toBe("篩選");
+    expect(queryByTestId("tasks-filter-applied")).toBeNull();
+    expect(getByTestId("filter-status").textContent).toBe("所有狀態");
+  });
+
+  it("on a desktop opens a non-modal panel under the funnel that closes on an outside click, Esc or the funnel, handing focus back; Esc in an open dropdown closes only the dropdown", async () => {
+    __injectMockTask(mkTask({ title: "跑著的" }));
+    const { findByText, getByTestId, queryByTestId } = renderPage();
+    await findByText("跑著的");
+    const funnel = getByTestId("tasks-filter-toggle");
+
+    fireEvent.click(funnel);
+    const pop = getByTestId("tasks-filter-pop");
+    expect(document.activeElement).toBe(pop);
+    expect(pop.getAttribute("aria-modal")).toBeNull();
+    expect(queryByTestId("tasks-filter-backdrop")).toBeNull();
+    expect(pop.querySelector("button[aria-label='關閉']")).toBeNull();
+    fireEvent.click(funnel);
+    expect(queryByTestId("tasks-filter-pop")).toBeNull();
+    expect(document.activeElement).toBe(funnel);
+
+    fireEvent.click(funnel);
+    fireEvent.click(getByTestId("filter-status"));
+    expect(getByTestId("filter-status").getAttribute("aria-expanded")).toBe("true");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(getByTestId("filter-status").getAttribute("aria-expanded")).toBe("false");
+    expect(queryByTestId("tasks-filter-pop")).not.toBeNull();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(queryByTestId("tasks-filter-pop")).toBeNull();
+    expect(funnel.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(funnel);
+
+    fireEvent.click(funnel);
+    fireEvent.click(getByTestId("filter-status"));
+    fireEvent.mouseDown(getByTestId("filter-status-opt-done"));
+    fireEvent.mouseDown(getByTestId("tasks-filter-pop"));
+    expect(queryByTestId("tasks-filter-pop")).not.toBeNull();
+    fireEvent.mouseDown(getByTestId("task-list"));
+    expect(queryByTestId("tasks-filter-pop")).toBeNull();
+  });
+
+  it("on a phone the funnel and 顯示方式 each open a bottom sheet with 完成, closed by 完成, the dim area or Esc, and a 分組依據 choice applies at once", async () => {
+    const saved = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes("max-width"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia;
+    try {
+      __injectMockTask(mkTask({ title: "跑著的" }));
+      const { findByText, getByTestId, queryByTestId, getByRole } = renderPage();
+      await findByText("跑著的");
+      fireEvent.click(getByTestId("tasks-filter-toggle"));
+      expect(getByRole("dialog", { name: "篩選任務" })).toBe(getByTestId("tasks-filter-sheet"));
+      expect(queryByTestId("tasks-filter-pop")).toBeNull();
+      expect(getByTestId("tasks-filter-sheet").contains(getByTestId("filter-due"))).toBe(true);
+      expect(getByTestId("tasks-filter-done").textContent).toBe("完成");
+      fireEvent.click(getByTestId("tasks-filter-done"));
+      expect(queryByTestId("tasks-filter-sheet")).toBeNull();
+
+      fireEvent.click(getByTestId("tasks-filter-toggle"));
+      fireEvent.click(getByTestId("tasks-filter-backdrop"));
+      expect(queryByTestId("tasks-filter-sheet")).toBeNull();
+
+      const display = getByTestId("display-options");
+      fireEvent.click(display);
+      const sheet = getByTestId("display-options-sheet");
+      expect(getByRole("dialog", { name: "顯示方式" })).toBe(sheet);
+      expect(queryByTestId("display-options-panel")).toBeNull();
+      expect(sheet.contains(getByTestId("group-by"))).toBe(true);
+      expect(document.activeElement).toBe(sheet);
+      expect(getByTestId("display-options-done").textContent).toBe("完成");
+      fireEvent.mouseDown(getByTestId("group-by"));
+      expect(queryByTestId("display-options-sheet")).not.toBeNull();
+      fireEvent.click(getByTestId("display-options-done"));
+      expect(queryByTestId("display-options-sheet")).toBeNull();
+      expect(document.activeElement).toBe(display);
+
+      fireEvent.click(display);
+      fireEvent.click(getByTestId("display-options-backdrop"));
+      expect(queryByTestId("display-options-sheet")).toBeNull();
+
+      fireEvent.click(display);
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(queryByTestId("display-options-sheet")).toBeNull();
+
+      fireEvent.click(display);
+      fireEvent.change(getByTestId("group-by"), { target: { value: "status" } });
+      expect(queryByTestId("display-options-sheet")).toBeNull();
+      await waitFor(() => expect(laneKeys()).toEqual(["in_progress"]));
+    } finally {
+      window.matchMedia = saved;
+    }
+  });
+
+  it("opens 顯示方式 at the end of the filter row, right after the funnel, and closes it once a choice is made, on an outside click or Esc", async () => {
     seedDueTasks(Date.now() / 1000);
     const { findByText, getByTestId, queryByTestId } = renderPage();
     await findByText("逾期的手冊任務");
-    const fields = getByTestId("tasks-filter-fields");
     const trigger = getByTestId("display-options");
     expect(trigger.textContent).toBe("顯示方式");
-    expect(fields.lastElementChild!.contains(trigger)).toBe(true);
-    expect(
-      getByTestId("tasks-filter-clear").compareDocumentPosition(trigger) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
+    expect(getByTestId("tasks-filter-toggle").nextElementSibling).toBe(trigger.parentElement);
+    expect(trigger.parentElement!.nextElementSibling).toBeNull();
     expect(queryByTestId("group-by")).toBeNull();
     expect(queryByTestId("display-options-panel")).toBeNull();
+    expect(queryByTestId("display-options-changed")).toBeNull();
+    expect(trigger.getAttribute("aria-label")).toBeNull();
 
     fireEvent.click(trigger);
     const panel = getByTestId("display-options-panel");
@@ -1612,7 +1775,7 @@ describe("TasksPage", () => {
       "狀態",
     ]);
     expect(panel.contains(select)).toBe(true);
-    expect(select.closest(".filter-panel__actions")).not.toBeNull();
+    expect(select.closest(".filter-panel__bar")).not.toBeNull();
     expect(document.activeElement).toBe(panel);
 
     await chooseGroupBy("executor");
@@ -1620,6 +1783,8 @@ describe("TasksPage", () => {
     expect(queryByTestId("display-options-panel")).toBeNull();
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(trigger);
+    expect(trigger.contains(getByTestId("display-options-changed"))).toBe(true);
+    expect(trigger.getAttribute("aria-label")).toBe("顯示方式：已改為負責人");
 
     fireEvent.click(trigger);
     const reopened = getByTestId("display-options-panel");
@@ -1973,6 +2138,7 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     expect(queryByText("完成的")).toBeNull();
     expect(queryByText("終止的")).toBeNull();
     await waitForListedCards(1);
+    await openFiltersWhenReady();
     expect((await findByTestId("filter-status")).textContent?.trim()).toBe("未結案");
 
     // The exclusion is expressed IN the filter UI: 已完成/終止 start unchecked
@@ -2014,6 +2180,7 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     );
 
     const { findByTestId } = renderPage();
+    await openFiltersWhenReady();
     fireEvent.click(await findByTestId("filter-executor"));
     const countOf = (v: string) =>
       document.querySelector(`[data-testid="filter-executor-count-${v}"]`)
@@ -2041,6 +2208,7 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     );
 
     const { findByTestId } = renderPage();
+    await openFiltersWhenReady();
     fireEvent.click(await findByTestId("filter-executor"));
     const optOf = (v: string) =>
       document.querySelector(`[data-testid="filter-executor-opt-${v}"]`);
@@ -2063,6 +2231,7 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     );
 
     const { findByTestId } = renderPage();
+    await openFiltersWhenReady();
     fireEvent.click(await findByTestId("filter-executor"));
     await waitFor(() =>
       expect(document.querySelector('[data-testid="filter-executor-opt-mira"]')).not.toBeNull()
@@ -2086,6 +2255,7 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     );
 
     const { findByText, findByTestId } = renderPage();
+    await openFiltersWhenReady();
     const optOf = (v: string) =>
       document.querySelector(`[data-testid="filter-executor-opt-${v}"]`);
     const checkOf = (v: string) =>

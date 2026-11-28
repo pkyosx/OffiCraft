@@ -198,6 +198,12 @@
   font-weight: 600;
   color: var(--color-text-strong);
 }
+.set-entry__name .info-hint {
+  margin-left: -4px;
+}
+.set-entry__name .set-badge {
+  font-weight: 600;
+}
 .set-entry__sub {
   font-size: 12.5px;
   color: var(--color-text-muted);
@@ -1289,16 +1295,6 @@
   font-weight: 700;
   color: var(--color-text-strong);
 }
-.manual-sec__aside {
-  font-size: 12px;
-  color: var(--color-text-muted);
-}
-.manual-sec__sub {
-  margin: 8px 0 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--color-text-muted);
-}
 .manual-q__hint {
   margin-top: 4px;
   font-size: 12px;
@@ -1436,12 +1432,6 @@
   border-radius: 14px;
   background: var(--color-card);
   padding: 16px 18px;
-}
-
-.manual-reply-suggestions-card__sub {
-  margin-bottom: 10px;
-  font-size: 12.5px;
-  color: var(--color-text-muted);
 }
 
 /* the 負責成員 summary card (hub top) */

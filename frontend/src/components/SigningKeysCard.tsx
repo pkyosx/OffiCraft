@@ -1,4 +1,4 @@
-// SigningKeysCard — 設定 › 系統更新與備份 · 簽章金鑰 (T-62).
+// SigningKeysCard — 設定 › 安全性 · 簽章金鑰 (T-62).
 //
 // Its own file rather than a private function inside SettingsPage for the same
 // reason ThemeSettings is: the browser-level guard beside it
@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
 import { useSigningKeys } from "../hooks/useSigningKeys";
 import { ConfirmModal } from "./ConfirmModal";
+import { TitleWithInfo } from "./InfoHint";
 import { formatAbsolute } from "../lib/dateFormat";
 
 /**
@@ -56,9 +57,10 @@ export function SigningKeysCard() {
 
   return (
     <>
-      <h2 className="settings__title settings__title--doc">{d.title}</h2>
+      <h2 className="settings__title settings__title--doc" aria-label={d.title}>
+        <TitleWithInfo title={d.title} hint={d.intro} />
+      </h2>
       <div className="param-card signing-keys" data-testid="set-signing-keys">
-        <div className="signing-keys__hint">{d.intro}</div>
 
         {loading ? (
           <div className="signing-keys__loading">{d.loading}</div>

@@ -13,8 +13,18 @@ export const en: Dict = {
   orgName: "AI Office",
   user: "CEO (You)",
   common: {
+    emptyValue: "-",
     apply: "Apply",
     cancel: "Cancel",
+    filterButton: "Filters",
+    filterDone: "Done",
+    filterAppliedLead: "",
+    filterAppliedTailOne: "filter applied",
+    filterAppliedTailMany: "filters applied",
+    textShowAll: "Show all",
+    infoAboutLead: "About ",
+    infoAboutTail: "",
+    textShowLess: "Show less",
   },
   diff: {
     ariaLabel: "Line-by-line comparison",
@@ -109,8 +119,8 @@ export const en: Dict = {
     scopeUnknown: "Unknown scope",
     openManualLabel: "Open task manual",
     copyEntryIdLabel: "Copy entry id",
-    authorUnknown: "—",
     authorLabel: "Author",
+    messageAuthor: "Message the author",
     effectiveLabel: "Effective",
     retireReasonLabel: "Retire reason",
     scopeChangedMid: " now applies to ",
@@ -136,6 +146,7 @@ export const en: Dict = {
     stagedReasonClose: ")",
     stagedSavedRereadFailed: "Saved, but the section could not be reloaded. Please refresh the page.",
     clearFilters: "Clear filters",
+    filterDialogTitle: "Filter lore",
     idSearchLabel: "ID or title",
     loreTypeInstructionConflict: "Instruction conflict",
     loreTypeInstructionSupplement: "Instruction supplement",
@@ -152,6 +163,8 @@ export const en: Dict = {
     kindManual: "Task manual",
     entryCountTailOne: " entry",
     entryCountTailMany: " entries",
+    listedCountOne: "entry",
+    listedCountMany: "entries",
     charsTail: " chars",
     everyoneReadByAll: " · read by every member",
     droppedTail: " not read",
@@ -160,7 +173,8 @@ export const en: Dict = {
     sectionEmpty: "Nothing to show in this section",
     legendCapLead: "Cap ",
     droppedTag: "Not read",
-    collapseDropped: "Collapse",
+    collapseEntry: "Collapse",
+    expandEntry: "Expand",
     actionEdit: "Edit",
     editTitleLabel: "Title",
     editBodyLabel: "Body",
@@ -176,16 +190,15 @@ export const en: Dict = {
   sharedDocs: {
     loadFailed: "Could not load the files. Please try again later.",
     empty: "No files yet",
+    listedCountOne: "file",
+    listedCountMany: "files",
     add: "Add",
     uploadFile: "Upload file",
     addLink: "Add link",
     linkUrlPlaceholder: "https://",
     linkNamePlaceholder: "Name (blank: taken from the URL)",
-    colId: "ID",
-    colFile: "File",
-    colUpdated: "Last modified",
-    colActions: "Actions",
-    copyIdLabel: "Copy file ID",
+    copyIdLabel: "Copy the full file ID",
+    idCopied: "Copied",
     kindFile: "File",
     kindLink: "Link",
     kindImage: "Image",
@@ -206,8 +219,10 @@ export const en: Dict = {
     descriptionLabel: "Description",
     editHintLead: "Download it, edit it on your computer, then put it back with \u201c",
     editHintTail: "\u201d.",
-    uploadVersionUnavailable: "To change a link's URL, use the pencil next to its name",
+    uploadVersionUnavailable: "To change a link's URL, use Edit link",
     openHistory: "View version history",
+    createdByLabel: "Created by",
+    updatedLabel: "Updated",
     kindMismatchImage: "This is an image, so the new version must be an image too",
     kindMismatchFile: "This is not an image, so it cannot become one. Upload the image as a new file instead.",
     versions: "Versions",
@@ -234,10 +249,11 @@ export const en: Dict = {
     colNote: "Note",
     colUpdated: "Updated",
     colLastAccessed: "Last accessed",
-    neverAccessed: "Never used",
     copyIdLabel: "Copy secret ID",
     idCopied: "Copied",
-    add: "Add secret",
+    add: "Add",
+    listedCountOne: "secret",
+    listedCountMany: "secrets",
     createTitle: "Add secret",
     editTitle: "Edit secret",
     nameLabel: "Name",
@@ -273,10 +289,13 @@ export const en: Dict = {
     closedTitle: "Closed",
     emptyNone: "No tasks yet",
     emptyFiltered: "No tasks match the current filters",
+    listedCountOne: "task",
+    listedCountMany: "tasks",
     loadError: "Failed to load tasks. Please try again.",
     loadingMore: "Loading…",
     filterIdLabel: "Task ID",
     clearFilters: "Clear filters",
+    filterDialogTitle: "Filter tasks",
     filterExecutorAll: "Everyone",
     filterTypeAll: "All types",
     filterStatusAll: "All statuses",
@@ -309,19 +328,11 @@ export const en: Dict = {
     creatorLabel: "Creator",
     keyLabel: "Identity key",
     // A pre-column task has no creator → render "—", not clickable.
-    creatorUnknown: "—",
     typeSettingsLink: "Open task-type settings",
     messageAssignee: "Message the assignee",
     messageCreator: "Message the creator",
     previousAssigneeLabel: "Handed over from",
     messagePreviousAssignee: "Message the predecessor",
-    effortOf: {
-      low: "low effort",
-      medium: "mid effort",
-      high: "high effort",
-      xhigh: "extra-high effort",
-      max: "max effort",
-    } as Record<string, string>,
     status: {
       not_started: "Not started",
       in_progress: "In progress",
@@ -347,23 +358,19 @@ export const en: Dict = {
       in_progress: "In progress",
       done: "Done",
       waiting_owner: "Awaiting my reply",
-      // Same wording as task-level status.waiting_external and the special
-      // stepWaitingExternal badge (T-6f11) — the map entry is the backstop so
-      // no path can leak the raw key.
+      // Same wording as task-level status.waiting_external.
       waiting_external: "Waiting on external",
       superseded: "Superseded",
     } as Record<string, string>,
-    // Step-level external-wait badge (T-9ca5): the step's own 等待外部, distinct
-    // from the owner-facing 等我回覆.
-    stepWaitingExternal: "Waiting on external",
-    gateAnnounced: "Awaiting my reply",
-    stepCardAnswered: "Answered",
-    stepCardExpired: "Expired",
     progressLabel: "Step",
     elapsedLabel: "Elapsed",
     expandCard: "Expand workflow",
     collapseCard: "Collapse workflow",
     workflow: "Workflow",
+    workflowStepCount: (n: number) => `${n} ${n === 1 ? "step" : "steps"}`,
+    workflowDone: (done: number, total: number) => `${done}/${total} done`,
+    workflowCurrent: (name: string) => `In progress: ${name}`,
+    descTitle: "Task description",
     dod: "DoD",
     parallel: (n: number) => `In parallel · ${n} items`,
     waitingAssign: "Awaiting assignment",
@@ -399,6 +406,7 @@ export const en: Dict = {
     messagePlaceholder: (name: string) => `Message ${name}…`,
     send: "Send",
     messageError: "Failed to send the message. Please try again.",
+    metaTypeLabel: "Type",
     statusMenuLabel: "Status actions",
     priorityLabel: "Priority",
     dueLabel: "Due",
@@ -414,11 +422,7 @@ export const en: Dict = {
     dueLeadMinuteOne: "minute",
     dueLeadMinuteMany: "minutes",
     dueLeadRangeError: "Due soon must be a whole number from 1 minute to 30 days; it was not changed.",
-    overdueDaysLead: "Overdue",
-    overdueDaysTailOne: "day",
-    overdueDaysTailMany: "days",
-    dueRemainingLead: "",
-    dueRemainingTail: "left",
+    dueOverdueHint: "Overdue",
     dueEditLabel: "Set due date",
     dueUnset: "Not set",
     duePickerLabel: "Due date",
@@ -434,6 +438,7 @@ export const en: Dict = {
     groupByPriority: "Priority",
     groupByNone: "None",
     displayOptions: "Display",
+    displayOptionsChangedLead: "Display: changed to",
     laneExecutorLead: "Assignee: ",
     laneTypeLead: "Type: ",
     laneStatusLead: "Status: ",
@@ -536,7 +541,7 @@ export const en: Dict = {
     // How a forced close reads back afterwards. A task closed by force always
     // says so; the reason may be absent, and absent is shown as absent.
     forcedDoneLabel: "Force-closed by",
-    forcedDoneNoReason: "No reason given",
+    messageForcedDoneBy: "Message who force-closed it",
     // Shown when a close is refused: the card says which status the task is
     // ACTUALLY in, because "the action failed" alone does not tell the owner
     // whether to retry, expand the card, or do nothing.
@@ -578,21 +583,19 @@ export const en: Dict = {
     reassignNotePlaceholder: "Anything the new executor should know…",
     reassignConfirm: "Reassign",
     reassignError: "The reassign failed. Please try again.",
-    replyHeader: "Ask",
-    replyBadge: "Your call",
-    replyInChat: "Reply in chat",
-    gateMark: "Approval",
+    needsApproval: "Needs your approval",
     replyAnsweredTag: "Answered",
     replyWaitingTag: "Pending",
     replySnoozedTag: "Snoozed",
     expandReply: "Expand reply card",
     collapseReply: "Collapse reply card",
     // Artifact set (T-3dc5): the deliverables (file/image/link) pinned onto a
-    // task card. The 「Artifacts N」 count badge sits in the coloured badge row;
+    // task card. The expanded card has an 「Artifacts」 row with the count;
     // clicking opens a popover with ONE gallery-style list, grouped
-    // file → image → link (T-49fb removed the three tabs). 0 ⇒ badge hidden.
+    // file → image → link. 0 ⇒ the row is hidden.
     artifacts: {
-      badge: "Artifacts",
+      label: "Artifacts",
+      count: (n: number) => `${n}`,
       open: "View artifacts",
       panelTitle: "Artifacts",
       imageName: "Image",
@@ -635,12 +638,21 @@ export const en: Dict = {
   // has no copy of its own — the field labels live under `tasks.*` / `replies.*`
   // because each page words its own.
   replies: {
-    waitingTitle: "Ask",
-    handledTitle: "Recently handled",
-    handledHint:
-      "Items answered or expired · answers can still be changed",
+    // The three list labels. tabSnoozed is the same word as the snooze action.
+    tabsLabel: "Reply cards",
+    tabWaiting: "Awaiting",
+    tabSnoozed: "Later",
+    tabAnswered: "Answered",
+    tabWaitingShort: "Waiting",
+    tabSnoozedShort: "Later",
+    tabAnsweredShort: "Done",
+    tabAnsweredHint: "last 24h",
+    listedCountOne: "card",
+    listedCountMany: "cards",
     empty: "✓ No pending asks",
     emptyFiltered: "No asks match the current filter",
+    emptySnoozed: "No reply cards set aside for later",
+    emptyAnswered: "No reply cards answered in the last 24 hours",
     // The 開卡人 axis (T-118). Wording mirrors the 任務頁 executor dropdown:
     // "all <noun>" when NOTHING is ticked, that one name for a single tick,
     // "<noun> · N" for any other set. ⚠️ A FULL set no longer says "all <noun>"
@@ -652,8 +664,8 @@ export const en: Dict = {
     filterOpenerNoun: "Opener",
     filterOpenerAll: "All openers",
     filterIdLabel: "Reply-card id",
-    filterWaitingOnly: "Waiting only",
     clearFilters: "Clear filters",
+    filterDialogTitle: "Filter reply cards",
     // ── Filter panel (T-93 round 2) ──
     // 🔴 Three outcomes, three sentences — never merged. Round 1 had one, so
     // "this card does not exist" and "this card was simply never loaded" read
@@ -676,8 +688,7 @@ export const en: Dict = {
     // Opened/answered stamps are always absolute with the date (e.g. 7/13
     // 09:05) — no relative time, no "Today" special case.
     openedAtLabel: "Opened",
-    answeredAtLabel: "Answered",
-    expiredAtLabel: "Expired",
+    handledAtLabel: "Handled at",
     // Mark expired (terminal; not an answer; no undo) — the button opens a
     // double-confirm. The "owner/admin-agent since T-6020" framing is still
     // true as history, but T-1b88 (owner 2026-08-07, card rc-3ff94b116970)
@@ -727,6 +738,12 @@ export const en: Dict = {
     redecidePlaceholder: "Or type a new reply…",
     quoteLabel: "Quoted",
     quoteCancel: "Remove the quote",
+    copyIdLabel: "Copy the full reply card ID",
+    idCopied: "Copied",
+    copyWholeCard: "Copy the whole card",
+    taskDueLabel: "Due",
+    openerLabel: "Asked by",
+    messageOpener: "Message the asker",
     openTask: "View task",
     expandCard: "Expand this ask",
     collapseCard: "Collapse this ask",
@@ -755,8 +772,6 @@ export const en: Dict = {
     snoozeTooFar: "90 days at most",
     snoozeError: "Couldn't snooze. Please try again.",
     snoozeStale: "This card was already answered or expired, so it can't be snoozed.",
-    snoozedTitle: "Snoozed",
-    snoozedHint: "Each comes back to Ask at its time",
     unsnooze: "Bring back now",
     unsnoozeError: "Couldn't bring it back. Please try again.",
     unsnoozeStale: "This card was already answered or expired, so there is nothing to bring back.",
@@ -857,13 +872,10 @@ export const en: Dict = {
       capSuffix: (cap: string) => ` · cap ${cap}`,
       // compose.ts's outsourceLabel composes THIS title into the one outsource
       // identity label 「Outsource · 代號」 (chat header / sender label,
-      // task-card chips, monitor session row). The one exception, an owner
-      // ruling: the sidebar 外包 tab's rows show the bare codename — the tab
-      // already says Outsource, and the full label wraps there in English.
+      // monitor session row). Owner rulings: the sidebar 外包 tab's rows and
+      // the person chips on cards show the bare codename.
       paused: "Assignment paused",
       capTitle: "Outsource cap",
-      capHint:
-        "Cap how many outsource members can be hired at once; unlimited removes the cap.",
       capMaxLabel: "Max hires",
       capUnlimited: "Unlimited",
       capDecrease: "Decrease",
@@ -1168,7 +1180,6 @@ export const en: Dict = {
     rename: "Rename",
     renamePlaceholder: "Enter name",
     preferences: "Preferences",
-    preferencesSub: "Appearance, language, layout",
     logout: "Log out",
     back: "Preferences",
     theme: "Theme",
@@ -1208,7 +1219,8 @@ export const en: Dict = {
     langEn: "English",
     languageSub: "Also the language members use with you (from their next start).",
     pushContactEmail: "Notification email",
-    pushContactEmailSub: "Notifications are not sent until this is set. The address is shared with the browser's push service, so use one that can be public.",
+    pushContactEmailUnsetWarning: "Notifications are not sent until this is set.",
+    pushContactEmailPrivacy: "The address is shared with the browser's push service, so use one that can be public.",
     pushContactEmailPlaceholder: "name@company.com",
     pushContactEmailError: "Enter a public email address.",
     layout: "Layout",
@@ -1216,7 +1228,6 @@ export const en: Dict = {
     layoutWide: "Wide",
     seasonalTheme: "Show seasonal theme",
     changePassword: "Change password",
-    changePasswordSub: "The password you sign in to this console with",
     currentPasswordPlaceholder: "Current password",
     newPasswordPlaceholder: "New password (at least 8 characters)",
     confirmPasswordPlaceholder: "Repeat the new password",
@@ -1284,9 +1295,7 @@ export const en: Dict = {
     mfaErrorLoad: "Could not read the two-factor status",
     mfaRetry: "Try again",
     accountSecurity: "Account security",
-    accountSecuritySub: "Password, two-factor authentication, passkeys",
     passkeys: "Passkeys",
-    passkeysSub: "Sign in with your phone or computer's own unlock — for example Face ID, Touch ID, a fingerprint or the device passcode",
     passkeysLoading: "Loading…",
     passkeysEmpty: "No passkeys registered yet",
     passkeysErrorLoad: "Could not read the passkey list",
@@ -2040,10 +2049,6 @@ export const en: Dict = {
       othersTailMany: " members",
       other: "Other",
       desc: {
-        database: "Members, tasks, chat and everything else",
-        backups: "Taken automatically; the latest few are kept",
-        workspaces: "Each member's working directory",
-        logs: "What the OffiCraft programs have logged",
         oldVersionBackups: "Old programs and database copies left by upgrades; never deleted automatically",
         oldDatabaseCopies: "Old copies left beside the database; never deleted automatically",
         other: "The current programs, settings, and files put here by hand",
@@ -2383,11 +2388,13 @@ export const en: Dict = {
   settings: {
     title: "Settings",
     software: "System update & backup",
+    security: "Security",
     // Global context (T-a241): the boot / lifecycle documents are their own
     // Settings section now, no longer inside the role journal.
     globalContext: "Global context",
     roles: "Roles",
     params: "General",
+    advanced: "Advanced",
     // ── theme management (T-16a1 P3b): moved here from the profile dropdown ──
     themeManage: "Theme",
     themeTabAppearance: "Appearance",
@@ -2426,8 +2433,6 @@ export const en: Dict = {
     themeWordingTag: "Wording",
     // ── fonts (T-16a1 P4): pick body / title font from a safe allowlist ──
     themeFontsSection: "Fonts",
-    themeFontsHint:
-      "Pick a built-in, safe font family; leave on default to keep the theme's original font.",
     themeFontBody: "Body font",
     themeFontTitle: "Title font",
     themeFontDefault: "Default (theme font)",
@@ -2490,16 +2495,13 @@ export const en: Dict = {
     updateSettings: "Update settings",
     // ── software-update toggles (receive_beta / auto_update) ──
     receiveBeta: "Receive beta versions",
-    receiveBetaSub: "Update checks also follow GitHub prereleases · off = official releases only",
     autoUpdate: "Automatic updates",
-    autoUpdateSub: "Upgrade and restart in the background when a newer version appears",
+    autoUpdateWarning: "The server restarts itself after the upgrade.",
     updateCheckInterval: "Update check interval",
     updateCheckIntervalSub:
       "How often the server asks GitHub in the background whether a newer version exists; Check for updates and upgrading always ask right away (1–60 minutes)",
     minutes: "minutes",
     announceFeatures: "Let the assistant tell me about new-version features",
-    announceFeaturesSub:
-      "After upgrading to an official release that has a feature announcement, your assistant tells you in chat what it adds",
     upgradeFailed: "Upgrade failed",
     upgradeRestarting:
       "Upgrading — the new version is installed and the server is restarting; this page will reload by itself.",
@@ -2511,12 +2513,14 @@ export const en: Dict = {
     developerMode: "Developer mode",
     developerModeSub:
       "When on, the boot documents in Global context can be edited. User Language and User additions are always editable.",
+    userPrefsSection: "User preferences",
     globalSection: "BOOT",
     systemName: "System interaction",
     systemSub: "How the system works, read by every member at boot",
     customName: "User additions",
-    customSub: "Custom content read by every member at boot · editable",
-    bootDocEditableSuffix: " · editable",
+    customSub: "Custom content read by every member at boot",
+    bootDocEditableTag: "editable",
+    bootDocReadOnlyTag: "not editable",
     dutyHeading: "Duty",
     dutyNote:
       "Other members read this to decide what to bring to this role; it appears on the roster every member sees at boot.",
@@ -2524,39 +2528,22 @@ export const en: Dict = {
     userLanguageSub:
       "The language members write to you in · follows the display language until you edit it",
     termGlossaryName: "Term glossary",
-    termGlossarySub:
-      "English and Chinese feature names side by side · updated with each release, not editable",
     bootName: "Boot steps",
-    bootSub: "What an AI follows while starting up · one per runtime",
     bootRuntimeClaude: "Standard",
     bootRuntimeCodex: "Codex",
     bootClaudeName: "Boot steps (Claude Code)",
-    bootClaudeSub: "Boot SOP for the Claude Code runtime",
     bootCodexName: "Boot steps (Codex CLI)",
-    bootCodexSub: "Boot SOP for the Codex App Server runtime",
     offboardName: "Stop",
-    offboardSub:
-      "Wrap-up instructions a member receives when it is stopped",
     stopSection: "STOP",
     taskEventSection: "TASK EVENTS",
     acceleratedStopName: "Accelerated stop",
-    acceleratedStopSub:
-      "What a member is told when it is asked to wrap up early · carries a deadline",
     taskCloseoutName: "Task close-out",
-    taskCloseoutSub:
-      "What a member is told when one of its tasks is judged finished",
     taskReassignPredecessorName: "Task reassignment · to the predecessor",
-    taskReassignPredecessorSub:
-      "What a member is told when a task it held is handed to somebody else",
     taskTakeoverWithPredecessorName: "Task reassignment · to the successor",
     taskTakeoverWithPredecessorSub:
       "What a member is told when it takes over a task (the same document with or without a predecessor)",
     taskUnblockedName: "The task blocking yours is released",
-    taskUnblockedSub:
-      "What a member is told when the task blocking it is released",
     taskReadyForDoneName: "Your task is ready to be closed",
-    taskReadyForDoneSub:
-      "What a member is told each time its task becomes ready to close",
     bootDocSaveConfirmAcceleratedStop:
       "Save this accelerated-stop procedure? Every member asked to wrap up early reads this content, and reads it with only a short window left — it has to be finishable in that time.",
     bootDocSaveConfirmTaskEvent:
@@ -2570,6 +2557,8 @@ export const en: Dict = {
       "Save these boot steps? Broken boot steps stop members booting after this from coming online, with no error message anywhere. Check the preview before saving; if it does go wrong, open Default content in the version history and press Sync to default.",
     bootDocSaveConfirmSystem:
       "Save this system-interaction document? Every member that boots after the save reads this content.",
+    bootDocSaveConfirmTermGlossary:
+      "Save this term glossary? Every member that boots after the save uses it to read the Chinese screen names you write.",
     bootDocSaveConfirmOffboard:
       "Save this Stop document? Every member stopped after this reads it, with nobody to ask and no time limit; the time-limited case reads the Accelerated stop document instead.",
     bootDocSaveConfirmAction: "Save",
@@ -2580,6 +2569,7 @@ export const en: Dict = {
     docCollapse: "Collapse this document",
     historyBootSystemTitle: "System interaction · version history",
     historyUserLanguageTitle: "User Language · version history",
+    historyTermGlossaryTitle: "Term glossary · version history",
     historyBootClaudeTitle: "Boot steps (Claude Code) · version history",
     historyBootCodexTitle: "Boot steps (Codex CLI) · version history",
     historyBootOffboardTitle: "Stop · version history",
@@ -2601,8 +2591,6 @@ export const en: Dict = {
     cancel: "Cancel",
     reset: "Reset",
     editorPlaceholder: "Write in Markdown…",
-    docReplaceNote:
-      "Saving replaces the editable part with what is in the editor; any section not in the editor is gone.",
     docReadOnlyHead: "Read-only (written by the program, not editable)",
     docActionFailed: "That did not go through — try again.",
     docOverCapLead: "Now ",
@@ -2692,7 +2680,6 @@ export const en: Dict = {
     paramsLoadError: "Failed to load settings. Please try again.",
     paramsSaveError: "Didn't save — try again",
     sessionTtl: "Session length",
-    sessionTtlSub: "How long before you have to sign in again",
     agentTokenTtl: "Member login lifetime",
     agentTokenTtlSub: "How long newly started staff and outsource members stay logged in before they must log in again",
     ttl12h: "12 hours",
@@ -2721,10 +2708,12 @@ export const en: Dict = {
       "How long a member has to wrap up once Accelerated stop is pressed. The member is told this exact instant (10–3600)",
     reassignHandoverTimeout: "Reassign handover timeout",
     reassignHandoverTimeoutSub:
-      "How long an outsource predecessor may go without updating the task after a reassign before it is reclaimed; every task update restarts the clock. Staff predecessors are not affected (60–86400)",
+      "How long an outsource predecessor may go without updating the task after a reassign; every task update restarts the clock. Staff predecessors are not affected (60–86400)",
+    reassignHandoverTimeoutWarning: "An outsource predecessor that times out is reclaimed.",
     wardenCredentialLifetime: "Machine credential lifetime",
     wardenCredentialLifetimeSub:
-      "How long a machine's login credential lasts. Machines renew it automatically before it expires; a machine that misses its renewal has to be re-installed. Lowering it does not affect credentials already issued. (86400–34560000 seconds)",
+      "How long a machine's login credential lasts. Machines renew it automatically before it expires. Lowering it does not affect credentials already issued. (86400–34560000 seconds)",
+    wardenCredentialLifetimeWarning: "A machine that misses its renewal has to be re-installed.",
     runtimeLoginCheckInterval: "Login check interval",
     runtimeLoginCheckIntervalSub:
       "While Claude or Codex reads as logged in, how often each machine checks it again. A change reaches each machine at its next report (30–3600 seconds)",
@@ -2758,8 +2747,9 @@ export const en: Dict = {
     // person who needs them is the one turning the knob.
     backupRetain: "Backups kept",
     backupRetainSub:
-      "How many database backups are kept (1–20). Anything past this number is permanently deleted on the next backup. It counts backups, not days; routine backups and pre-upgrade backups each keep this many, so there can be up to twice as many files on disk.",
-    backupRetainUnit: "backups (per type)",
+      "How many database backups are kept (1–20). It counts backups, not days; routine backups and pre-upgrade backups each keep this many, so there can be up to twice as many files on disk.",
+    backupRetainWarning: "Anything past this number is permanently deleted on the next backup.",
+    backupRetainUnit: "backups",
     // T-122 (+ the lore list, T-33): the three suggested-reply lists. One row
     // per box and not one shared row, deliberately — answering a reply card,
     // writing to a task in progress and asking the writer of a lore entry about
@@ -2767,16 +2757,9 @@ export const en: Dict = {
     // another's box (owner ruling). An empty list is a legal value: that box
     // then shows no suggestion buttons at all.
     suggestedRepliesReplyCard: "Reply-card suggestions",
-    suggestedRepliesReplyCardSub:
-      "Sentences you can drop in with one tap when answering a reply card.",
     suggestedRepliesTaskMessage: "Task-message suggestions",
-    suggestedRepliesTaskMessageSub:
-      "Sentences you can drop in with one tap when messaging on a task.",
     suggestedRepliesLoreMessage: "Lore-message suggestions",
-    suggestedRepliesLoreMessageSub:
-      "Sentences you can drop in with one tap in a lore entry's message box.",
     suggestedRepliesChat: "Chat suggestions",
-    suggestedRepliesChatSub: "Sentences you can drop in with one tap when chatting with any member.",
     suggestedReplyPlaceholder: "e.g. Got it, go ahead",
     suggestedReplyAdd: "Add a sentence",
     suggestedReplyRemove: "Remove this sentence",
@@ -2798,24 +2781,28 @@ export const en: Dict = {
     // otherwise get wrong.
     loreCapRole: "Member lore size cap",
     loreCapRoleSub:
-      "How many characters of member lore each member reads at boot. An entry that does not fit is skipped whole, with no error message. It can be lowered without affecting any entry already written.",
+      "How many characters of member lore each member reads at boot. It can be lowered without affecting any entry already written.",
+    loreCapRoleWarning: "An entry that does not fit is skipped whole, with no error message.",
     loreCapManual: "Task manual lore size cap",
     loreCapManualSub:
       "How many characters of task lore come with a task manual when it is read. Counted separately from member lore. May be lowered.",
     loreCapTitle: "Lore title size cap",
     loreCapTitleSub:
-      "The longest title one lore entry may carry. An over-cap write is refused and stores nothing. May be lowered; it binds the next write only and leaves stored entries untouched.",
+      "The longest title one lore entry may carry. May be lowered; it binds the next write only and leaves stored entries untouched.",
     loreCapBody: "Lore body size cap",
     loreCapBodySub:
-      "The longest body one lore entry may carry. An over-cap write is refused and stores nothing. May be lowered; stored entries are untouched.",
+      "The longest body one lore entry may carry. May be lowered; stored entries are untouched.",
+    loreCapEntryWarning: "An over-cap write is refused and stores nothing.",
     secretCardDurationUnit: "unit",
     secretCardUnretrievedTtl: "Secret card: time to retrieve",
     secretCardUnretrievedTtlSub:
-      "How long after you provide a value it waits for the member to retrieve it before it is deleted and the card lapses (1 minute to 30 days). Only affects values provided later.",
+      "How long after you provide a value it waits for the member to retrieve it (1 minute to 30 days). Only affects values provided later.",
+    secretCardUnretrievedTtlWarning: "A value not retrieved in time is deleted and the card lapses.",
     secretCardUnretrievedTtlRange: "Time to retrieve must be a whole number between 1 minute and 30 days",
     secretCardRetention: "Secret card: kept after retrieval",
     secretCardRetentionSub:
-      "How long a value stays after the member first retrieves it (0 seconds to 1 day). The member may retrieve it again until then; 0 deletes it at the first retrieval. Only affects later retrievals.",
+      "How long a value stays after the member first retrieves it (0 seconds to 1 day). The member may retrieve it again until then. Only affects later retrievals.",
+    secretCardRetentionWarning: "It is deleted when this runs out; 0 deletes it at the first retrieval.",
     secretCardRetentionRange: "Kept after retrieval must be a whole number between 0 seconds and 1 day",
     stepNoteCap: "Task step note size cap",
     stepNoteCapSub:
@@ -2860,7 +2847,6 @@ export const en: Dict = {
     manualQ2Hint:
       "Fields required before execution. Mark one as the 🔑 identity key and the intake window uses it to tell whether it's the same task (e.g. the same PR link = the same task; later messages merge in instead of opening a new one).",
     manualQ3: "How is it done?",
-    manualQ3Hint: "Playbook · the AI plans the workflow from it",
     manualEditSectionLead: "Edit “",
     manualEditSectionTail: "”",
     manualEmptyHint: "Not filled in yet",
@@ -2898,7 +2884,6 @@ export const en: Dict = {
     assigneeClear: "Clear setting",
     assigneeNoMembers: "No members available",
     manualPlanningSection: "Task planning",
-    manualDefEntrySub: "What it is, what info it needs, how to do it",
     manualSuggestedRepliesSection: "Suggested replies",
     manualSuggestedRepliesSub: "Sentences you can drop in with one tap when answering a reply card about this kind of task, messaging on one, or chatting with the outsource member on one.",
     manualSuggestedRepliesEmpty: "This task type has no sentences of its own yet.",

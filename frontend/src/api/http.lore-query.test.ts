@@ -25,6 +25,7 @@ const emptyPage = {
   entries: [],
   limit: 30,
   offset: 0,
+  total: 0,
   cap_chars: 0,
   first_dropped_id: "",
   used_chars: 0,
@@ -233,10 +234,11 @@ describe("httpApi lore_type on the wire", () => {
 });
 
 describe("httpApi lore budgets and edit", () => {
-  it("reads a page's used chars, the first dropped entry's size and the per-scope segments", async () => {
+  it("reads a page's filtered total, used chars, the first dropped entry's size and the per-scope segments", async () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse({
         ...emptyPage,
+        total: 25,
         cap_chars: 10000,
         first_dropped_id: "L-212",
         used_chars: 9640,
@@ -252,6 +254,7 @@ describe("httpApi lore budgets and edit", () => {
       entries: [],
       limit: 30,
       offset: 0,
+      total: 25,
       capChars: 10000,
       firstDroppedId: "L-212",
       usedChars: 9640,
@@ -261,6 +264,17 @@ describe("httpApi lore budgets and edit", () => {
         { scopeKind: "agent", entryCount: 11, chars: 5380, fittedCount: 7, fittedChars: 3400 },
       ],
     });
+  });
+
+  it("counts every entry in the office with one unfiltered limit-1 page, and is undefined from a server without total", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ ...emptyPage, limit: 1, total: 5 }));
+    expect(await httpApi.countLoreEntries()).toBe(5);
+    expect(lastUrl().pathname).toBe("/api/lore");
+    expect([...lastUrl().searchParams.entries()]).toEqual([["limit", "1"]]);
+
+    const { total: _omitted, ...older } = emptyPage;
+    fetchMock.mockImplementation(async () => jsonResponse(older));
+    expect(await httpApi.countLoreEntries()).toBeUndefined();
   });
 
   it("reads every target's budget from GET /api/lore/budgets", async () => {

@@ -110,7 +110,15 @@
   --color-ready-for-done: #6ea8fe;     /* 可結案 status 藍(唯一沒被其他狀態佔走的色相) */
   --color-dep-missing: #a89484;        /* 找不到的 dep 暖灰 */
   --color-artifacts: #cf94b0;          /* 產物 N badge 塵玫瑰 */
-  --color-step-progress: #6ea8fe;      /* step 進行中 藍(task-level 用 accent 綠) */
+  --color-step-progress: #ec6fd0;      /* 步驟與卡頭的進行中 洋紅(要跟可結案的藍、轉派中的青分得開) */
+  /* 其餘步驟狀態色(時間軸圖示、步驟框淡底與框線)。主題可以不填:預設跟隨該狀態
+   * 原本借用的 token,沒填的主題包畫出來跟加這組之前一樣。⚠️ 要保持純 var() alias,
+   * 匯出與主題編輯器才會把它當「跟隨 X」而不是烘成內建色。 */
+  --color-step-pending: var(--color-text-muted);
+  --color-step-waiting-owner: var(--color-dot-waking);
+  --color-step-waiting-external: var(--color-wait-external);
+  --color-step-done: var(--color-success);
+  --color-step-superseded: var(--color-status-duplicated);
   --color-answered: #6fbf73;           /* 已回覆 gate / reply answered 橄欖綠 */
   --color-on-warn: #17110a;            /* 琥珀 gate badge 底上深墨字 */
   --color-on-accent: #10131a;          /* accent/CTA 綠底、勾選框上深墨字/勾 */

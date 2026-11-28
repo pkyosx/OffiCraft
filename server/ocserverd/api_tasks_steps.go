@@ -141,7 +141,7 @@ func stepInsertPosition(steps []TaskStep, before string, fresh TaskStep) (int, e
 		}
 		at = idx
 	}
-	// Only the introduced rows face the gate and one-lane checks, so a legacy group
+	// Only the introduced rows face the one-lane check, so a legacy group
 	// already on the timeline never blocks an unrelated insert.
 	timeline := make([]TaskStep, 0, len(steps)+1)
 	timeline = append(timeline, steps[:at]...)

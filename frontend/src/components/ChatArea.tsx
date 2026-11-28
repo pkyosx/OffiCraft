@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
 } from "react";
 import { flushSync } from "react-dom";
 import { useI18n } from "../i18n";
@@ -414,7 +415,7 @@ export function ChatArea({
   // later SSE refetches never re-scroll.
   //
   // 🔴 THE COCKPIT ROUTES HERE AGAIN (owner 2026-08-29: 「1 跟 2 變回去原本那
-  // 樣」). The 請示 page's 跳到原訊息 and the inline task card's 在聊天室回覆
+  // 樣」). The 請示 page's 跳到原訊息 and the inline task card's 跳到原訊息
   // both write #office/chat/<id>/msg/<msgId> once more; the chat bubble's
   // 看原訊息 takes the overlay (hooks/useQuotedMessageOverlay), and of that
   // overlay only its 跳到原訊息 routes here (`jumpToMessage`).
@@ -630,8 +631,19 @@ export function ChatArea({
   // component. The message rows have written it this way for inter-agent
   // traffic since before T-4e95; the quote row and the composer banner now use
   // the SAME join, so a reader never meets two ways of saying who-to-whom.
-  const directionLabel = (from: string, to: string): string =>
-    `${nameOf(from)} → ${nameOf(to)}`;
+  const directionLabel = (
+    from: string,
+    to: string,
+    name: (id: string) => string = nameOf,
+  ): string => `${name(from)} → ${name(to)}`;
+  // The composer already says it is addressing someone, so an outsource member
+  // is named there by codename alone, without the 「外包 · 」 identity label.
+  const recipientNameOf = (id: string): string => {
+    const codename =
+      workers.find((w) => w.id === id)?.codename ??
+      (id.startsWith("ow-") ? unlistedNames.get(id) : undefined);
+    return codename ?? nameOf(id);
+  };
   const docCommentRecipientFor = (id: string) =>
     docCommentRecipient(
       id,
@@ -1489,7 +1501,7 @@ export function ChatArea({
   // the thread still opens, and nothing pretends the target was found).
   //
   // ⚠️ Its callers are the 請示 page's 跳到原訊息, the inline task card's
-  // 在聊天室回覆, the quoted-message overlay's 跳到原訊息 (`jumpToMessage`),
+  // 跳到原訊息, the quoted-message overlay's 跳到原訊息 (`jumpToMessage`),
   // and any URL somebody kept (bookmark, pasted link, restored tab) — see the
   // prop's note for the miss this can still land on.
   useEffect(() => {
@@ -2562,14 +2574,14 @@ export function ChatArea({
           <div className="chat__header-sub">
             {headerSub ?? <PresenceBadge member={member} dot={false} />}
           </div>
-          {/* T-3451: the peer's CURRENT task title, FULL (no clamp) — owner 圖2.
-           * Rendered only when present (a taskless / released peer grows no
-           * empty line here; showEmpty=false). */}
+          {/* The peer's current task title, clamped to two lines like the
+           * roster row's (hover shows it in full). Rendered only when present
+           * (a taskless / released peer grows no empty line here). */}
           {headerTaskTitle ? (
             <div className="chat__header-task">
               <CurrentTaskTitle
                 title={headerTaskTitle}
-                clamp={false}
+                clamp
                 showEmpty={false}
                 testid="chat-header-task-title"
               />
@@ -2586,7 +2598,10 @@ export function ChatArea({
          * that would lie. Own classes, NOT chat__gallery-toggle: that class is a
          * querySelector handle in ChatArea.gallery.test.tsx and a second element
          * wearing it would be silently picked up instead. */}
-        <div className={`chat__header-actions${topActionCount > 1 ? " chat__header-actions--stacked" : ""}`}>
+        <div
+          className={`chat__header-actions${topActionCount > 1 ? " chat__header-actions--stacked" : ""}`}
+          style={{ "--chat-header-action-cols": Math.ceil((topActionCount + 2) / 2) } as CSSProperties}
+        >
           {topActionCount > 0 && (
             <div className="chat__header-actions-row">
               {onOpenReplies && (
@@ -3109,7 +3124,7 @@ export function ChatArea({
                       * line it was, here as well as on the sent row. */}
                     {replyQuote
                       ? t.chat.replyingTo(
-                          directionLabel(replyQuote.from, replyQuote.to),
+                          directionLabel(replyQuote.from, replyQuote.to, recipientNameOf),
                         )
                       : t.chat.replyingToEarlier}
                   </span>
@@ -3189,7 +3204,7 @@ export function ChatArea({
                 }}
                 onKeyDown={onKeyDown}
                 onPaste={onPaste}
-                placeholder={t.chat.inputPlaceholder(member.name)}
+                placeholder={t.chat.inputPlaceholder(recipientNameOf(member.id))}
               />
               <MentionHighlight inputRef={inputRef} text={draft} ranges={mention.ranges} />
               <button

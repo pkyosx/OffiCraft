@@ -43,6 +43,7 @@ import { useInsight } from "../hooks/useInsight";
 import { ContentView } from "./ContentView";
 import { DocumentHistoryEntry } from "./DocumentHistoryEntry";
 import { LayersIcon, PencilIcon } from "./icons";
+import { InfoHint } from "./InfoHint";
 import "./member-detail.css";
 
 interface InsightCardProps {
@@ -106,6 +107,7 @@ export function InsightCard({ roleKey }: InsightCardProps) {
         <span className="mp-lessons__title">
           <LayersIcon size={15} className="mp-lessons__icon" />
           <span className="mp-lessons__title-label">{t.mp.insight}</span>
+          <InfoHint about={t.mp.insight} hint={t.mp.insightShared} />
           {/* 🔴 THE FACTORY STATUS (T-e1e3). Insight now folds against a PER-ROLE
             * file seed, so `text` being non-empty no longer proves a person
             * wrote it: an untouched `assistant` reads the factory wording.
@@ -226,7 +228,6 @@ export function InsightCard({ roleKey }: InsightCardProps) {
           </button>
         )}
       </div>
-      <div className="mp-lessons__note">{t.mp.insightShared}</div>
       <div className="mp-lessons__body">
         {editing ? (
           <>

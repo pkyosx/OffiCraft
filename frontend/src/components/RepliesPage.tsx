@@ -1,16 +1,16 @@
 // RepliesPage — the 等我回覆 page (SPEC §2, M2 reply cards B2): every member's
-// pending asks in one place, two panes.
+// asks, one list at a time, picked by the three labels above the list:
 //
-//   待回覆    — cards still waiting, newest ask first unless the owner picks
-//              another 排序依據 under 顯示方式 (remembered per browser); every
-//              card wears the SAME style — no longest-waiting highlight (owner
-//              ruled it out).
-//   已延後    — waiting cards the owner put aside with 稍後再看; each returns
-//              to 待回覆 by itself at its time. Collapsed by default.
-//   近期已處理 — cards answered OR expired within 24h, merged newest-handled
-//              first. The PANE is collapsed by default (vibe-clicking style)
-//              and its lists are not even fetched until it is opened; not
-//              persisted — every visit starts collapsed.
+//   等待回覆 — waiting cards, newest ask first unless the owner picks another
+//            排序依據 under 顯示方式 (remembered per browser); every card wears
+//            the SAME style — no longest-waiting highlight (owner ruled it out).
+//   稍後再看 — waiting cards the owner put aside; each returns to 等待回覆 by
+//            itself at its time.
+//   近期已回覆 — cards answered or expired within 24h, newest-handled first.
+//            Not fetched until this label is selected.
+//
+// The label is not remembered: every visit opens on 等待回覆. The 篩選 dialog's
+// fields narrow whichever label is selected.
 //
 // 🔴 EVERY CARD STARTS COLLAPSED, AND OPENING ONE IS WHAT READS IT (owner
 // ruling 2026-09-07, restated 2026-09-11:「要做折疊版的，預設全部折疊」). The panes
@@ -22,8 +22,8 @@
 // 2026-09-11:「折疊起來那一列的內容不要另外設計」). It draws exactly what the
 // expanded card's top strip drew: avatar, name + role, 跳到原訊息, 標為過期, the
 // ticking 已等你 {t} to the RIGHT of 標為過期, and the task-title row underneath.
-// Every one of those comes off the light row, so a collapsed pane still fetches
-// nothing. Opening a row reads that ONE card (`api.getReplyCard`) and adds the
+// Every one of those comes off the light row, so a list of collapsed cards
+// fetches nothing. Opening a row reads that ONE card (`api.getReplyCard`) and adds the
 // QUESTION to what is already on screen — summary, body, attachments and the
 // SHARED ReplyCardBody — instead of re-drawing a head that never left.
 // ⚠️ NO ABSOLUTE 開卡 STAMP. owner 2026-09-11:「我不想知道絕對時間 相對時間已經
@@ -47,12 +47,13 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
 } from "react";
-import { useI18n } from "../i18n";
+import { useI18n, type Locale } from "../i18n";
 import { api } from "../api";
 import { secretCardMayStillChange } from "../lib/replyCardReceipt";
 import type {
@@ -80,6 +81,7 @@ import {
 import { PRIORITIES } from "../lib/taskPriority";
 import { readStoredChoice, writeStoredChoice } from "../lib/storedChoice";
 import {
+  DEFAULT_WAITING_SORT,
   WAITING_SORTS,
   WAITING_SORT_KEY,
   type WaitingSort,
@@ -94,12 +96,11 @@ import { useHashRoute } from "../lib/hashRoute";
 import { isSyntheticSender } from "../lib/syntheticSender";
 import { docCommentRecipient } from "../lib/docComments";
 import { avatarKindForMember } from "../lib/avatarKind";
-import { ReplyCardAvatarButton } from "./ReplyCardAvatarButton";
+import { MemberChatChip } from "./MemberChip";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
 import { OutsourceTaskLine } from "./OutsourcePanel";
 import {
   ChevronRightIcon,
-  CloseIcon,
   CopyIcon,
   HourglassIcon,
   TextCursorIcon,
@@ -110,12 +111,11 @@ import {
   SnoozeActionIcon,
   UnsnoozeActionIcon,
 } from "./replyCardActionIcons";
-import { FilterPanel } from "./FilterPanel";
+import { FilterField, FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
 import { MultiSelectFilter, type MultiSelectOption } from "./MultiSelectFilter";
 import { ConfirmModal } from "./ConfirmModal";
 import { DisplayOptions } from "./DisplayOptions";
-import { TaskDueChip, TaskNoBadge, TaskPriorityBadge } from "./TaskChips";
 import { ReplySnoozeMenu, type SnoozeOutcome } from "./ReplySnoozeMenu";
 import {
   ChatSelectionModeBar,
@@ -140,18 +140,25 @@ import {
   ReplyCardAnsweredBody,
   ReplyCardExpiredBody,
   ReplyCardLinkComments,
+  ReplyCardHandledRow,
+  ReplyCardIdChip,
   ReplyCardQuestionAttachments,
-  ReplyCardTaskRef,
+  ReplyCardStatusIcon,
+  ReplyCardTaskBox,
   ReplyCardWaitingBody,
+  type ReplyCardState,
 } from "./ReplyCardBody";
 import { formatDurationShort } from "../lib/duration";
 import { snoozeBackShort } from "../lib/replySnooze";
 import { formatAbsolute } from "../lib/dateFormat";
+import { isCardToggleClick, isCardToggleKey } from "../lib/cardToggle";
 import "./office.css"; // chat composer classes the ReplyComposer reuses, AND
 // the rail's `.outsource-row__*` / `.current-task-title` rules the asker's
 // current-task line is drawn with (T-196) — removing this import as an
 // unused-looking tidy-up unstyles that line, and no vitest test can see it.
 import "./replies.css";
+import "./card-head.css";
+import "./card-meta.css";
 
 const HANDLED_WINDOW_SECONDS = 24 * 3600;
 const SELECTING_CARD = ".reply-card--selecting";
@@ -173,6 +180,12 @@ function inertAround(row: Element, root: Element): () => void {
 
 const NO_TASK = "notask";
 const PRIORITY_FILTER_KEYS = [...PRIORITIES, NO_TASK] as const;
+
+type StatusKey = "waiting" | "snoozed" | "answered" | "expired";
+type ListView = "waiting" | "snoozed" | "answered";
+const LIST_VIEWS: readonly ListView[] = ["waiting", "snoozed", "answered"];
+const viewOfStatus = (status: StatusKey): ListView =>
+  status === "expired" ? "answered" : status;
 
 /** A handled card's pane stamp (answeredTs / expiredTs — whichever its
  * terminal state carries). */
@@ -211,7 +224,7 @@ export function RepliesPage({
   replyCardId?: string;
   openerId?: string;
 }) {
-  const { t, msg } = useI18n();
+  const { t, msg, locale } = useI18n();
   // Light roster (T-cf91): the page attributes each card to its asker by
   // name + role only, so it takes the identity-only projection AND does not
   // refetch it when anyone in the company sends a chat message.
@@ -229,8 +242,8 @@ export function RepliesPage({
     snoozed,
     snooze,
     handled,
-    handledCount,
     handledLoaded,
+    handledCount,
     loading,
     error,
     loadHandled,
@@ -241,18 +254,11 @@ export function RepliesPage({
     provideSecret,
   } = useReplyCards();
   const [, setRoute] = useHashRoute();
-  const waitingOnly = openerId !== undefined;
 
   // ── 篩選 (T-93 round 2) ─────────────────────────────────────────────────
   // ── ID 篩選 (T-118) ──────────────────────────────────────────────────────
-  // The field is permanently visible above the list — no funnel, no panel, no
-  // 取消/套用篩選, no 「N 筆 · 已篩選」 strip, and no 「請示卡」 sub-title above it.
-  // owner 2026-09-06 20:07 (c-c3d681fe05da):「不要多filter那一層了,全部拉出來
-  //…也不用再顯示14筆已篩選跟那一行跟案件那個子標了,案件跟請示卡都一樣」, and
-  // again at 20:19 (c-38c7759e6377):「請示卡跟任務都要改成一樣的呈現方式,一樣
-  // 請示卡的子標題拿掉」. The shell is still the shared FilterPanel (read
-  // FilterPanel.tsx's header — that contract is not restated here); it is now a
-  // row rather than an expander, so both pages got the new shape at once.
+  // The field lives in the collapsed FilterPanel's dialog (read FilterPanel.tsx's
+  // header — that contract is not restated here).
   //
   // TWO STATES, STILL. `appliedId` is what the page is actually filtered by;
   // `draftId` is what the field binds to. 🔴 They are still separate, and NOT
@@ -373,7 +379,7 @@ export function RepliesPage({
     setOpenerFilter(new Set());
     setPriorityFilter(new Set());
     setDueFilter(new Set());
-    if (replyCardId || waitingOnly) setRoute({ page: "replies" });
+    if (replyCardId || openerId) setRoute({ page: "replies" });
   }
 
   // ── 開卡人 (T-118, owner 2026-09-06 c-782404ee53d8「請示卡我想多一個開卡的人
@@ -396,9 +402,23 @@ export function RepliesPage({
   const [openerFilter, setOpenerFilter] = useState<Set<string>>(
     () => new Set(openerId ? [openerId] : [])
   );
+  const [view, setViewState] = useState<ListView>("waiting");
+  const tabsId = useId();
+  // Cards settled elsewhere while the owner had them open, keyed to the label
+  // they were read under: they stay where he is reading them until he switches.
+  const [pinned, setPinned] = useState<Map<string, ListView>>(() => new Map());
+  const shownInViewRef = useRef<Set<string>>(new Set());
+  const ownMoveIdsRef = useRef<Set<string>>(new Set());
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  function setView(next: ListView) {
+    setViewState(next);
+    setPinned((prev) => (prev.size === 0 ? prev : new Map()));
+    shownInViewRef.current = new Set();
+  }
   // What 清除篩選 is offered for — EITHER axis, not just the id. `filtering`
   // stays id-only on purpose: it also gates the by-id lookup's three outcomes
-  // and the handled pane's force-expand, and an 開卡人 tick must not switch
+  // and skips the handled-list fetch, and an 開卡人 tick must not switch
   // those on (there is no id to have found, missed, or failed to reach).
   // 任務優先序 / 任務到期 — same empty-set convention; a card with no task
   // counts as 無任務 on the first and matches no option on the second.
@@ -411,22 +431,24 @@ export function RepliesPage({
   useEffect(() => {
     if (!openerId) return;
     setOpenerFilter(new Set([openerId]));
+    setView("waiting");
     setPriorityFilter(new Set());
     setDueFilter(new Set());
     setAppliedId("");
     setDraftId("");
   }, [openerId]);
-  const narrowing =
-    idQuery !== "" ||
-    openerFilter.size > 0 ||
-    priorityFilter.size > 0 ||
-    dueFilter.size > 0;
-  // 只看待回覆 hides whole sections but drops no waiting card, so it is not
-  // `narrowing`: alone it leaves an empty 待回覆 saying ✓ 目前沒有待處理.
-  const anyFilter = narrowing || waitingOnly;
+  const activeFilterCount = [
+    idQuery !== "",
+    openerFilter.size > 0,
+    priorityFilter.size > 0,
+    dueFilter.size > 0,
+  ].filter(Boolean).length;
+  const narrowing = activeFilterCount > 0;
+  // An applied id is answered by the server, so it never needs these lists.
+  const wantsHandled = view === "answered" && !filtering;
 
   const [waitingSort, setWaitingSortState] = useState<WaitingSort>(() =>
-    readStoredChoice(WAITING_SORT_KEY, WAITING_SORTS, "createdDesc")
+    readStoredChoice(WAITING_SORT_KEY, WAITING_SORTS, DEFAULT_WAITING_SORT)
   );
   function setWaitingSort(next: WaitingSort) {
     setWaitingSortState(next);
@@ -491,30 +513,11 @@ export function RepliesPage({
   const [expireTarget, setExpireTarget] = useState<ReplyCardRow | null>(null);
   const [expireBusy, setExpireBusy] = useState(false);
 
-  // 近期已處理 collapses by default (vibe-clicking style) — the handled pane
-  // is reference material, not work to do, so it must not crowd the 待回覆
-  // pane. Plain component state on purpose: NOT persisted, every visit starts
-  // collapsed. Owner 已回覆卡預設不載: the lists are NOT fetched while
-  // collapsed — expanding pulls them (loadHandled); the header 「· N」 comes
-  // from the counts.
-  const [handledOpen, setHandledOpen] = useState(false);
-  // 已延後 starts collapsed every visit, like 近期已處理.
-  const [snoozedOpen, setSnoozedOpen] = useState(false);
-  const [waitingOpen, setWaitingOpen] = useState(true);
   const [unsnoozeErrors, setUnsnoozeErrors] = useState<Set<string>>(() => new Set());
   const [handledLoadError, setHandledLoadError] = useState(false);
   const [settledRows, setSettledRows] = useState<Map<string, ReplyCardRow>>(
     () => new Map()
   );
-
-  // Round 1 had a latched auto-load here: with a filter on, the collapsed
-  // 近期已處理 pane had to be FETCHED before the filter could find a card in
-  // it, or the page answered "no match" for a card sitting right there. That is
-  // gone with the by-id lookup — the found card comes from the server, so
-  // nothing about reaching it depends on which pane happens to be loaded. What
-  // DID survive is the requirement behind it: a card the server returned must
-  // never be invisible because a pane is collapsed. The handled pane is
-  // therefore FORCE-EXPANDED while a filter is applied (see handledExpanded).
 
   // Once per link: the lists refresh on any card's event, and landing again would
   // pull focus out of a box the owner is typing in and lose the keystrokes.
@@ -530,7 +533,7 @@ export function RepliesPage({
     landedOnRef.current = replyCardId;
     card.scrollIntoView({ block: "center" });
     if (!card.contains(document.activeElement)) card.focus({ preventScroll: true });
-  }, [replyCardId, waiting, handled, handledOpen, lookup.state]);
+  }, [replyCardId, waiting, handled, lookup.state, view]);
 
   const loadHandledForPage = useCallback(async () => {
     setHandledLoadError(false);
@@ -542,13 +545,12 @@ export function RepliesPage({
     }
   }, [loadHandled]);
 
-  function toggleHandled() {
-    setHandledOpen((wasOpen) => {
-      const open = !wasOpen;
-      if (open && !handledLoaded) void loadHandledForPage();
-      return open;
-    });
-  }
+  // Owner 已回覆卡預設不載: the answered/expired lists are fetched only once
+  // 近期已回覆 is selected. A failed load is retried by switching to another
+  // label and back, not in a loop.
+  useEffect(() => {
+    if (wantsHandled && !handledLoaded) void loadHandledForPage();
+  }, [wantsHandled, handledLoaded, loadHandledForPage]);
 
   // Display order = the owner's 排序依據 (`sortWaitingRows`; default 開卡時間
   // newest first). No per-card highlight: the owner ruled the longest-waiting
@@ -562,7 +564,7 @@ export function RepliesPage({
   // older; use the same predicate for pane visibility and 開卡人 counts.
   const withinHandledWindow = (c: ReplyCardRow) => {
     const ts = handledTsOf(c);
-    return ts !== null && nowTs - ts < HANDLED_WINDOW_SECONDS;
+    return ts !== null && nowTs - ts <= HANDLED_WINDOW_SECONDS;
   };
   const isVisibleHandled = (c: ReplyCardRow) =>
     settledRows.has(c.id) || withinHandledWindow(c);
@@ -613,29 +615,99 @@ export function RepliesPage({
     (snoozed.some((c) => c.id === foundCard.id) ||
       (!waiting.some((c) => c.id === foundCard.id) &&
         (foundCard.snoozedUntilTs ?? 0) > Date.now() / 1000));
-  const waitingSorted = filtering
-    ? foundCard && foundCard.status === "waiting" && !foundSnoozed && passesAll(foundCard)
-      ? [foundCard]
-      : []
-    : sortWaitingRows(displayedWaiting.filter(passesAll), waitingSort);
-  const snoozedShownRows = filtering
-    ? foundCard && foundSnoozed && passesAll(foundCard)
-      ? [foundCard]
-      : []
-    : displayedSnoozed.filter(passesAll);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const foundStatus: StatusKey | null =
+    foundCard === null
+      ? null
+      : foundCard.status === "waiting"
+        ? foundSnoozed
+          ? "snoozed"
+          : "waiting"
+        : foundCard.status;
+  // An id names one card, so landing on it selects that card's label — once per
+  // lookup: a card that settles while the owner reads it must not drag the
+  // page to another label.
+  const foundView = foundStatus === null ? null : viewOfStatus(foundStatus);
+  const autoViewForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!filtering) {
+      autoViewForRef.current = null;
+      return;
+    }
+    if (foundView === null || autoViewForRef.current === idQuery) return;
+    autoViewForRef.current = idQuery;
+    if (foundView !== viewRef.current) setView(foundView);
+  }, [filtering, idQuery, foundView]);
 
-  const visibleHandled = filtering
+  const visibleHandled = displayedHandled.filter(isVisibleHandled);
+  const pinnedRows = (into: ListView) =>
+    displayedHandled.filter((c) => pinned.get(c.id) === into);
+  // An open card that moves between 等待回覆 and 稍後再看 by itself (its snooze
+  // ran out, or another window snoozed it) stays where the owner is reading it
+  // until he closes it or switches label. His own snooze here still moves it.
+  const heldOpen = (rows: ReplyCardRow[]) =>
+    rows.filter(
+      (c) =>
+        expandedIds.has(c.id) &&
+        shownInViewRef.current.has(c.id) &&
+        !ownMoveIdsRef.current.has(c.id) &&
+        passesAll(c)
+    );
+  type ListItem = { row: ReplyCardRow; status: StatusKey };
+  const asItem = (status: StatusKey) => (row: ReplyCardRow): ListItem => ({ row, status });
+  const rowItem = (row: ReplyCardRow): ListItem => ({ row, status: row.status as StatusKey });
+  const listItems: ListItem[] = filtering
     ? // 🔴 NO 24h PRUNE on a card fetched by id. The window is what makes the
-      // unfiltered pane a "recent" list; applying it to an answer from the
-      // server would re-create the exact hole this round removes — the owner
-      // asks for a card, the server hands it over, and the page drops it for
-      // being old.
-      foundCard && foundCard.status !== "waiting" && passesAll(foundCard)
-      ? [foundCard]
+      // unfiltered list "recent"; applying it to an answer from the server would
+      // drop the card the owner asked for for being old.
+      // A card that settles while shown stays under the label it was read in.
+      foundCard &&
+      foundStatus &&
+      (foundView === view || shownInViewRef.current.has(foundCard.id)) &&
+      passesAll(foundCard)
+      ? [{ row: foundCard, status: foundStatus }]
       : []
-    : displayedHandled
-        .filter((c) => passesAll(c) && isVisibleHandled(c))
-        .sort((a, b) => (handledTsOf(b) ?? 0) - (handledTsOf(a) ?? 0));
+    : view === "waiting"
+      ? [
+          ...sortWaitingRows(
+            [...displayedWaiting, ...pinnedRows("waiting")].filter(passesAll),
+            waitingSort
+          ).map((row) => (row.status === "waiting" ? asItem("waiting")(row) : rowItem(row))),
+          ...heldOpen(displayedSnoozed).map(asItem("snoozed")),
+        ]
+      : view === "snoozed"
+        ? [
+            ...displayedSnoozed.filter(passesAll).map(asItem("snoozed")),
+            ...heldOpen(displayedWaiting).map(asItem("waiting")),
+            ...pinnedRows("snoozed").filter(passesAll).map(rowItem),
+          ]
+        : visibleHandled
+            .filter(passesAll)
+            .sort((a, b) => (handledTsOf(b) ?? 0) - (handledTsOf(a) ?? 0))
+            .map(rowItem);
+
+  useEffect(() => {
+    shownInViewRef.current = new Set(listItems.map((item) => item.row.id));
+  });
+
+  const viewCounts: Record<ListView, number | null> = filtering
+    ? {
+        waiting: 0,
+        snoozed: 0,
+        answered: 0,
+        ...(foundCard && foundView && passesAll(foundCard) ? { [foundView]: 1 } : {}),
+      }
+    : {
+        waiting: loading ? null : displayedWaiting.filter(passesAll).length,
+        snoozed: loading ? null : displayedSnoozed.filter(passesAll).length,
+        // The count endpoint knows nothing of the filters.
+        answered: handledLoaded
+          ? visibleHandled.filter(passesAll).length
+          : narrowing
+            ? null
+            : handledCount,
+      };
+  const listedCount = error ? null : viewCounts[view];
   // ── 開卡了哪一張 (owner 2026-09-07) ─────────────────────────────────────────
   // A row is a TITLE, not a card: since `?view=full` left the wire the panes
   // carry `ReplyCardRow`s, so the only thing this page can draw without asking
@@ -644,9 +716,8 @@ export function RepliesPage({
   // the ids whose read failed (an opened row must say so rather than sit empty).
   //
   // NOT PERSISTED. Every card starts collapsed (owner 2026-09-11
-  // 「預設全部折疊」); only a deep link opens one — the same posture as the
-  // 近期已處理 pane's own toggle, and as ChatReplyCard's stub.
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  // 「預設全部折疊」); only a deep link opens one — the same posture as
+  // ChatReplyCard's stub.
   const [openCards, setOpenCards] = useState<Map<string, ReplyCard>>(
     () => new Map()
   );
@@ -673,6 +744,7 @@ export function RepliesPage({
    * it also DROPS the read below, so re-opening reads the card again rather
    * than showing whatever it said minutes ago. */
   function toggleCard(id: string) {
+    ownMoveIdsRef.current.delete(id);
     if (expandedIds.has(id)) secretFocusPendingRef.current.delete(id);
     else secretFocusPendingRef.current.add(id);
     setExpandedIds((prev) => {
@@ -683,34 +755,18 @@ export function RepliesPage({
     });
   }
 
-  // Whole-card toggle with an interaction filter, copied from `TaskCard`
-  // (`onCardToggleClick` there): a click that lands on any interactive thing
-  // inside the card — 跳到原訊息 / 標為過期, the option chips, the composer and its
-  // paperclip, an attachment thumbnail (img[role=button] → Lightbox), a markdown
-  // link, a modal — must do its own job and never flip the card. `closest()`
-  // covers them all without sprinkling stopPropagation over every child; the
-  // `hit !== currentTarget` guard is there because the article itself carries
-  // role="button" and would otherwise veto every click on its own body. A click
-  // that ended a text selection is not a toggle intent either.
+  // Whole-card toggle with the same interaction filter as `TaskCard`
+  // (isCardToggleClick): 跳到原訊息 / 標為過期, the option chips, the composer and
+  // its paperclip, an attachment thumbnail, a markdown link, a modal do their
+  // own job and never flip the card.
   function onCardToggleClick(e: React.MouseEvent<HTMLElement>, id: string) {
-    const target = e.target as HTMLElement;
-    const hit = target.closest(
-      "button, a, textarea, input, select, [role='button'], [role='menu'], [role='dialog'], .reply-composer"
-    );
-    if (hit && hit !== e.currentTarget) return;
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0 && !sel.isCollapsed) return;
-    toggleCard(id);
+    if (isCardToggleClick(e, ".reply-composer")) toggleCard(id);
   }
 
   /** Keyboard operability (repo convention for clickable surfaces). Only keys on
    * the card ITSELF toggle — an Enter bubbling out of the composer must not. */
   function onCardToggleKeyDown(e: React.KeyboardEvent<HTMLElement>, id: string) {
-    if (e.target !== e.currentTarget) return;
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      toggleCard(id);
-    }
+    if (isCardToggleKey(e)) toggleCard(id);
   }
 
   // The row's own version stamp. It is what decides that a card ALREADY READ is
@@ -754,10 +810,8 @@ export function RepliesPage({
               expiredTs: card.expiredTs ?? null,
             })
           );
-          if (!waitingOnly) {
-            setHandledOpen(true);
-            if (!handledLoaded) void loadHandledForPage();
-          }
+          const into = viewRef.current;
+          if (into !== "answered") setPinned((prev) => new Map(prev).set(id, into));
           try {
             await refresh();
             if (handledLoaded) setHandledLoadError(false);
@@ -771,7 +825,7 @@ export function RepliesPage({
         setOpenErrors((prev) => new Set(prev).add(id));
       }
     },
-    [handledLoaded, loadHandledForPage, refresh, waitingOnly]
+    [handledLoaded, refresh]
   );
 
   // 🔴 THE ONLY PLACE A CARD IS READ. Opening a row does not fetch by itself —
@@ -783,8 +837,8 @@ export function RepliesPage({
     const seen = readVersionsRef.current;
     for (const id of expandedIds) {
       const row = rowsById.get(id);
-      // No row means this pane is not showing the card at all — the one it just
-      // answered, before the 近期已處理 pane has been loaded. Nothing renders it,
+      // No row means the page is not holding the card at all — the one it just
+      // answered, before the handled lists have been loaded. Nothing renders it,
       // so reading it would buy a request for a card that is off screen; the
       // version check below re-reads it the moment a pane lists it again.
       if (!row) continue;
@@ -874,7 +928,7 @@ export function RepliesPage({
       if (focusCardOnExitRef.current) {
         focusCardOnExitRef.current = false;
         cardElementOf(selectingId)
-          ?.querySelector<HTMLElement>(".chat__msg-copy")
+          ?.querySelector<HTMLElement>(".reply-card__copy button")
           ?.focus({ preventScroll: true });
       }
     };
@@ -905,7 +959,9 @@ export function RepliesPage({
     if (!row) return [];
     const opened = openCards.get(id);
     const waitingNow = row.status === "waiting" && (!opened || opened.status === "waiting");
-    const snoozedNow = waitingNow && snoozedShownRows.some((c) => c.id === id);
+    const snoozedNow = waitingNow && listItems.some(
+      (item) => item.row.id === id && item.status === "snoozed"
+    );
     const cardActions: PressMenuItem[] = [
       {
         key: "jump",
@@ -940,7 +996,7 @@ export function RepliesPage({
       ...cardActions,
       {
         key: "copy",
-        label: t.chat.copyMessage,
+        label: t.replies.copyWholeCard,
         icon: <CopyIcon size={13} />,
         onSelect: () => copyCard(row),
       },
@@ -963,11 +1019,8 @@ export function RepliesPage({
   //
   // Each axis counts the rows the OTHER axes let through, so ticking one never
   // zeroes its own siblings.
-  const axisBasis = [
-    ...displayedWaiting,
-    ...displayedSnoozed,
-    ...displayedHandled.filter(isVisibleHandled),
-  ];
+  const axisBasis =
+    view === "waiting" ? displayedWaiting : view === "snoozed" ? displayedSnoozed : visibleHandled;
   const countBy = (keep: (c: ReplyCardRow) => boolean, keysOf: (c: ReplyCardRow) => string[]) => {
     const counts = new Map<string, number>();
     for (const c of axisBasis) {
@@ -997,49 +1050,19 @@ export function RepliesPage({
   const dueOptions = fixedOptions(DUE_FILTER_KEYS, dueCounts, (k) =>
     dueFilterLabel(t.tasks, k as DueFilterKey)
   );
+  const viewLabels: Record<ListView, string> = {
+    waiting: t.replies.tabWaiting,
+    snoozed: t.replies.tabSnoozed,
+    answered: t.replies.tabAnswered,
+  };
+  const viewShortLabels: Record<ListView, string> = {
+    waiting: t.replies.tabWaitingShort,
+    snoozed: t.replies.tabSnoozedShort,
+    answered: t.replies.tabAnsweredShort,
+  };
   // 開卡人 下拉的選項在 `whoOf` 之後才建得起來（它要用 `askerNames`），見下方。
 
-  // The header count + zero-hide: the server counts until the lists are
-  // loaded, then the client-pruned visible length (so an aging-out card drops
-  // the header too while the page stays open).
-  // 🔴 THE ZERO HERE IS LOAD-BEARING: the section below is hidden when this is
-  // 0, so a 0 that means "not fetched yet" makes the whole 近期已處理 pane —
-  // and the only handle for opening it — VANISH. An earlier cut of this filter
-  // read `handledLoaded || idQuery !== ""` and did exactly that on the most
-  // common path of all: a link to a card that IS in 待回覆 leaves the pane
-  // unfetched, so 0 rows matched something nobody had loaded (independent
-  // review, 2026-09-05). Only a LOADED list may narrow this number; unloaded
-  // falls back to the server's whole-pane count, exactly as it does with no
-  // filter at all.
-  //
-  // ⚠️ THE FALLBACK NUMBER IGNORES THE 開卡人 AXIS. `handledCount` is the
-  // server's whole-pane total, so while the pane is still unloaded the title can
-  // say a number larger than the tick would allow, and it drops to the filtered
-  // one the moment the pane unfolds. That is the pre-existing fallback behaving
-  // as designed (an unloaded list cannot narrow anything), but the opener axis
-  // makes it much easier to notice than the id axis did — the id path sets
-  // `filtering` and takes the first branch, an opener tick does not.
-  const handledShown = filtering
-    ? visibleHandled.length
-    : handledLoaded
-      ? visibleHandled.length
-      : Math.max(handledCount, visibleHandled.length);
-  // 🔴 A card the server returned must be ON SCREEN, not behind a collapsed
-  // pane: 「找到了但畫面上沒有」 is the same silent nothing as a false empty.
-  // While a filter is applied the handled pane is open and renders the fetched
-  // card directly — it does not wait for `handledLoaded`, because with a filter
-  // the pane's content is the lookup's answer, not the deferred 24h list.
-  // Two flags, not one: `handledExpanded` is the AFFORDANCE (what the caret and
-  // aria-expanded say), `handledListShown` is whether there are rows to draw.
-  // They differ for one frame on an ordinary unfold — the toggle reads expanded
-  // while loadHandled is still in flight — and folding them together would make
-  // the caret lie for the length of that request.
-  const handledExpanded = filtering || handledOpen;
-  const waitingExpanded = filtering || waitingOnly || waitingOpen;
-  const handledListShown =
-    filtering ||
-    (handledOpen &&
-      (handledLoaded || displayedHandled.length > 0 || handledLoadError));
+  const handledLoading = wantsHandled && !handledLoaded && !handledLoadError;
 
   // Outsource askers (ow- ids) get their codename from the lazy per-id read
   // rather than from `members`. Not because they are missing from it — GET
@@ -1083,25 +1106,23 @@ export function RepliesPage({
   // codename/avatar above, so the identity row speaks with one voice.
   const workerTasks = useWorkerCurrentTasks(workerIds);
 
-  // Resolve the initiating member for a card's identity row. A card can
-  // outlive its member (removed roster row) — fall back to the name the per-id
-  // read serves, then the raw id / no role, never fabricate.
-  function whoOfId(fromId: string): { name: string; role: string } {
+  // Resolve the initiating member for a card. A card can outlive its member
+  // (removed roster row) — fall back to the name the per-id read serves, then
+  // the raw id, never fabricate. `name` is the label lists use (外包 · 代號);
+  // the opener chip shows `chipName`, the bare name (owner).
+  function whoOfId(fromId: string): { name: string; chipName: string } {
     const m = members.find((x) => x.id === fromId);
     if (!m || m.kind === "outsource") {
       const name = askerNames.get(fromId);
-      if (name === undefined) return { name: fromId, role: "" };
+      if (name === undefined) return { name: fromId, chipName: fromId };
       return {
         name: fromId.startsWith("ow-") ? msg.outsourceLabel(name) : name,
-        role: "",
+        chipName: name,
       };
     }
-    const role =
-      (t.office.role as Record<string, string>)[m.role] ??
-      (m.roleName || m.role);
-    return { name: m.name, role };
+    return { name: m.name, chipName: m.name };
   }
-  function whoOf(card: ReplyCardRow): { name: string; role: string } {
+  function whoOf(card: ReplyCardRow): { name: string; chipName: string } {
     return whoOfId(card.from);
   }
   const docCommentRecipientFor = (id: string) =>
@@ -1123,7 +1144,7 @@ export function RepliesPage({
   // cut read `members.find(...)?.name ?? id` here, which is a DIFFERENT rule
   // from the one the card bodies follow: a RELEASED outsource asker is soft-
   // removed from `members`, so the dropdown fell through to the raw `ow-…` id
-  // while the card beside it said 「外包 · 代號」. The owner would have been asked
+  // while the card beside it named the worker by 代號. The owner would have been asked
   // to tick a name that appears nowhere else on the page. That is also why this
   // block sits below `askerNames` rather than beside `openerCounts` — it needs
   // the lazy codename read, and hoisting it back up is a TDZ error, not a
@@ -1178,71 +1199,17 @@ export function RepliesPage({
     });
   }
 
-  // Avatar → member panel (owner 2026-07-21: "也要可以" — every other avatar
-  // in the cockpit already opens the detail panel; this card's was the one
-  // hold-out). Mirrors MemberCard's avatar-as-second-target pattern and rides
-  // the SAME hash seam (frontend/src/lib/hashRoute.ts) OfficePage already
-  // reads: staff askers go through #office/member/<id> (detailId), an
-  // outsource asker through #office/worker/<id> (workerId) — OfficePage
-  // self-heals to the plain roster view if the id doesn't resolve (e.g. a
-  // released worker), so this never dead-ends. The split below keys on
-  // `kind === "staff"`, NOT on absence from `members`: GET /api/members
-  // carries kind='outsource' rows, so a live worker is present in the list
-  // and only its kind tells the two panels apart.
-  //
-  // backTo + backToId: without them,
-  // OfficePage's own 返回 button resets to its default chat view (roster[0])
-  // — correct when the panel was opened FROM the office page itself, but a
-  // silent wrong-room landing when opened via this cross-page deep link,
-  // since there was never a chat selected to return to. The marker tells
-  // OfficePage's 返回 to reopen this exact card instead.
-  function openProfile(row: ReplyCardRow) {
-    const isRosterMember = members.some(
-      (m) => m.id === row.from && m.kind === "staff",
-    );
-    setRoute(
-      isRosterMember
-        ? {
-            page: "office",
-            detailId: row.from,
-            backTo: "replies",
-            backToId: row.id,
-          }
-        : {
-            page: "office",
-            workerId: row.from,
-            backTo: "replies",
-            backToId: row.id,
-          },
-    );
-  }
-
-  // §3.6 請示 → 任務: an ask that names a task shows the task row at the very
-  // top of the card, above the head — #number, priority, due date, title, and
-  // the jump. The route carries the task id so the tasks page can locate
+  // §3.6 請示 → 任務: an ask that names a task shows it in a box right under
+  // the first line. The route carries the task id so the tasks page can locate
   // the card. A pure chat ask renders nothing here.
   function renderTaskRef(row: ReplyCardRow) {
     const task = row.task;
     if (!task) return null;
     return (
-      <ReplyCardTaskRef
+      <ReplyCardTaskBox
         task={task}
         onJump={() => setRoute({ page: "tasks", taskId: task.id })}
-        lead={
-          <span className="reply-card__task-chips">
-            <TaskNoBadge taskNo={task.id} testId="reply-task-no" />
-            {task.priority && (
-              <TaskPriorityBadge priority={task.priority} testId="reply-task-priority" />
-            )}
-            {task.dueTs != null && (
-              <TaskDueChip
-                dueTs={task.dueTs}
-                leadMinutes={effectiveLeadMinutes(task.dueSoonLeadMinutes, workspaceLeadMinutes)}
-                testId="reply-task-due"
-              />
-            )}
-          </span>
-        }
+        workspaceLeadMinutes={workspaceLeadMinutes}
       />
     );
   }
@@ -1329,6 +1296,7 @@ export function RepliesPage({
   }
 
   async function doSnooze(id: string, untilTs: number): Promise<SnoozeOutcome> {
+    ownMoveIdsRef.current.add(id);
     try {
       await snooze(id, untilTs);
       setActionError(null);
@@ -1343,6 +1311,7 @@ export function RepliesPage({
   }
 
   async function doUnsnooze(id: string) {
+    ownMoveIdsRef.current.add(id);
     setUnsnoozeErrors((prev) => {
       if (!prev.has(id)) return prev;
       const next = new Set(prev);
@@ -1419,7 +1388,7 @@ export function RepliesPage({
     // above, one field later.
     const bound = Boolean(worker.taskNo);
     return (
-      <span className="reply-card__worker-task">
+      <div className="reply-card__worker-task">
         {bound && (
           <OutsourceTaskLine
             worker={worker}
@@ -1432,77 +1401,93 @@ export function RepliesPage({
           clamp
           testid={`reply-card-task-title-${row.id}`}
         />
-      </span>
+      </div>
     );
   }
 
-  /** The card's head — and, since owner 2026-09-11, the COLLAPSED ROW itself:
-   * 「折疊起來那一列的內容不要另外設計」. It is drawn from the LIGHT ROW, so it
-   * costs no read: avatar, name + role, 跳到原訊息, 標為過期, then the stamp. */
+  /** The card's first line, drawn from the LIGHT ROW so it costs no read:
+   * where the card stands, its own id, then at the right end 跳到原訊息,
+   * 稍後再看 (or 取消延後), 標為過期 and 複製整張卡片內容 with a mouse, the
+   * waited pill, and the chevron. */
   function renderHead(
     row: ReplyCardRow,
+    state: ReplyCardState,
+    open: boolean,
     stampNode?: ReactNode,
     expirable = false,
     actions?: ReactNode
   ) {
-    const who = whoOf(row);
-    const asker = members.find((x) => x.id === row.from);
     return (
       <header className="reply-card__head">
-        <ReplyCardAvatarButton
-          onClick={() => openProfile(row)}
-          src={
-            (asker?.kind === "outsource" ? undefined : asker?.avatarUrl) ??
-            workerAvatarUrls.get(row.from)
-          }
-          kind={avatarKindForMember(
-            asker ?? { id: row.from }
-          )}
-        />
-        <div className="reply-card__who">
-          <span className="reply-card__name" title={who.name}>
-            {who.name}
-          </span>
-          {who.role && (
-            <span className="reply-card__role" title={who.role}>
-              {who.role}
-            </span>
-          )}
-          {renderAskerCurrentTask(row)}
-        </div>
-        <div className="reply-card__actions">
-          <span className="reply-card__copy">
-            <ChatMessageCopyButton
-              state={messageCopy.stateOf(row.id)}
-              onCopy={() => copyCard(row)}
-            />
-            <ChatMessageCopyStatus state={messageCopy.stateOf(row.id)} />
-          </span>
-          <button
-            type="button"
-            className="reply-card__icon-btn"
-            aria-label={t.replies.jumpToChat}
-            title={t.replies.jumpToChat}
-            onClick={() => void jumpToChat(row)}
-          >
-            <JumpToMessageIcon size={13} />
-          </button>
-          {actions}
-          {expirable && (
+        <ReplyCardStatusIcon state={state} />
+        <ReplyCardIdChip id={row.id} />
+        <div className="reply-card__head-end">
+          <div className="reply-card__actions">
             <button
               type="button"
-              className="reply-card__icon-btn"
-              data-testid="expire-card"
-              aria-label={t.replies.expire}
-              title={t.replies.expire}
-              onClick={() => setExpireTarget(row)}
+              className="card-head__icon-btn"
+              aria-label={t.replies.jumpToChat}
+              title={t.replies.jumpToChat}
+              onClick={() => void jumpToChat(row)}
             >
-              <ExpireActionIcon size={13} />
+              <JumpToMessageIcon size={14} />
             </button>
-          )}
+            {actions}
+            {expirable && (
+              <button
+                type="button"
+                className="card-head__icon-btn"
+                data-testid="expire-card"
+                aria-label={t.replies.expire}
+                title={t.replies.expire}
+                onClick={() => setExpireTarget(row)}
+              >
+                <ExpireActionIcon size={14} />
+              </button>
+            )}
+            <span className="reply-card__copy">
+              <ChatMessageCopyButton
+                onCard
+                state={messageCopy.stateOf(row.id)}
+                onCopy={() => copyCard(row)}
+                idleLabel={t.replies.copyWholeCard}
+              />
+              <ChatMessageCopyStatus state={messageCopy.stateOf(row.id)} />
+            </span>
+          </div>
+          {stampNode}
+          <span className={`reply-card__fold${open ? " reply-card__fold--open" : ""}`} aria-hidden="true">
+            <ChevronRightIcon size={14} />
+          </span>
         </div>
-        {stampNode}
       </header>
+    );
+  }
+
+  /** 開卡人 (an outsource asker's current task under the chip, as on the office
+   * rail), and on a settled card when it was answered or expired. */
+  function renderMeta(row: ReplyCardRow, handled?: ReactNode) {
+    const who = whoOf(row);
+    const asker = members.find((x) => x.id === row.from);
+    const askerTask = renderAskerCurrentTask(row);
+    return (
+      <div className="card-meta">
+        <span className="card-meta__label">{t.replies.openerLabel}</span>
+        <MemberChatChip
+          name={who.chipName}
+          avatar={{
+            kind: avatarKindForMember(asker ?? { id: row.from }),
+            src:
+              (asker?.kind === "outsource" ? undefined : asker?.avatarUrl) ??
+              workerAvatarUrls.get(row.from),
+          }}
+          label={t.replies.messageOpener}
+          onOpen={() => setRoute({ page: "office", chatId: row.from })}
+          testId="reply-card-opener"
+        />
+        {askerTask}
+        {handled}
+      </div>
     );
   }
 
@@ -1529,7 +1514,9 @@ export function RepliesPage({
     opts: {
       testId: string;
       className: string;
-      stamp: ReactNode;
+      state: ReplyCardState;
+      stamp?: ReactNode;
+      handled?: ReactNode;
       expirable?: boolean;
       actions?: ReactNode;
       notice?: ReactNode;
@@ -1563,8 +1550,8 @@ export function RepliesPage({
               onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => onCardToggleKeyDown(e, row.id),
             })}
       >
+        {renderHead(row, opts.state, open, opts.stamp, opts.expirable, opts.actions)}
         {renderTaskRef(row)}
-        {renderHead(row, opts.stamp, opts.expirable, opts.actions)}
         {opts.notice}
         {/* The ask's TITLE, drawn once and in ONE place — always visible, above
           * the fold of a collapsed card. It is the third line of the head strip
@@ -1576,6 +1563,8 @@ export function RepliesPage({
           * through Markdown; the light row carries it, so this costs no read. */}
         <ReplyCardLinkComments from={row.from} recipientFor={docCommentRecipientFor}>
           <Markdown source={row.summary} className="reply-card__summary doc-md" />
+          {renderMeta(row, opts.handled)}
+          {open && <hr className="reply-card__divider" />}
           {open &&
             (card ? (
               <ReplyCardMentionProvider
@@ -1607,6 +1596,7 @@ export function RepliesPage({
     return renderCard(row, {
       testId: asSnoozed ? "snoozed-card" : "waiting-card",
       className: asSnoozed ? "reply-card reply-card--snoozed" : "reply-card",
+      state: asSnoozed ? "snoozed" : "waiting",
       // ONE stamp, at the head's right edge, AFTER 標為過期 (owner 2026-09-11).
       // 🔴 No absolute 開卡 stamp beside it — owner saw one on this very head and
       // answered「我不想知道絕對時間 相對時間已經夠了」. A snoozed card says when it
@@ -1647,13 +1637,13 @@ export function RepliesPage({
       actions: asSnoozed ? (
         <button
           type="button"
-          className="reply-card__icon-btn"
+          className="card-head__icon-btn"
           data-testid="unsnooze-card"
           aria-label={t.replies.unsnooze}
           title={t.replies.unsnooze}
           onClick={() => void doUnsnooze(row.id)}
         >
-          <UnsnoozeActionIcon size={13} />
+          <UnsnoozeActionIcon size={14} />
         </button>
       ) : (
         <ReplySnoozeMenu
@@ -1700,21 +1690,11 @@ export function RepliesPage({
       className: `reply-card ${
         expired ? "reply-card--expired" : "reply-card--answered"
       }`,
-      // Absolute date+time (7/13 09:05) — the bare hh:mm was ambiguous the
-      // moment a card aged past midnight. This is the ONE absolute stamp left
-      // on the page: 「不想知道絕對時間」 was about the waiting card's 開卡 stamp,
-      // and a handled card has no ticking counter to say it instead.
-      stamp:
-        ts !== null ? (
-          <span className="reply-card__answered-at">
-            {row.kind === "secret"
-              ? expired
-                ? t.replies.expiredTag
-                : t.tasks.replyAnsweredTag
-              : expired
-                ? msg.replyExpiredAt(formatAbsolute(ts, nowTs))
-                : msg.replyAnsweredAt(formatAbsolute(ts, nowTs))}
-          </span>
+      state: expired ? "expired" : "answered",
+      // A secret card shows no time (owner).
+      handled:
+        ts !== null && row.kind !== "secret" ? (
+          <ReplyCardHandledRow time={formatAbsolute(ts, nowTs)} />
         ) : undefined,
       body: (card) => (
         <>
@@ -1753,232 +1733,154 @@ export function RepliesPage({
         </div>
       )}
 
-      {/* ── 篩選 (T-118) ──────────────────────────────────────────────────
-        * The shell is FilterPanel's; only the FIELD is ours. Nothing here is a
-        * modal and nothing here expands — it is a row above the list, because
-        * owner ruled out the overlay (c-3b5a0aa66550) and then the expander
-        * itself (c-c3d681fe05da). `testId` is namespaced so this panel's
-        * controls never collide with the 任務頁's. */}
-      <FilterPanel
-        testId="replies-filter"
-        clearLabel={t.replies.clearFilters}
-        onClear={anyFilter ? clearFilters : undefined}
-        actions={
-          <DisplayOptions
-            label={t.replies.sortLabel}
-            value={waitingSort}
-            options={WAITING_SORTS.map((v) => ({ value: v, label: sortLabels[v] }))}
-            onChange={setWaitingSort}
-            selectTestId="replies-sort"
-          />
-        }
-      >
-        <IdFilterInput
-          value={draftId}
-          onChange={setDraftId}
-          onCommit={commitId}
-          label={t.replies.filterIdLabel}
-          testId="filter-reply-card-id"
-          // 15 = the length of every 請示卡 id there is: api_replycards.go:283
-          // mints "rc-" + newHexID(12). owner 2026-09-06 spotted that the old
-          // fixed 200px was picked with no reference to that, and it read as
-          // too wide because it is. This number tracks the id's LENGTH, so it
-          // moves if that shape ever does.
-          // ⚠️ Say LENGTH here, not the other word. A prose guard
-          // (TestRetiredTaskNoSentencesDoNotLiveAnywhereInTheTree) retires the
-          // phrasing that says a value comes out of the id, because TaskNo
-          // returns the id UNCHANGED and such wording becomes a second,
-          // contradictory account of that field. It is a literal scan, so it
-          // caught this comment TWICE: once for the original wording, and again
-          // for the note that quoted the banned phrase in order to explain it.
-          widthCh={15}
-        />
-        <MultiSelectFilter
-          noun={t.replies.filterOpenerNoun}
-          allLabel={t.replies.filterOpenerAll}
-          options={openerOptions}
-          selected={openerFilter}
-          onChange={setOpenerFilter}
-          testId="filter-opener"
-        />
-        <MultiSelectFilter
-          noun={t.replies.filterPriorityNoun}
-          allLabel={t.replies.filterPriorityAll}
-          options={priorityOptions}
-          selected={priorityFilter}
-          onChange={setPriorityFilter}
-          testId="filter-priority"
-        />
-        <MultiSelectFilter
-          noun={t.replies.filterDueNoun}
-          allLabel={t.replies.filterDueAll}
-          options={dueOptions}
-          selected={dueFilter}
-          onChange={setDueFilter}
-          testId="filter-due"
-        />
-        {waitingOnly && (
-          <button
-            type="button"
-            className="replies__filter-pill"
-            data-testid="filter-waiting-only"
-            onClick={() => setRoute({ page: "replies" })}
-          >
-            <span>{t.replies.filterWaitingOnly}</span>
-            <CloseIcon size={13} />
-          </button>
-        )}
-      </FilterPanel>
-
       <section className="replies__section">
-        <button
-          type="button"
-          className="replies__section-toggle replies__section-title"
-          aria-expanded={waitingExpanded}
-          aria-disabled={waitingOnly || undefined}
-          onClick={() => {
-            if (!waitingOnly) setWaitingOpen((v) => !v);
-          }}
-          data-testid="waiting-toggle"
-        >
-          <ChevronRightIcon
-            size={13}
-            className={`reply-card__caret${waitingExpanded ? " reply-card__caret--open" : ""}`}
+        <div className="replies__head">
+          <ReplyListTabs
+            views={LIST_VIEWS}
+            selected={view}
+            labels={viewLabels}
+            shortLabels={viewShortLabels}
+            locale={locale}
+            ariaLabel={t.replies.tabsLabel}
+            idPrefix={tabsId}
+            onSelect={setView}
           />
-          <span>
-            {t.replies.waitingTitle}
-            {!loading && !error && ` · ${waitingSorted.length}`}
-          </span>
-          <span className="replies__section-hint" data-testid="replies-sort-active">
-            {sortLabels[waitingSort]}
-          </span>
-        </button>
-        {!waitingExpanded ? null : !loading && !error && waitingSorted.length === 0 ? (
-          /* THREE, and the split that survives is 「we have an answer」 vs
-           * 「we do not」. An empty page and an empty RESULT stay separate —
-           * saying 「目前沒有待處理的請示」 while six cards sit behind a filter
-           * reads as "you are all caught up". And a network/500 failure keeps
-           * its own line, because nothing was ever asked and 0 筆 would be a
-           * claim about an unanswered question.
-           *
-           * 🔴 A FOURTH used to sit here: a 404 got its own sentence
-           * (「找不到「X」…」). owner 2026-09-06 removed it — he saw it on the
-           * trial station and answered 「為什麼要顯示這種東西 拿掉!」, then
-           * 「UI不是本來就秀0筆了嗎」. A 404 now falls through to the ordinary
-           * 沒有符合篩選條件的請示, with the count and the 已篩選 條件 beside it.
-           * What made round 1 dishonest was never this sentence — it was that
-           * the page FILTERED THE ROWS IT HAPPENED TO HOLD, so an unloaded card
-           * and a non-existent one really were the same screen. The by-id
-           * lookup asks the server, so the two are now different facts; the
-           * sentence was belt-and-braces on top of a fix that already works.
-           * Do not restore it as a bug fix. */
-          lookup.state === "failed" ? (
-            <div
-              className="replies__error"
-              data-testid="replies-lookup-failed"
+          <div className="replies__head-tools">
+            <FilterPanel
+              testId="replies-filter"
+              clearLabel={t.replies.clearFilters}
+              onClear={narrowing ? clearFilters : undefined}
+              collapse={{ title: t.replies.filterDialogTitle, activeCount: activeFilterCount }}
+              actions={
+                <DisplayOptions
+                  label={t.replies.sortLabel}
+                  value={waitingSort}
+                  defaultValue={DEFAULT_WAITING_SORT}
+                  options={WAITING_SORTS.map((v) => ({ value: v, label: sortLabels[v] }))}
+                  onChange={setWaitingSort}
+                  selectTestId="replies-sort"
+                />
+              }
             >
-              {t.replies.lookupFailed}
-            </div>
-          ) : lookup.state === "loading" ? (
-            <div className="replies__empty" data-testid="replies-lookup-loading">
-              {t.replies.lookupLoading}
-            </div>
-          ) : (
-            <div className="replies__empty" data-testid="replies-empty">
-              {/* 🔴 `narrowing`, NOT `filtering`. `filtering` is id-only, and it
-                * has a second job (gating the by-id lookup's three outcomes)
-                * that an 開卡人 tick must not switch on. But the sentence below
-                * is not about the id — it is about whether ANY axis is hiding
-                * rows. With `filtering` here, ticking only 開卡人 and matching
-                * nothing printed 「✓ 目前沒有待處理的請示」 while other people's
-                * cards sat behind the filter: precisely the 「you are all caught
-                * up」 lie the comment above this block forbids. Found by
-                * independent review of 8204de4f. */}
-              {narrowing ? t.replies.emptyFiltered : t.replies.empty}
-            </div>
-          )
-        ) : (
-          <div className="replies__list">
-            {waitingSorted.map((card) => renderWaitingCard(card))}
+              <FilterField label={t.replies.filterIdLabel} wide>
+                <IdFilterInput
+                  value={draftId}
+                  onChange={setDraftId}
+                  onCommit={commitId}
+                  label={t.replies.filterIdLabel}
+                  testId="filter-reply-card-id"
+                  // 15 = the length of every 請示卡 id there is: api_replycards.go
+                  // mints "rc-" + newHexID(12). ⚠️ Say LENGTH here, not the other
+                  // word: a literal prose guard
+                  // (TestRetiredTaskNoSentencesDoNotLiveAnywhereInTheTree) scans for it.
+                  widthCh={15}
+                />
+              </FilterField>
+              <FilterField label={t.replies.filterOpenerNoun}>
+                <MultiSelectFilter
+                  noun={t.replies.filterOpenerNoun}
+                  allLabel={t.replies.filterOpenerAll}
+                  options={openerOptions}
+                  selected={openerFilter}
+                  onChange={setOpenerFilter}
+                  testId="filter-opener"
+                />
+              </FilterField>
+              <FilterField label={t.replies.filterPriorityNoun}>
+                <MultiSelectFilter
+                  noun={t.replies.filterPriorityNoun}
+                  allLabel={t.replies.filterPriorityAll}
+                  options={priorityOptions}
+                  selected={priorityFilter}
+                  onChange={setPriorityFilter}
+                  testId="filter-priority"
+                />
+              </FilterField>
+              <FilterField label={t.replies.filterDueNoun}>
+                <MultiSelectFilter
+                  noun={t.replies.filterDueNoun}
+                  allLabel={t.replies.filterDueAll}
+                  options={dueOptions}
+                  selected={dueFilter}
+                  onChange={setDueFilter}
+                  testId="filter-due"
+                />
+              </FilterField>
+            </FilterPanel>
           </div>
-        )}
-      </section>
-
-      {!waitingOnly && snoozedShownRows.length > 0 && (
-        <section className="replies__section" data-testid="snoozed-section">
-          <button
-            type="button"
-            className="replies__section-toggle"
-            aria-expanded={filtering || snoozedOpen}
-            onClick={() => setSnoozedOpen((v) => !v)}
-            data-testid="snoozed-toggle"
-          >
-            <ChevronRightIcon
-              size={13}
-              className={`reply-card__caret${
-                filtering || snoozedOpen ? " reply-card__caret--open" : ""
-              }`}
-            />
-            {`${t.replies.snoozedTitle} · ${snoozedShownRows.length}`}
-            <span className="replies__section-hint">{t.replies.snoozedHint}</span>
-          </button>
-          {(filtering || snoozedOpen) && (
-            <div className="replies__list">
-              {snoozedShownRows.map((card) => renderWaitingCard(card, true))}
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* Zero-hide, EXCEPT while a filter is on. With a filter the section is
-        * the answer to a question the owner asked, so it has to stay on screen
-        * and say 0 — hiding it there removes the only handle for opening the
-        * pane and makes "no match" indistinguishable from "nothing exists"
-        * (independent review, 2026-09-05).
-        *
-        * 🔴 `narrowing`, NOT `filtering` — the 2026-09-05 defect above was
-        * reopened by the 開卡人 axis, because `filtering` only counts the id.
-        * Ticking a person made this whole section vanish along with the only
-        * handle for opening it, which is the same「no match looks like nothing
-        * exists」failure, one axis over. Found by independent review of
-        * 8204de4f. */}
-      {!waitingOnly && (handledShown > 0 || narrowing) && (
-        <section className="replies__section">
-          {/* The whole title row IS the toggle (collapsed by default): the
-           * handled pane only unfolds on demand, vibe-clicking style — and the
-           * lists are fetched only on that first unfold (loadHandled). The
-           * 「· N」 comes from the count endpoint (answered + expired), so the
-           * header + zero-hide hold without the lists. */}
-          <button
-            type="button"
-            className="replies__section-toggle"
-            aria-expanded={handledExpanded}
-            onClick={toggleHandled}
-            data-testid="answered-toggle"
-          >
-            <ChevronRightIcon
-              size={13}
-              className={`reply-card__caret${
-                handledExpanded ? " reply-card__caret--open" : ""
-              }`}
-            />
-            {`${t.replies.handledTitle} · ${handledShown}`}
-            <span className="replies__section-hint">
-              {t.replies.handledHint}
-            </span>
-          </button>
-          {handledLoadError && (
+          <div className="replies__count-line" data-testid="replies-count-line">
+            {listedCount !== null && (
+              <span data-testid="replies-count">{msg.replyListedCount(listedCount)}</span>
+            )}
+            {listedCount !== null && view === "answered" && " · "}
+            {view === "answered" && (
+              <span data-testid="replies-answered-window">{t.replies.tabAnsweredHint}</span>
+            )}
+          </div>
+        </div>
+        <div
+          role="tabpanel"
+          id={`${tabsId}-panel`}
+          aria-labelledby={`${tabsId}-tab-${view}`}
+          className="replies__panel"
+        >
+          {handledLoadError && wantsHandled && (
             <div className="replies__error" data-testid="handled-load-error">
               {t.replies.loadError}
             </div>
           )}
-          {handledListShown && (
+          {!loading && !error && listItems.length === 0 && !(wantsHandled && handledLoadError) ? (
+            /* THREE, and the split that survives is 「we have an answer」 vs
+             * 「we do not」. An empty page and an empty RESULT stay separate —
+             * saying 「目前沒有待處理的請示」 while six cards sit behind a filter
+             * reads as "you are all caught up". And a network/500 failure keeps
+             * its own line, because nothing was ever asked and 0 筆 would be a
+             * claim about an unanswered question.
+             *
+             * 🔴 A FOURTH used to sit here: a 404 got its own sentence
+             * (「找不到「X」…」). owner 2026-09-06 removed it — he saw it on the
+             * trial station and answered 「為什麼要顯示這種東西 拿掉!」, then
+             * 「UI不是本來就秀0筆了嗎」. A 404 now falls through to the ordinary
+             * 沒有符合篩選條件的請示, with the count and the 已篩選 條件 beside it.
+             * What made round 1 dishonest was never this sentence — it was that
+             * the page FILTERED THE ROWS IT HAPPENED TO HOLD, so an unloaded card
+             * and a non-existent one really were the same screen. The by-id
+             * lookup asks the server, so the two are now different facts; the
+             * sentence was belt-and-braces on top of a fix that already works.
+             * Do not restore it as a bug fix. */
+            lookup.state === "failed" ? (
+              <div
+                className="replies__error"
+                data-testid="replies-lookup-failed"
+              >
+                {t.replies.lookupFailed}
+              </div>
+            ) : lookup.state === "loading" || handledLoading ? (
+              <div className="replies__empty" data-testid="replies-lookup-loading">
+                {t.replies.lookupLoading}
+              </div>
+            ) : (
+              <div className="replies__empty" data-testid="replies-empty">
+                {narrowing
+                  ? t.replies.emptyFiltered
+                  : view === "snoozed"
+                    ? t.replies.emptySnoozed
+                    : view === "answered"
+                      ? t.replies.emptyAnswered
+                      : t.replies.empty}
+              </div>
+            )
+          ) : (
             <div className="replies__list">
-              {visibleHandled.map((card) => renderHandledCard(card))}
+              {listItems.map(({ row, status }) =>
+                status === "waiting" || status === "snoozed"
+                  ? renderWaitingCard(row, status === "snoozed")
+                  : renderHandledCard(row)
+              )}
             </div>
           )}
-        </section>
-      )}
+        </div>
+      </section>
 
       {expireTarget && (
         <ConfirmModal
@@ -2035,4 +1937,86 @@ function OutsourceWorkersFeed({
   const { workers } = useOutsourceWorkers();
   useEffect(() => onWorkers(workers), [workers, onWorkers]);
   return null;
+}
+
+function ReplyListTabs({
+  views,
+  selected,
+  labels,
+  shortLabels,
+  locale,
+  ariaLabel,
+  idPrefix,
+  onSelect,
+}: {
+  views: readonly ListView[];
+  selected: ListView;
+  labels: Record<ListView, string>;
+  shortLabels: Record<ListView, string>;
+  locale: Locale;
+  ariaLabel: string;
+  idPrefix: string;
+  onSelect: (view: ListView) => void;
+}) {
+  const tabRefs = useRef(new Map<ListView, HTMLButtonElement>());
+  function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    const at = views.indexOf(selected);
+    const next =
+      e.key === "ArrowRight"
+        ? views[(at + 1) % views.length]
+        : e.key === "ArrowLeft"
+          ? views[(at - 1 + views.length) % views.length]
+          : e.key === "Home"
+            ? views[0]
+            : e.key === "End"
+              ? views[views.length - 1]
+              : null;
+    if (!next) return;
+    e.preventDefault();
+    onSelect(next);
+    tabRefs.current.get(next)?.focus();
+  }
+  return (
+    <div
+      className="replies__tabs"
+      role="tablist"
+      aria-label={ariaLabel}
+      data-testid="replies-tabs"
+      data-locale={locale}
+      onKeyDown={onKeyDown}
+    >
+      {views.map((v) => {
+        const active = v === selected;
+        return (
+          <button
+            key={v}
+            ref={(el) => {
+              if (el) tabRefs.current.set(v, el);
+              else tabRefs.current.delete(v);
+            }}
+            type="button"
+            role="tab"
+            id={`${idPrefix}-tab-${v}`}
+            aria-selected={active}
+            aria-controls={`${idPrefix}-panel`}
+            tabIndex={active ? 0 : -1}
+            className={`replies__tab${active ? " replies__tab--active" : ""}`}
+            data-testid={`replies-tab-${v}`}
+            onClick={() => onSelect(v)}
+          >
+            <span className="replies__tab-label" title={labels[v]}>
+              {shortLabels[v] === labels[v] ? (
+                labels[v]
+              ) : (
+                <>
+                  <span className="replies__tab-label-full">{labels[v]}</span>
+                  <span className="replies__tab-label-short">{shortLabels[v]}</span>
+                </>
+              )}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
 }

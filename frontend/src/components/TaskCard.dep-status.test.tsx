@@ -177,7 +177,7 @@ describe("T-c21e ① 徽章講的是 dep 的狀態,不是本卡的", () => {
 
     const { card, deps } = await cardWithDeps("自己等我回覆");
     // 🔴 The card's own badge is untouched and still says the card's status.
-    expect(card.querySelector('[data-testid="task-status"]')?.textContent).toBe(
+    expect(card.querySelector('[data-testid="task-status"]')?.getAttribute("aria-label")).toBe(
       "等待外部"
     );
     expect(

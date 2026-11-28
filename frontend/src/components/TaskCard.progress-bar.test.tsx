@@ -29,7 +29,7 @@
 // failure owner described.
 
 import { describe, it, expect } from "vitest";
-import { render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { TaskCard } from "./TaskCard";
 import type { Member } from "../types";
@@ -157,11 +157,40 @@ describe("進度條看得見 — the fill width tracks the SERVER's counts", () 
     expect(fill(container)!.style.width).toBe("40%");
   });
 
-  it("the 2/5 text and the 2/5 fill agree (one source: the server counts)", () => {
-    const { container, getByTestId } = renderCard(REPLANNED_2_OF_5);
+  it("the progress text, the fill and the 工作流程 title bar all read the server's 2/5; the elapsed time is a one-unit pill", async () => {
+    const { container, getByTestId } = renderCard(REPLANNED_2_OF_5, 1000 + 30 * 3600);
     // superseded nodes are NOT counted — 8 steps exist, the card still says 2/5.
-    expect(getByTestId("task-progress").textContent).toContain("2/5");
+    expect(getByTestId("task-progress").textContent).toBe("步驟 2/5");
+    const elapsed = getByTestId("task-elapsed");
+    expect(elapsed.textContent).toBe("1d");
+    expect(elapsed.getAttribute("title")).toBe("已歷時 1d 6h");
+    expect(elapsed.getAttribute("aria-label")).toBe("已歷時 1d 6h");
     expect(fill(container)!.style.width).toBe("40%");
+
+    fireEvent.click(getByTestId("task-card"));
+    await act(async () => {});
+    expect(getByTestId("task-workflow-section-summary").textContent).toBe("5 個步驟 · 2/5 完成");
+  });
+
+  it("collapsing 工作流程 from its title bar leaves only the bar, summarising progress and the step in progress", async () => {
+    const { container, getByTestId } = renderCard(REPLANNED_2_OF_5);
+    fireEvent.click(getByTestId("task-card"));
+    await act(async () => {});
+    const head = getByTestId("task-workflow-section-head");
+    expect(head.getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelectorAll('[data-testid="task-step"]').length).toBeGreaterThan(0);
+
+    fireEvent.click(head);
+    const current = REPLANNED_2_OF_5.steps.find((s) => s.status === "in_progress")!;
+    expect(head.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector(".task-card__workflow")).toBeNull();
+    expect(getByTestId("task-workflow-section-summary").textContent).toBe(
+      `2/5 完成 · 進行中：${current.name}`,
+    );
+    expect(getByTestId("task-card").getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(head);
+    expect(container.querySelectorAll('[data-testid="task-step"]').length).toBeGreaterThan(0);
   });
 
   it("0/0 yields a 0% fill, never NaN (no divide-by-zero)", () => {
@@ -198,7 +227,8 @@ describe("進度條看得見 — the bar is unconditional", () => {
     expect(fill(container)!.style.width).toBe("40%");
   });
 
-  it("every status renders a bar — including the two with their own fill colour", () => {
+  it("every status renders a bar with the same fill, its status carried by the head icon alone", () => {
+    const fills = new Set<string>();
     for (const status of [
       "not_started",
       "in_progress",
@@ -212,13 +242,9 @@ describe("進度條看得見 — the bar is unconditional", () => {
       );
       expect(bar(container), `bar missing for ${status}`).not.toBeNull();
       expect(fill(container)!.style.width, `fill wrong for ${status}`).toBe("40%");
-      // the status modifier must ride ALONG with the base class, never replace
-      // it — the base class is what carries the fill's background.
-      expect(fill(container)!.className).toContain("task-card__progress-fill");
-      expect(fill(container)!.className).toContain(
-        `task-card__progress-fill--${status}`
-      );
+      fills.add(fill(container)!.outerHTML);
       unmount();
     }
+    expect([...fills], "the fill must not vary by status").toHaveLength(1);
   });
 });

@@ -10,16 +10,24 @@
  * other. What was copied, and from where:
  *
  *   .lore-badge              ← tasks.css .task-badge
- *   .lore-row__status(-chip) ← .task-card__status / button.task-card__status-chip
+ *   .lore-row__status        ← .task-card__status
+ *   .lore-row__status-chip   ← the task card's former status chip (type and
+ *                              scope tags still wear it)
  *   .lore-row__menu-pop      ← .task-card__menu-pop
  *   .lore-row__menu-item     ← .task-card__menu-item (+ --active = accent/700)
- *   .lore-row__meta / __meta-label
- *                            ← .task-card__meta / __meta-label
- *   .lore-row__chip          ← .task-card__chip
+ *   .lore-row__title         ← .task-card__title
  *   .lore-dir-card           ← .task-card
  *   .lore-dir-card__usage / __bar / __bar-fill / __usage-text
  *                            ← .task-card__progress / -bar / -fill / -text
- *   .lore__group-title       ← replies.css .replies__section-title
+ *
+ * The 金鑰 and 檔案庫 cards wear these same .lore-row* classes.
+ *
+ * ⚠️ The owner has since ruled the other way for patterns every card repeats
+ * (c-c6bd1f555f89: one shared piece, so no change lands in one place only).
+ * Those are no longer copied: the label/value rows and their chips
+ * (card-meta.css), the copy id chip (id-chip.css), the first-line status icon
+ * and icon buttons (card-head.css). The copies listed above
+ * are what is left to fold in.
  *
  * The one exception is the message box: owner wants it to BE the 任務卡's box,
  * so both cards share card-composer.css rather than a copy. The directory's
@@ -60,29 +68,25 @@ a.lore__back:focus-visible {
 }
 
 /* ── the directory ── */
-.lore__dir-search {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  min-width: 0;
-}
 .lore__dir-note {
   font-size: 12.5px;
   color: var(--color-text-muted);
   overflow-wrap: anywhere;
   min-width: 0;
 }
-/* 全部收合 is chat-groups.css's toolbar icon, pushed to the row's right end. */
-.lore__collapse-all {
-  margin-left: auto;
+/* 全部收合 wears the funnel's look beside it. */
+.lore__collapse-all:disabled {
+  cursor: default;
+  opacity: 0.4;
 }
-/* The office's 44px tap box reaches 8px past the button's right edge; here
- * that edge is the scrollport's, so the box grows leftward instead or the
- * page scrolls sideways on a phone. */
+/* A 44px-tall tap box that grows only into the gap before the funnel: its
+ * right edge is the scrollport's, so growing rightward would scroll the page
+ * sideways on a phone. */
 @media (max-width: 720px), (hover: none) {
   .lore__collapse-all::after {
-    inset: -8px 0 -8px -16px;
+    content: "";
+    position: absolute;
+    inset: -8px 0 -8px -8px;
   }
 }
 a.lore-target {
@@ -197,11 +201,6 @@ button.lore-dir-card__name--link:hover {
   color: var(--color-danger);
   border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
 }
-/* 任務卡's dot marks a state; a count is not one, nor is 讀不到. */
-.lore-dir-card__badges .lore-badge::before,
-.lore-row--folded .lore-badge::before {
-  display: none;
-}
 /* Unlike 任務卡 (tasks.css stacks bar and text at ≤720px), the bar stays beside
  * the numbers on a phone: the text is short and the bar keeps >80px at 390. */
 .lore-dir-card__usage {
@@ -262,7 +261,6 @@ button.lore-dir-card__name--link:hover {
   flex-direction: column;
   gap: 10px;
 }
-/* Copy of replies.css .replies__section-title (「請示 · 0」). */
 .lore__group-title {
   padding: 0 2px 2px;
   font-size: 13px;
@@ -486,42 +484,6 @@ button.lore-section__name--link:hover {
   flex-wrap: wrap;
 }
 
-.lore-row__id-badge {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin: 0;
-  padding: 2px 9px;
-  border-radius: var(--radius-pill);
-  border: 1px solid color-mix(in srgb, var(--color-task-id) 45%, transparent);
-  background: color-mix(in srgb, var(--color-task-id) 12%, transparent);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
-  font-size: 12px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-  color: var(--color-task-id);
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-/* The glyph inside the badge — same rule as 任務卡's (.task-card__id-badge svg),
- * so the two badges line up their icon the same way rather than one of them
- * shrinking under a long id. */
-.lore-row__id-badge svg {
-  flex: none;
-}
-.lore-row__id-badge:hover {
-  background: color-mix(in srgb, var(--color-task-id) 20%, transparent);
-}
-/* the transient 「已複製」 pill — sits inline after the id, same as 任務卡. */
-.lore-row__id-badge-copied {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: normal;
-  opacity: 0.85;
-}
-
 /* ── 適用範圍: the fourth tag ──
  * The wrapper is deliberately NOT positioned: the menu anchors to
  * .lore-row__head and caps its width, so a tag that wrapped to the right edge
@@ -538,9 +500,6 @@ button.lore-section__name--link:hover {
   min-width: 0;
   max-width: 100%;
   color: var(--color-text);
-}
-.lore-badge--scope::before {
-  content: none;
 }
 .lore-badge__text {
   min-width: 0;
@@ -602,10 +561,16 @@ button.lore-section__name--link:hover {
 
 .lore-row__title {
   margin: 0;
-  font-size: 14.5px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   line-height: 1.4;
-  color: var(--color-text);
+  color: var(--color-text-strong);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lore-row--retired .lore-row__title {
+  color: var(--color-text-muted);
+  opacity: 0.55;
 }
 
 .lore-row__body {
@@ -648,7 +613,7 @@ button.lore-section__name--link:hover {
 }
 
 /* ── 讀不到的條目（伺服器回 dropped）：內容轉灰 ──
- * 🔴 THE CONTENT ONLY. The status badge and every button keep their normal
+ * 🔴 THE CONTENT ONLY. The status icon and every button keep their normal
  * colour (spec §6), because they are still live controls — an entry that cannot
  * be read is exactly the one an owner is most likely to want to 置頂 or 失效,
  * and greying the way to do that would fight the reason it is greyed.
@@ -656,63 +621,37 @@ button.lore-section__name--link:hover {
  * the controls down with it. */
 .lore-row--dimmed .lore-row__title,
 .lore-row--dimmed .lore-row__body,
-.lore-row--dimmed .lore-row__author,
+.lore-row--dimmed .card-meta__chip-name,
 .lore-row--dimmed .lore-row__effective-ts,
 .lore-row--dimmed .lore-row__retire {
   color: var(--color-text-muted);
   opacity: 0.55;
 }
 
-/* Folded: one line, no strike-through and no coloured edge (owner
- * c-1301314e3efa); only the title is greyed, as on the opened card. */
-.lore-row.lore-row--folded {
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  padding-block: 10px;
-  min-width: 0;
+.lore-row[role="button"] {
   cursor: pointer;
 }
-.lore-row--folded .lore-row__id-badge {
-  cursor: inherit;
-}
-.lore-row__folded-title {
-  flex: 1;
-  min-width: 0;
+/* Folded: the same card with the body cut to two lines. By height, as
+ * ClampedText's rich mode does: line-clamp does not reach into a Markdown
+ * code block or table, which would show in full. */
+.lore-row__body--clamped {
+  max-height: calc(2 * 1.55em);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14px;
-  color: var(--color-text-muted);
-  opacity: 0.55;
 }
 .lore-row__fold {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 26px;
+  height: 26px;
   color: var(--color-text-muted);
-}
-button.lore-row__fold {
-  margin: 0;
-  padding: 2px;
-  border: none;
-  border-radius: var(--radius-pill);
-  background: none;
-  cursor: pointer;
-}
-button.lore-row__fold:hover {
-  color: var(--color-accent);
-}
-button.lore-row__fold:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
 }
 .lore-row__fold--open svg {
   transform: rotate(90deg);
 }
 
-/* ── status badge (copy of .task-badge) ── */
+/* ── tag pill (copy of .task-badge) ── */
 .lore-badge {
   flex: none;
   display: inline-flex;
@@ -726,34 +665,12 @@ button.lore-row__fold:focus-visible {
   white-space: nowrap;
   color: var(--color-text-muted);
 }
-.lore-badge::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.lore-badge--state-pinned {
-  color: var(--color-accent);
-  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
-}
-.lore-badge--state-active {
-  color: var(--color-success);
-  border-color: color-mix(in srgb, var(--color-success) 40%, transparent);
-}
-.lore-badge--state-retired {
-  color: var(--color-text-muted);
-}
-/* Type tag. Filled and dot-less so it does not read
- * as one more state pill beside the status badge. One colour for every type —
- * owner ruling rc-f15bc5f4013d; do not colour-code the types. */
+/* Type tag, filled. One colour for every type — owner ruling rc-f15bc5f4013d;
+ * do not colour-code the types. */
 .lore-badge--lore-type {
   color: var(--color-text);
   border-color: transparent;
   background: color-mix(in srgb, currentColor 14%, transparent);
-}
-.lore-badge--lore-type::before {
-  content: none;
 }
 .lore-row--highlight {
   border-color: var(--color-accent);
@@ -809,7 +726,7 @@ button.lore-row__revert:focus-visible {
   outline-offset: 1px;
 }
 
-/* ── badge → state menu (copy of .task-card__status / __status-chip) ── */
+/* ── badge → state menu (copy of .task-card__status and its former chip) ── */
 .lore-row__status {
   position: relative;
   flex: none;
@@ -838,6 +755,19 @@ button.lore-badge--lore-type {
 }
 button.lore-badge--lore-type:hover:not(:disabled) {
   background: color-mix(in srgb, currentColor 22%, transparent);
+}
+button.lore-row__status-icon--pinned {
+  color: var(--color-accent);
+}
+button.lore-row__status-icon--active {
+  color: var(--color-success);
+}
+button.lore-row__status-icon--retired {
+  color: var(--color-text-muted);
+}
+button.lore-row__status-icon--staged {
+  outline: 1px dashed var(--color-warn-fg);
+  outline-offset: -1px;
 }
 /* 「點了在徽章左緣下方開小選單」 — anchored to the badge's LEFT edge. */
 .lore-row__status-pop {
@@ -880,51 +810,9 @@ button.lore-badge--lore-type:hover:not(:disabled) {
   font-weight: 700;
 }
 
-/* ── 撰寫人 / 生效期: 任務卡's label/value grid ── */
-.lore-row__meta {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  align-items: center;
-  gap: 7px 12px;
-  min-width: 0;
-  font-size: 12.5px;
-  color: var(--color-text);
-}
-.lore-row__meta-label {
-  font-size: 12.5px;
-  color: var(--color-text-muted);
-  opacity: 0.75;
-}
-.lore-row__chip {
-  justify-self: start;
-  max-width: 100%;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  margin: 0;
-  padding: 3px 10px;
-  border-radius: var(--radius-pill);
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
-  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
-  font: inherit;
-  font-size: 12.5px;
-  text-align: left;
-  text-decoration: none;
-  color: var(--color-text);
-}
-.lore-row__chip svg {
-  flex: none;
-  color: var(--color-text-muted);
-}
-.lore-row__author {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
-/* ── 編輯 (settings.css .doc-btn--edit) on the head's first line ── */
+
+/* ── 編輯 icon and the chevron on the head's first line ── */
 .lore-row__actions {
   flex: none;
   display: inline-flex;
@@ -932,8 +820,10 @@ button.lore-badge--lore-type:hover:not(:disabled) {
   gap: 6px;
 }
 .lore-row__effective-ts {
-  white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+.lore-row__effective-part {
+  white-space: nowrap;
 }
 button.lore-row__action {
   flex: none;
@@ -961,9 +851,6 @@ button.lore-row__action:hover:not(:disabled) {
 }
 
 .lore-row__retire {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--color-text-muted);
   min-width: 0;
   overflow-wrap: anywhere;
 }

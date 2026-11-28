@@ -118,7 +118,7 @@ describe("OfficePage — 招攬新成員 routing (T-66a8 req 4)", () => {
     );
   });
 
-  it("opens the 外包上限設定 popover on the 外包 tab (not a role route)", async () => {
+  it("opens the 外包上限設定 popover on the 外包 tab (not a role route), with no ⓘ, and a press outside closes it", async () => {
     const { findByTestId, getByTestId, queryByTestId } = renderOffice();
     fireEvent.click(getByTestId("office-tab-outsource"));
     // No popover until the button is pressed.
@@ -129,6 +129,10 @@ describe("OfficePage — 招攬新成員 routing (T-66a8 req 4)", () => {
       "外包上限設定"
     );
     expect(window.location.hash).toBe("");
+
+    expect(within(getByTestId("outsource-cap-pop")).queryByTestId("info-hint")).toBeNull();
+    fireEvent.mouseDown(document.body);
+    expect(queryByTestId("outsource-cap-pop")).toBeNull();
   });
 });
 

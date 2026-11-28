@@ -211,6 +211,13 @@ describe("SettingsPage · 系統更新與備份 · 自動更新存檔回讀 (存
     expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
 
+  it("says on the row that the server restarts, with no ⓘ", async () => {
+    const utils = await openSoftware();
+    const row = utils.getByTestId("settings-auto-update").closest(".param-row") as HTMLElement;
+    expect(row.querySelector(".param-row__sub")?.textContent).toBe("升級完伺服器會自己重啟。");
+    expect(row.querySelector('[data-testid="info-hint"]')).toBeNull();
+  });
+
   // ── the read-back verification's FAILURE paths ──
   // These two pin that success is decided by the RE-GET + compare, not by the
   // PATCH resolving: strip commitVerified's read-back (report success
@@ -275,16 +282,15 @@ describe("SettingsPage · 系統更新與備份 · 更新檢查間隔 (minutes o
 });
 
 describe("SettingsPage · 系統更新與備份 · 讓助理告訴我新版本的功能", () => {
-  it("is the fourth row of 更新設定, carries its label and help text, and is on by default", async () => {
+  it("is the fourth row of 更新設定, carries its label with no ⓘ, and is on by default", async () => {
     const utils = await openSoftware();
     const toggle = utils.getByRole("switch", { name: s.announceFeatures });
     expect(toggle).toBe(utils.getByTestId("settings-announce-features"));
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     const row = toggle.closest(".param-row") as HTMLElement;
     expect(row.querySelector(".param-row__name")?.textContent).toBe("讓助理告訴我新版本的功能");
-    expect(row.querySelector(".param-row__sub")?.textContent).toBe(
-      "升級到有新功能公告的正式版後，助理會在聊天裡跟你說這版多了什麼"
-    );
+    expect(row.querySelector('[data-testid="info-hint"]')).toBeNull();
+    expect(row.querySelector(".param-row__sub")).toBeNull();
     const rows = Array.from(row.parentElement!.querySelectorAll(":scope > .param-row"));
     expect(rows.indexOf(row)).toBe(3);
     expect(rows).toHaveLength(4);

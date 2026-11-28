@@ -364,7 +364,7 @@ def test_full_task_loop(client, owner_token, executor):
 def test_linked_task_arms_a_plain_non_gate_step(client, owner_token, executor):
     """A linked_task naming a plain (is_gate=false) not-done step is a legitimate
     ad-hoc 請示. It arms the step (waiting_owner + bound card, task follows)
-    WITHOUT flipping is_gate."""
+    and makes it a gate for good (is_gate true)."""
     task = _create_task(client, executor, title="ad-hoc ask")["task"]
     planned = _plan_view(client, executor.token, task["id"],
                          [{"name": "build", "dod": "compiles"}])
@@ -390,8 +390,7 @@ def test_linked_task_arms_a_plain_non_gate_step(client, owner_token, executor):
     armed = next(s for s in view["steps"] if s["id"] == step["id"])
     assert armed["status"] == "waiting_owner"
     assert armed["reply_card_id"] == card["id"]
-    # is_gate is a plan-declared property — arming does not rewrite it.
-    assert armed["is_gate"] is False
+    assert armed["is_gate"] is True
 
 
 def test_list_is_light_detail_is_full(client, owner_token, executor):
@@ -463,18 +462,21 @@ def test_creator_id_is_caller_sub_and_rides_list_and_get(
 
 
 def test_parallel_plan_roundtrip_and_flat_progress(client, owner_token, executor):
-    """A legal fork-join plan lands whole: parallel_group round-trips, both
-    lanes may run in_progress AT THE SAME TIME (the server never guards step
+    """A legal fork-join plan lands whole: parallel_group and a gate inside the
+    group round-trip, both lanes may run in_progress AT THE SAME TIME (the server never guards step
     order), and progress counts every lane as one flattened leaf."""
     task = _create_task(client, executor, title="parallel roundtrip")["task"]
     view = _plan_view(client, executor.token, task["id"], [
         {"name": "寫規格", "dod": "spec.md 落檔"},
         {"name": "寫數字 A", "dod": "a.txt 落檔", "parallel_group": "pg-1"},
-        {"name": "寫數字 B", "dod": "b.txt 落檔", "parallel_group": "pg-1"},
+        {"name": "寫數字 B", "dod": "b.txt 落檔", "parallel_group": "pg-1",
+         "is_gate": True},
         {"name": "加總（匯合）", "dod": "sum.txt = A+B"},
     ])
     assert [s["parallel_group"] for s in view["steps"]] == \
         ["", "pg-1", "pg-1", ""]
+    assert [s["is_gate"] for s in view["steps"]] == \
+        [False, False, True, False]
     assert view["progress_total"] == 4  # flattened: every lane is one leaf
 
     spec, lane_a, lane_b, _join = view["steps"]
@@ -500,19 +502,11 @@ def test_parallel_plan_roundtrip_and_flat_progress(client, owner_token, executor
 
 
 def test_parallel_plan_shape_violations_are_400(client, owner_token, executor):
-    """The three write-gate refusals: a gate inside a group, a split group,
-    and a one-lane group. A refused plan writes NOTHING."""
+    """The two write-gate refusals: a split group and a one-lane group. A
+    refused plan writes NOTHING."""
     task = _create_task(client, executor, title="parallel guards")["task"]
 
-    # 1. gate-in-group
-    r = _plan(client, executor.token, task["id"], [
-        {"name": "lane a", "dod": "d", "parallel_group": "pg"},
-        {"name": "approve", "dod": "d", "parallel_group": "pg",
-         "is_gate": True},
-    ])
-    assert r.status_code == 400, f"{r.status_code} {r.text}"
-
-    # 2. split group (same key, not consecutive)
+    # 1. split group (same key, not consecutive)
     r = _plan(client, executor.token, task["id"], [
         {"name": "lane a", "dod": "d", "parallel_group": "pg"},
         {"name": "solo", "dod": "d"},
@@ -520,7 +514,7 @@ def test_parallel_plan_shape_violations_are_400(client, owner_token, executor):
     ])
     assert r.status_code == 400, f"{r.status_code} {r.text}"
 
-    # 3. one-lane group (parallel means at least two)
+    # 2. one-lane group (parallel means at least two)
     r = _plan(client, executor.token, task["id"], [
         {"name": "lonely", "dod": "d", "parallel_group": "pg"},
         {"name": "join", "dod": "d"},

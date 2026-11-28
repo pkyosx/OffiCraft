@@ -68,11 +68,11 @@ import {
 import { avatarKindForMember } from "../lib/avatarKind";
 import { isSyntheticSender } from "../lib/syntheticSender";
 import type { AvatarKind } from "../lib/themeBundle";
-import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
 import { autosizeTextarea } from "../lib/autosize";
 import { registerUnsavedWork } from "../lib/unsavedInput";
 import { enterShouldSend } from "../lib/composerKeys";
+import { isCardToggleClick, isCardToggleKey } from "../lib/cardToggle";
 import {
   formatHash,
   navigateHash,
@@ -82,10 +82,12 @@ import {
   type LoreSectionKind,
 } from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
+import { MemberChatChip, MemberChip } from "./MemberChip";
+import { OWNER_ID } from "../lib/ownerUnread";
 import { HeadingBody } from "./ChatGroupHeading";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { DocumentHistoryEntry } from "./DocumentHistoryEntry";
-import { FilterPanel } from "./FilterPanel";
+import { FilterField, FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
 import { InstantHint } from "./InstantHint";
 import { Markdown } from "./Markdown";
@@ -98,13 +100,19 @@ import {
   ChevronRightIcon,
   ChevronsDownUpIcon,
   ChevronsUpDownIcon,
+  CircleCheckBigIcon,
+  CircleSlashIcon,
   PaperclipIcon,
   PencilIcon,
+  PinIcon,
   RotateCcwIcon,
   SendIcon,
   UsersIcon,
 } from "./icons";
+import { CopyIdChip } from "./IdChips";
 import "./lore.css";
+import "./card-head.css";
+import "./card-meta.css";
 // The message box wears the 任務卡 box's classes: .chat__input / .chat__attach
 // and ComposerAttachmentPreview's .chat__preview-* from office.css, the row and
 // 送出 from card-composer.css.
@@ -137,6 +145,24 @@ const DIR_GROUPS: readonly DirGroupKind[] = ["everyone", "staff", "outsource", "
 const DIR_DEFAULT_COLLAPSED: readonly DirGroupKind[] = ["staff", "outsource", "manual"];
 const DIR_COLLAPSED_KEY = "oc_lore_dir_collapsed";
 
+/** 生效期: the start, and for a retired entry whose retire time is known, the
+ * end as well; a retired entry bumped after it was retired starts after it
+ * ended, so it shows the start alone. The range may break only after its
+ * dash, never inside a time. */
+function LoreEffective({ entry }: { entry: LoreEntryView }) {
+  const now = Date.now() / 1000;
+  const start = formatAbsolute(entry.effectiveTs, now);
+  if (entry.state !== "retired" || entry.retiredTs === undefined || entry.retiredTs < entry.effectiveTs) {
+    return <span className="lore-row__effective-part">{start}</span>;
+  }
+  return (
+    <>
+      <span className="lore-row__effective-part">{start} –</span>{" "}
+      <span className="lore-row__effective-part">{formatAbsolute(entry.retiredTs, now)}</span>
+    </>
+  );
+}
+
 /** The folded directory groups, kept in this browser as the list of folded
  * kinds; nothing saved yet means the first-visit default. */
 function readDirCollapsed(): ReadonlySet<DirGroupKind> {
@@ -165,7 +191,10 @@ function writeDirCollapsed(collapsed: ReadonlySet<DirGroupKind>): void {
 /** How one author id resolves against the LIVE roster. `peerId === ""` means
  * "not reachable": the entry then has no message box. */
 interface AuthorIdentity {
+  /** The label lists and badges use (外包 · 代號). */
   text: string;
+  /** The 撰寫人 chip's bare name (owner): no 外包 prefix. */
+  name: string;
   peerId: string;
 }
 
@@ -205,6 +234,8 @@ function capOf(page: LoreEntryPageView): CapInfo {
 
 interface SectionData {
   entries: LoreEntryView[];
+  /** The server's count for the current filter (all pages); null until page one lands or when the server omits it. */
+  total: number | null;
   cap: CapInfo;
   loading: boolean;
   fetchingMore: boolean;
@@ -231,6 +262,17 @@ function scopeOpts(def: { kind: LoreScopeKind; scopeKey: string }): LoreListOpti
   if (def.kind === "everyone") return { scopeKinds: ["everyone"] };
   if (def.kind === "agent") return { scopeKinds: ["everyone", "agent"], scopeKeys: [def.scopeKey] };
   return { scopeKinds: [def.kind], scopeKeys: [def.scopeKey] };
+}
+
+/** Live entries across the directory, for a server without `total`. A member's
+ * count already includes the 所有人 entries its boot document walks, so those
+ * are counted once. */
+function directoryEntryTotal(defs: SectionDef[]): number {
+  const everyone = defs.find((d) => d.kind === "everyone")?.target.entryCount ?? 0;
+  return defs.reduce(
+    (n, d) => n + (d.kind === "agent" ? Math.max(0, d.target.entryCount - everyone) : d.target.entryCount),
+    0,
+  );
 }
 
 /** `212`, `L-212` and `l-212` all mean L-212; null when the text is not an id. */
@@ -420,6 +462,25 @@ function LoreView({
   const { members, membersLoading, membersError, workers, manuals, entryCaps } = shared;
   const canSetScope = canSetScopeProp ?? viewerMaySetLoreScope(members);
 
+  // undefined while asked, null when the server gave no total.
+  const [officeTotal, setOfficeTotal] = useState<number | null | undefined>(undefined);
+  useEffect(() => {
+    if (sectionKey !== null) return;
+    let alive = true;
+    api
+      .countLoreEntries()
+      .then((n) => {
+        if (alive) setOfficeTotal(n ?? null);
+      })
+      .catch((e) => {
+        console.warn("LorePage: lore total load failed", e);
+        if (alive) setOfficeTotal(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [sectionKey]);
+
   // ── 篩選 ────────────────────────────────────────────────────────────────
   const [searchDraft, setSearchDraft] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
@@ -452,6 +513,9 @@ function LoreView({
     appliedSearch !== "" || loreTypes.size > 0 || statesNarrow;
   const statesAtDefault =
     states.size === DEFAULT_STATES.length && DEFAULT_STATES.every((s) => states.has(s));
+  const activeFilterCount = [appliedSearch !== "", loreTypes.size > 0, !statesAtDefault].filter(
+    Boolean,
+  ).length;
 
   function clearFilters() {
     setSearchDraft("");
@@ -544,6 +608,7 @@ function LoreView({
         ...prev,
         [def.key]: {
           entries: [],
+          total: null,
           cap: NO_CAP,
           loading: true,
           fetchingMore: false,
@@ -561,6 +626,7 @@ function LoreView({
           flightRef.current.delete(def.key);
           patchSection(def.key, (p) => ({
             entries: page.entries,
+            total: page.total ?? null,
             cap: isLatestCap(def.key, capSeq) ? capOf(page) : p.cap,
             loading: false,
             fetchingMore: false,
@@ -699,9 +765,9 @@ function LoreView({
 
   const resolveAuthor = useCallback(
     (id: string): AuthorIdentity => {
-      if (id === "") return { text: t.lore.authorUnknown, peerId: "" };
+      if (id === "") return { text: t.common.emptyValue, name: t.common.emptyValue, peerId: "" };
       const m = members.find((x) => x.id === id);
-      if (m) return { text: m.name, peerId: id };
+      if (m) return { text: m.name, name: m.name, peerId: id };
       if (id.startsWith("ow-")) {
         // 🔴 The codename and the reachability come from different lists: a
         // released worker still wrote this entry and keeps his name, but only
@@ -711,13 +777,15 @@ function LoreView({
         const cn = live?.codename ?? unlistedNames.get(id);
         return {
           text: cn ? msg.outsourceLabel(cn) : id,
+          name: cn || id,
           peerId: live ? id : "",
         };
       }
       // Not on the roster: the entry stays, only the live affordance goes.
-      return { text: unlistedNames.get(id) ?? id, peerId: "" };
+      const name = unlistedNames.get(id) ?? id;
+      return { text: name, name, peerId: "" };
     },
-    [members, workers, unlistedNames, msg, t.lore.authorUnknown]
+    [members, workers, unlistedNames, msg, t.common.emptyValue]
   );
 
   /** Which scope this ONE entry rides, for the badge. An unresolved key falls
@@ -818,12 +886,14 @@ function LoreView({
         const seen = new Set<string>();
         let offset = 0;
         let last: LoreEntryPageView | null = null;
+        let total: number | undefined;
         let exhausted = false;
         while (offset < want) {
           const limit = Math.min(MAX_LIST_LIMIT, want - offset);
           const p = await api.listLoreEntries({ ...baseOptsRef.current, ...scopeOpts(def), limit, offset });
           if (genRef.current.get(def.key) !== gen) return true;
           last = p;
+          total ??= p.total;
           offset += p.entries.length;
           for (const e of p.entries) {
             if (seen.has(e.id)) continue;
@@ -839,6 +909,7 @@ function LoreView({
         const fresh = last;
         patchSection(def.key, (p) => ({
           entries: rows,
+          total: total ?? null,
           cap: fresh && isLatestCap(def.key, capSeq) ? capOf(fresh) : p.cap,
           loading: false,
           fetchingMore: false,
@@ -1122,10 +1193,12 @@ function LoreView({
 
   // ── 目錄的編號搜尋 ──────────────────────────────────────────────────────
   const [dirSearch, setDirSearch] = useState("");
+  const [dirApplied, setDirApplied] = useState("");
   const [dirNote, setDirNote] = useState<string | null>(null);
   async function jumpToEntry(raw: string) {
     setDirNote(null);
     const v = raw.trim();
+    setDirApplied(v);
     if (v === "") return;
     const id = normalizeEntryId(v);
     if (id === null) {
@@ -1185,27 +1258,20 @@ function LoreView({
     if (loadMore(currentDef)) r.pages += 1;
   }, [currentDef, currentData, highlightId, highlightLoaded, filterKey, loadMore]);
 
-  // A dropped entry shows as one row until opened. Opening is remembered per
-  // entry for the life of the page, so a re-read that keeps it dropped keeps it
-  // open; a highlighted entry opens itself.
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const focusAfterToggle = useRef<{ id: string; open: boolean } | null>(null);
-  function setEntryExpanded(id: string, open: boolean) {
-    if (expanded.has(id) === open) return;
-    focusAfterToggle.current = { id, open };
-    setExpanded((prev) => {
-      if (prev.has(id) === open) return prev;
-      const next = new Set(prev);
-      if (open) next.add(id);
-      else next.delete(id);
-      return next;
-    });
+  // Every entry starts folded (owner); a fold or open is remembered per entry
+  // for the life of the page. A highlighted entry opens itself.
+  const [openOverride, setOpenOverride] = useState<Map<string, boolean>>(() => new Map());
+  const focusAfterToggle = useRef<string | null>(null);
+  function setEntryOpen(id: string, open: boolean) {
+    if (openOverride.get(id) === open) return;
+    focusAfterToggle.current = id;
+    setOpenOverride((prev) => (prev.get(id) === open ? prev : new Map(prev).set(id, open)));
   }
   useEffect(() => {
     if (highlightId === "") return;
-    setExpanded((prev) => (prev.has(highlightId) ? prev : new Set(prev).add(highlightId)));
+    setOpenOverride((prev) => (prev.get(highlightId) === true ? prev : new Map(prev).set(highlightId, true)));
   }, [highlightId]);
-  const highlightExpanded = expanded.has(highlightId);
+  const highlightExpanded = openOverride.get(highlightId) === true;
   const scrolledToRef = useRef("");
   useEffect(() => {
     if (!highlightLoaded) {
@@ -1225,12 +1291,8 @@ function LoreView({
     const f = focusAfterToggle.current;
     if (!f) return;
     focusAfterToggle.current = null;
-    const row = rowElement(scrollRef.current, f.id);
-    const target = f.open
-      ? row?.querySelector<HTMLElement>('[data-testid="lore-collapse"]')
-      : row;
-    target?.focus({ preventScroll: true });
-  }, [expanded]);
+    rowElement(scrollRef.current, f)?.focus({ preventScroll: true });
+  }, [openOverride]);
 
   // ── render helpers ──────────────────────────────────────────────────────
   // The section's own boot document as one bar. A member's 所有人 and own
@@ -1322,23 +1384,15 @@ function LoreView({
         {sd.entries.map((stored) => {
           const ch = staged.get(stored.id);
           const entry = withStaged(stored, ch);
-          const foldable = stored.dropped === true && !ch;
-          if (foldable && !expanded.has(entry.id)) {
-            return (
-              <LoreDroppedRow
-                key={entry.id}
-                entry={entry}
-                highlighted={entry.id === highlightId}
-                onExpand={() => setEntryExpanded(entry.id, true)}
-              />
-            );
-          }
+          const dropped = stored.dropped === true;
+          const expanded = openOverride.get(entry.id) ?? false;
           return (
             <LoreRow
                   key={entry.id}
                   entry={entry}
-                  dimmed={stored.dropped === true}
-                  onCollapse={foldable ? () => setEntryExpanded(entry.id, false) : null}
+                  dimmed={dropped}
+                  expanded={expanded}
+                  onToggle={() => setEntryOpen(entry.id, !expanded)}
                   author={resolveAuthor(entry.authorId)}
                   avatar={authorAvatar(entry.authorId)}
                   scope={resolveScope(entry)}
@@ -1382,7 +1436,9 @@ function LoreView({
     if (membersLoading) return { id: "", name: "", roster: "loading" };
     if (membersError) return { id: "", name: "", roster: "error" };
     const author = resolveAuthor(entry.authorId);
-    return author.peerId !== "" ? { id: author.peerId, name: author.text } : null;
+    if (author.peerId === "") return null;
+    const codename = workers.find((w) => w.id === author.peerId)?.codename;
+    return { id: author.peerId, name: codename ?? author.text };
   }
 
   function openManual(typeKey: string) {
@@ -1500,39 +1556,68 @@ function LoreView({
     return (
       <div className="lore" ref={scrollRef} data-testid="lore-page">
         {errors}
-        <div className="lore__dir-search">
-          <IdFilterInput
-            value={dirSearch}
-            onChange={setDirSearch}
-            onCommit={(v) => void jumpToEntry(v)}
-            label={t.lore.directoryIdLabel}
-            testId="lore-directory-id"
-            widthCh={7}
-          />
-          {dirNote && (
-            <span className="lore__dir-note" role="status" data-testid="lore-directory-note">
-              {dirNote}
-            </span>
-          )}
-          <button
-            type="button"
-            className="chat-groups__tool chat-groups__tool--icon lore__collapse-all"
-            aria-label={collapseLabel}
-            title={collapseLabel}
-            disabled={shown.length === 0}
-            data-testid="lore-collapse-all"
-            onClick={() => {
-              const next = new Set(dirCollapsed);
-              for (const g of shown) {
-                if (anyExpanded) next.add(g.kind);
-                else next.delete(g.kind);
-              }
-              onDirCollapsedChange(next);
-            }}
-          >
-            {anyExpanded ? <ChevronsDownUpIcon size={16} /> : <ChevronsUpDownIcon size={16} />}
-          </button>
-        </div>
+        <FilterPanel
+          testId="lore-directory-filter"
+          clearLabel={t.lore.clearFilters}
+          onClear={
+            dirSearch !== "" || dirApplied !== "" || dirNote
+              ? () => {
+                  setDirSearch("");
+                  setDirApplied("");
+                  setDirNote(null);
+                }
+              : undefined
+          }
+          collapse={{ title: t.lore.filterDialogTitle, activeCount: dirApplied !== "" ? 1 : 0 }}
+          summary={
+            typeof officeTotal === "number"
+              ? msg.loreListedCount(officeTotal)
+              : officeTotal === null && budgetsReady
+                ? msg.loreListedCount(directoryEntryTotal(defs))
+                : undefined
+          }
+          actions={
+            <button
+              type="button"
+              className="filter-panel__trigger lore__collapse-all"
+              aria-label={collapseLabel}
+              title={collapseLabel}
+              disabled={shown.length === 0}
+              data-testid="lore-collapse-all"
+              onClick={() => {
+                const next = new Set(dirCollapsed);
+                for (const g of shown) {
+                  if (anyExpanded) next.add(g.kind);
+                  else next.delete(g.kind);
+                }
+                onDirCollapsedChange(next);
+              }}
+            >
+              {anyExpanded ? <ChevronsDownUpIcon size={14} /> : <ChevronsUpDownIcon size={14} />}
+            </button>
+          }
+        >
+          <FilterField label={t.lore.directoryIdLabel} wide>
+            <IdFilterInput
+              value={dirSearch}
+              onChange={setDirSearch}
+              onCommit={(v) => void jumpToEntry(v)}
+              label={t.lore.directoryIdLabel}
+              testId="lore-directory-id"
+              widthCh={7}
+            />
+            {dirNote && (
+              <span className="lore__dir-note" data-testid="lore-directory-panel-note">
+                {dirNote}
+              </span>
+            )}
+          </FilterField>
+        </FilterPanel>
+        {dirNote && (
+          <div className="lore__dir-note" role="status" data-testid="lore-directory-note">
+            {dirNote}
+          </div>
+        )}
         {shown.map((g) => {
           const collapsed = dirCollapsed.has(g.kind);
           return (
@@ -1581,6 +1666,7 @@ function LoreView({
   }
 
   const sd = currentDef ? data[currentDef.key] : undefined;
+  const listedCount = sd?.total ?? (sd?.exhausted ? sd.entries.length : null);
   const highlightMissing =
     highlightId !== "" &&
     !!sd &&
@@ -1616,41 +1702,6 @@ function LoreView({
 
       {currentDef && (
         <>
-          <FilterPanel
-            testId="lore-filter"
-            clearLabel={t.lore.clearFilters}
-            onClear={narrowing || !statesAtDefault ? clearFilters : undefined}
-          >
-            <IdFilterInput
-              value={searchDraft}
-              onChange={setSearchDraft}
-              onCommit={(v) => setAppliedSearch(v.trim())}
-              label={t.lore.idSearchLabel}
-              testId="lore-filter-id"
-              widthCh={7}
-            />
-            <MultiSelectFilter
-              noun={t.lore.filterTypeNoun}
-              allLabel={t.lore.filterTypeAll}
-              testId="lore-filter-type"
-              options={LORE_TYPES.map((lt) => ({ value: lt, label: loreTypeLabel(t, lt) }))}
-              selected={loreTypes}
-              onChange={(next) => setLoreTypes(next as Set<LoreType>)}
-            />
-            <MultiSelectFilter
-              noun={t.lore.filterStateNoun}
-              allLabel={t.lore.filterStateAll}
-              testId="lore-filter-state"
-              options={[
-                { value: "pinned", label: t.lore.statePinned },
-                { value: "active", label: t.lore.stateActive },
-                { value: "retired", label: t.lore.stateRetired },
-              ]}
-              selected={states}
-              onChange={(next) => setStates(next as Set<LoreEntryState>)}
-            />
-          </FilterPanel>
-
           <div className="lore-section__head" data-testid="lore-section-head">
             <div className="lore__group-title lore-section__title">
               {sectionLead(currentDef)}
@@ -1671,10 +1722,6 @@ function LoreView({
                   {sectionName(currentDef)}
                 </span>
               )}
-              <span className="lore__group-count">
-                {" · "}
-                <span data-testid="lore-section-count">{msg.loreEntryCount(currentDef.target.entryCount)}</span>
-              </span>
               {currentDef.target.droppedCount > 0 && (
                 <span className="lore-section__dropped" data-testid="lore-section-dropped">
                   {msg.loreDropped(currentDef.target.droppedCount)}
@@ -1683,6 +1730,49 @@ function LoreView({
             </div>
             {renderSummary(currentDef, sd)}
           </div>
+
+          <FilterPanel
+            testId="lore-filter"
+            clearLabel={t.lore.clearFilters}
+            onClear={activeFilterCount > 0 ? clearFilters : undefined}
+            collapse={{ title: t.lore.filterDialogTitle, activeCount: activeFilterCount }}
+            summary={listedCount == null ? undefined : msg.loreListedCount(listedCount)}
+          >
+            <FilterField label={t.lore.idSearchLabel} wide>
+              <IdFilterInput
+                value={searchDraft}
+                onChange={setSearchDraft}
+                onCommit={(v) => setAppliedSearch(v.trim())}
+                label={t.lore.idSearchLabel}
+                testId="lore-filter-id"
+                widthCh={7}
+              />
+            </FilterField>
+            <FilterField label={t.lore.filterTypeNoun}>
+              <MultiSelectFilter
+                noun={t.lore.filterTypeNoun}
+                allLabel={t.lore.filterTypeAll}
+                testId="lore-filter-type"
+                options={LORE_TYPES.map((lt) => ({ value: lt, label: loreTypeLabel(t, lt) }))}
+                selected={loreTypes}
+                onChange={(next) => setLoreTypes(next as Set<LoreType>)}
+              />
+            </FilterField>
+            <FilterField label={t.lore.filterStateNoun}>
+              <MultiSelectFilter
+                noun={t.lore.filterStateNoun}
+                allLabel={t.lore.filterStateAll}
+                testId="lore-filter-state"
+                options={[
+                  { value: "pinned", label: t.lore.statePinned },
+                  { value: "active", label: t.lore.stateActive },
+                  { value: "retired", label: t.lore.stateRetired },
+                ]}
+                selected={states}
+                onChange={(next) => setStates(next as Set<LoreEntryState>)}
+              />
+            </FilterField>
+          </FilterPanel>
 
           {highlightMissing && (
             <div className="lore__empty" data-testid="lore-highlight-missing">
@@ -1795,12 +1885,15 @@ function loreTypeLabel(t: ReturnType<typeof useI18n>["t"], lt: LoreType): string
   }
 }
 
-/** ONE 傳承 row. The body always shows in full; the only chevron is the one
- * that folds an opened dropped entry back to its LoreDroppedRow. */
+/** ONE 傳承 card. Folded, its body is cut to two lines and it has neither the
+ * 編輯 icon nor the message box; open, the body is in full. A click on the card
+ * (not on one of its controls, not ending a text selection), Enter or Space
+ * folds or opens it, as on 任務卡; the chevron only marks that state. */
 function LoreRow({
   entry,
   dimmed,
-  onCollapse,
+  expanded,
+  onToggle,
   author,
   avatar,
   scope,
@@ -1819,11 +1912,12 @@ function LoreRow({
   onRestored,
 }: {
   entry: LoreEntryView;
+  /** The server left it out of what members read: content greyed, 讀不到 tag. */
   dimmed: boolean;
-  /** Folds an opened dropped entry back to its one-line row; null ⇒ this card
-   * does not fold (it is read, or it carries a staged change). It does not fold
-   * either while its editor is open or its message box holds unsent input. */
-  onCollapse: (() => void) | null;
+  expanded: boolean;
+  /** Folds or opens the card. It does not fold while its editor is open or its
+   * message box holds unsent input. */
+  onToggle: () => void;
   author: AuthorIdentity;
   avatar: { src?: string; kind: AvatarKind } | null;
   /** 屬於, already resolved (resolveScope). `manualKey` non-empty offers the
@@ -1860,7 +1954,7 @@ function LoreRow({
   const scopeRef = useRef<HTMLSpanElement>(null);
   const [editing, setEditing] = useState(false);
   const [messageUnsent, setMessageUnsent] = useState(false);
-  const collapse = editing || (recipient !== null && messageUnsent) ? null : onCollapse;
+  const toggle = expanded && (editing || (recipient !== null && messageUnsent)) ? null : onToggle;
 
   useEffect(() => {
     if (!scopeOpen) return;
@@ -1899,28 +1993,6 @@ function LoreRow({
         : t.lore.actionPin;
   }
 
-  // 條目編號 chip — the 任務卡's 編號 chip, same behaviour (owner: 「傳承的 id
-  // 沒有顯示出來 像 task 那樣」, c-c933a2b41c54). Click copies the id, and the
-  // 已複製 flag is set ONLY when the clipboard write actually succeeded:
-  // copyText returns false on a denied clipboard and a chip that lied would be
-  // worse than one that did nothing. The timer is cleared on unmount so a row
-  // that scrolls away mid-feedback cannot setState on a dead component.
-  const [copied, setCopied] = useState(false);
-  const copiedTimer = useRef<number | null>(null);
-  useEffect(
-    () => () => {
-      if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current);
-    },
-    []
-  );
-  async function copyEntryId() {
-    const ok = await copyText(entry.id);
-    if (!ok) return;
-    setCopied(true);
-    if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current);
-    copiedTimer.current = window.setTimeout(() => setCopied(false), 1600);
-  }
-
   return (
     <article
       className={`lore-row lore-row--${entry.state}${
@@ -1930,43 +2002,94 @@ function LoreRow({
       data-entry-id={entry.id}
       data-dimmed={dimmed ? "true" : "false"}
       data-staged={staged ? "true" : "false"}
-      // Focusable from code only: a highlighted entry lands here.
-      tabIndex={-1}
+      data-folded={expanded ? undefined : "true"}
+      {...(toggle
+        ? {
+            role: "button",
+            tabIndex: 0,
+            "aria-expanded": expanded,
+            "aria-label": expanded ? t.lore.collapseEntry : t.lore.expandEntry,
+            // The message box's padding around its textarea is still the box.
+            onClick: (e: React.MouseEvent<HTMLElement>) => {
+              if (isCardToggleClick(e, ".lore-row__message")) toggle();
+            },
+            onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
+              if (isCardToggleKey(e)) toggle();
+            },
+          }
+        : // Focusable from code only: a highlighted entry lands here.
+          { tabIndex: -1 })}
     >
       <div className="lore-row__head">
         <div className="lore-row__badges">
-          {/* Order: 編號 → 類型 → 狀態 → 適用範圍. The id leads, as on 任務卡,
-              because it is what you quote to somebody else (owner: 「make them
-              consistent with task」). 傳承 has no 優先權; do not invent one for the slot. */}
-          <button
-            type="button"
-            className="lore-row__id-badge"
-            data-testid="lore-entry-id"
-            aria-label={msg.loreCopyEntryId(entry.id)}
-            title={msg.loreCopyEntryId(entry.id)}
-            onClick={copyEntryId}
-          >
-            {/* 🔴 THE SAME BADGE AS 任務卡's, DOWN TO THE `#` AND THE ICON. The two
-                are the same thing — 「這一筆的編號」, click to copy — and they were
-                drawn two different ways: the task carried a glyph and a `#`, the
-                entry carried neither. The owner spotted it by putting the two
-                screenshots side by side, which is how a difference like this gets
-                found: never by reading one page against its own spec.
-                The icon differs (a book, not a checklist) because it names WHICH
-                register the number belongs to — the same icon the 傳承 tab uses.
-                What is shared is the SHAPE; what identifies is the glyph. */}
-            {copied ? <CheckIcon size={13} /> : <BookIcon size={13} />}#
-            {entry.id}
-            {copied && (
-              <span
-                className="lore-row__id-badge-copied"
-                role="status"
-                data-testid="lore-entry-id-copied"
-              >
-                {t.lore.entryIdCopied}
-              </span>
+          {/* Order: 狀態 icon → 編號 → 類型 → 適用範圍, the 任務卡's head. The
+              status icon is also the 變更狀態 control; its menu hangs from its
+              LEFT edge (.lore-row__status-pop pins left:0) because a
+              right-anchored pop would open off the card. */}
+          <div className="lore-row__status" ref={statusRef}>
+            <button
+              type="button"
+              className={`card-head__status-icon lore-row__status-icon--${entry.state}${
+                stagedFrom?.state !== undefined ? " lore-row__status-icon--staged" : ""
+              }`}
+              title={stateLabel}
+              aria-label={stateLabel}
+              aria-haspopup="menu"
+              aria-expanded={stateOpen}
+              data-testid="lore-state"
+              data-state={entry.state}
+              disabled={chipsLocked}
+              onClick={() => setStateOpen((o) => !o)}
+            >
+              <LoreStateIcon state={entry.state} />
+            </button>
+            {stagedFrom?.state !== undefined && (
+              <LoreRevertMark
+                field="state"
+                from={stagedFrom.state}
+                onRevert={() => onRevert(entry.id, "state")}
+                disabled={chipsLocked}
+              />
             )}
-          </button>
+            {stateOpen && (
+              <div
+                className="lore-row__menu-pop lore-row__status-pop"
+                role="menu"
+                aria-label={t.lore.stateMenuLabel}
+                data-testid="lore-state-options"
+              >
+                {STATE_ACTIONS.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    role="menuitem"
+                    // 「當前值用強調色＋700」 IS this modifier — the same one the
+                    // 任務卡's 優先權/狀態 menus use (tasks.css
+                    // .task-card__menu-item--active), copied into lore.css.
+                    className={`lore-row__menu-item${
+                      entry.state === s ? " lore-row__menu-item--active" : ""
+                    }`}
+                    data-testid={`lore-state-${s}`}
+                    onClick={() => {
+                      setStateOpen(false);
+                      if (entry.state !== s) onSetState(entry.id, s);
+                    }}
+                  >
+                    {actionLabel(s)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <CopyIdChip
+            value={entry.id}
+            text={entry.id}
+            label={msg.loreCopyEntryId(entry.id)}
+            copiedLabel={t.lore.entryIdCopied}
+            testId="lore-entry-id"
+            copiedTestId="lore-entry-id-copied"
+          />
 
           <div className="lore-row__status" ref={typeRef}>
             <button
@@ -2021,67 +2144,8 @@ function LoreRow({
             )}
           </div>
 
-          {/* ONE status badge, and it is also the control (spec §6). Both this
-              menu and the type menu hang from their badge's LEFT edge
-              (.lore-row__status-pop pins left:0): the badges sit at the row's
-              left, and a right-anchored pop would open off the row. */}
-          <div className="lore-row__status" ref={statusRef}>
-            <button
-              type="button"
-              className={`lore-badge lore-badge--state-${entry.state} lore-row__status-chip${
-                stagedFrom?.state !== undefined ? " lore-row__status-chip--staged" : ""
-              }`}
-              title={t.lore.stateMenuLabel}
-              aria-label={t.lore.stateMenuLabel}
-              aria-haspopup="menu"
-              aria-expanded={stateOpen}
-              data-testid="lore-state"
-              disabled={chipsLocked}
-              onClick={() => setStateOpen((o) => !o)}
-            >
-              {stateLabel}
-            </button>
-            {stagedFrom?.state !== undefined && (
-              <LoreRevertMark
-                field="state"
-                from={stagedFrom.state}
-                onRevert={() => onRevert(entry.id, "state")}
-                disabled={chipsLocked}
-              />
-            )}
-            {stateOpen && (
-              <div
-                className="lore-row__menu-pop lore-row__status-pop"
-                role="menu"
-                aria-label={t.lore.stateMenuLabel}
-                data-testid="lore-state-options"
-              >
-                {STATE_ACTIONS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    role="menuitem"
-                    // 「當前值用強調色＋700」 IS this modifier — the same one the
-                    // 任務卡's 優先權/狀態 menus use (tasks.css
-                    // .task-card__menu-item--active), copied into lore.css.
-                    className={`lore-row__menu-item${
-                      entry.state === s ? " lore-row__menu-item--active" : ""
-                    }`}
-                    data-testid={`lore-state-${s}`}
-                    onClick={() => {
-                      setStateOpen(false);
-                      if (entry.state !== s) onSetState(entry.id, s);
-                    }}
-                  >
-                    {actionLabel(s)}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* 適用範圍 rides the tag row as the fourth tag. A viewer who may move
-              the entry gets the same badge-is-the-control pattern as 類型/狀態;
+          {/* 適用範圍 rides the tag row as the last tag. A viewer who may move
+              the entry gets the same badge-is-the-control pattern as 類型;
               anyone else reads it as plain text. The menu hangs from
               .lore-row__head (this wrapper is not positioned) so a tag that
               wrapped to the row's right edge cannot push the menu off a phone. */}
@@ -2188,36 +2252,46 @@ function LoreRow({
               <span className="lore-badge__text">{scope.label}</span>
             </span>
           )}
+          {dimmed && (
+            <span className="lore-badge lore-badge--dropped" data-testid="lore-dropped-tag">
+              {t.lore.droppedTag}
+            </span>
+          )}
         </div>
 
         <div className="lore-row__actions">
           <button
             type="button"
-            className="doc-btn doc-btn--edit"
+            className="card-head__icon-btn"
             data-testid="lore-edit"
-            disabled={editing}
-            onClick={() => setEditing(true)}
+            aria-label={t.lore.actionEdit}
+            title={t.lore.actionEdit}
+            disabled={expanded && editing}
+            onClick={() => {
+              if (!expanded) onToggle();
+              setEditing(true);
+            }}
           >
             <PencilIcon size={14} />
-            <span>{t.lore.actionEdit}</span>
           </button>
-          {collapse && (
-            <button
-              type="button"
-              className="lore-row__fold lore-row__fold--open"
-              data-testid="lore-collapse"
-              aria-expanded={true}
-              aria-label={t.lore.collapseDropped}
-              title={t.lore.collapseDropped}
-              onClick={collapse}
+          {toggle ? (
+            <span
+              className={`lore-row__fold${expanded ? " lore-row__fold--open" : ""}`}
+              data-testid="lore-fold-mark"
+              aria-hidden="true"
+              title={expanded ? t.lore.collapseEntry : t.lore.expandEntry}
             >
-              <ChevronRightIcon size={16} />
-            </button>
+              <ChevronRightIcon size={18} />
+            </span>
+          ) : (
+            // Holds the chevron's width so the tags do not rewrap while the
+            // card cannot fold.
+            <span className="lore-row__fold lore-row__fold--held" aria-hidden="true" />
           )}
         </div>
       </div>
 
-      {editing ? (
+      {expanded && editing ? (
         <LoreEntryEditor
           entry={entry}
           caps={entryCaps}
@@ -2243,30 +2317,32 @@ function LoreRow({
               characters that are now syntax are read as syntax. This follows chat
               (one behaviour for one kind of text). The renderer's inline set is
               only `**bold**`, `` `code` `` and links; `_` is not syntax, so a body
-              carrying `note_size_chars` is unaffected.
-
-              The body is always shown in full (owner: no fold on the card). */}
-          <div className="lore-row__body" data-testid="lore-body">
+              carrying `note_size_chars` is unaffected. */}
+          <div
+            className={`lore-row__body${expanded ? "" : " lore-row__body--clamped"}`}
+            data-testid="lore-body"
+          >
             <Markdown source={entry.body} className="lore-row__body-md doc-md" breaks />
           </div>
         </>
       )}
 
-      <div className="lore-row__meta">
-        <span className="lore-row__meta-label">{t.lore.authorLabel}</span>
-        <LoreAuthorChip author={author} avatar={avatar} />
-        <span className="lore-row__meta-label">{t.lore.effectiveLabel}</span>
+      <div className="card-meta">
+        <span className="card-meta__label">{t.lore.authorLabel}</span>
+        <LoreAuthorChip authorId={entry.authorId} author={author} avatar={avatar} />
+        <span className="card-meta__label">{t.lore.effectiveLabel}</span>
         <span className="lore-row__effective-ts" data-testid="lore-effective">
-          {formatAbsolute(entry.effectiveTs, Date.now() / 1000)}
+          <LoreEffective entry={entry} />
         </span>
+        {/* No reason, no row: an empty one would teach that retirements come unexplained. */}
+        {entry.retireReason !== "" && (
+          <div className="card-meta__row" data-testid="lore-retire-reason">
+            <span className="card-meta__label">{t.lore.retireReasonLabel}</span>
+            <span className="lore-row__retire">{entry.retireReason}</span>
+          </div>
+        )}
       </div>
-      {/* No reason, no line: an empty one would teach that retirements come unexplained. */}
-      {entry.retireReason !== "" && (
-        <div className="lore-row__retire" data-testid="lore-retire-reason">
-          {t.lore.retireReasonLabel}：{entry.retireReason}
-        </div>
-      )}
-      {recipient !== null && (
+      {expanded && recipient !== null && (
         <LoreMessageBox
           entryId={entry.id}
           recipient={recipient}
@@ -2277,50 +2353,15 @@ function LoreRow({
   );
 }
 
-/** A dropped entry, folded: id, title and 讀不到 on one line. Any click, Enter
- * or Space opens the full card in its place. The id is drawn, not a copy
- * button, so the whole row stays one control. */
-function LoreDroppedRow({
-  entry,
-  highlighted,
-  onExpand,
-}: {
-  entry: LoreEntryView;
-  highlighted: boolean;
-  onExpand: () => void;
-}) {
-  const { t } = useI18n();
-  return (
-    <div
-      className={`lore-row lore-row--folded${highlighted ? " lore-row--highlight" : ""}`}
-      data-testid="lore-row"
-      data-entry-id={entry.id}
-      data-dimmed="true"
-      data-folded="true"
-      role="button"
-      tabIndex={0}
-      aria-expanded={false}
-      onClick={onExpand}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onExpand();
-        }
-      }}
-    >
-      <span className="lore-row__id-badge" data-testid="lore-entry-id">
-        <BookIcon size={13} />#{entry.id}
-      </span>
-      <span className="lore-row__folded-title" data-testid="lore-folded-title">
-        {entry.title}
-      </span>
-      <span className="lore-badge lore-badge--dropped" data-testid="lore-dropped-tag">
-        {t.lore.droppedTag}
-      </span>
-      <span className="lore-row__fold" aria-hidden="true">
-        <ChevronRightIcon size={16} />
-      </span>
-    </div>
+/** The 狀態 icon: 置頂 a hollow pin, 生效中 a big check in a circle, 已失效 a
+ * slashed circle. */
+function LoreStateIcon({ state }: { state: LoreEntryState }) {
+  return state === "pinned" ? (
+    <PinIcon size={18} />
+  ) : state === "active" ? (
+    <CircleCheckBigIcon size={18} />
+  ) : (
+    <CircleSlashIcon size={18} />
   );
 }
 
@@ -2473,24 +2514,31 @@ function LoreEntryEditor({
   );
 }
 
-/** The 撰寫人 pill: who wrote the entry, never a way to reach them — the
- * message box under the card is that. */
+/** The 撰寫人 pill. Owner-written entries (and entries with no author) have
+ * no chat to open: there is no chat with yourself. */
 function LoreAuthorChip({
+  authorId,
   author,
   avatar,
 }: {
+  authorId: string;
   author: AuthorIdentity;
   avatar: { src?: string; kind: AvatarKind } | null;
 }): ReactNode {
+  const { t } = useI18n();
+  const shown = author.peerId !== "" && avatar ? avatar : null;
+  if (authorId === "" || authorId === OWNER_ID) {
+    return <MemberChip name={author.name} avatar={shown} testId="lore-author-row" nameTestId="lore-author" />;
+  }
   return (
-    <span className="lore-row__chip" data-testid="lore-author-row">
-      {author.peerId !== "" && avatar ? (
-        <Avatar size={18} kind={avatar.kind} src={avatar.src} />
-      ) : null}
-      <span className="lore-row__author" data-testid="lore-author">
-        {author.text}
-      </span>
-    </span>
+    <MemberChatChip
+      name={author.name}
+      avatar={shown}
+      label={t.lore.messageAuthor}
+      onOpen={() => navigateHash({ page: "office", chatId: authorId })}
+      testId="lore-author-row"
+      nameTestId="lore-author"
+    />
   );
 }
 

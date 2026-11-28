@@ -25,6 +25,42 @@
 // by its `overflow-x` clamp.
 import { test, expect } from "@playwright/experimental-ct-react";
 import { ChatCardTimestampStory } from "./stories/ChatCardTimestampStory";
+import type { Locator } from "@playwright/test";
+
+/** The open card's divider: right under `above` (its last meta row, or the
+ * title on a chat card with none) and the full width of the card's content, a
+ * visible 1px line, with the question starting further below it than the
+ * card's own 12px gap. */
+async function expectDivider(card: Locator, above: Locator, tag: string) {
+  const divider = card.locator(".reply-card__divider");
+  await expect(divider, `${tag}: one divider`).toHaveCount(1);
+  const g = await divider.evaluate((el, aboveEl) => {
+    const r = (e: Element) => {
+      const b = e.getBoundingClientRect();
+      return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+    };
+    const cardEl = el.closest(".reply-card")!;
+    const cs = getComputedStyle(cardEl);
+    const c = r(cardEl);
+    return {
+      line: r(el),
+      prev: el.previousElementSibling === aboveEl,
+      above: r(aboveEl as Element),
+      next: el.nextElementSibling ? r(el.nextElementSibling) : null,
+      contentLeft: c.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft),
+      contentRight: c.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight),
+      bg: getComputedStyle(el).backgroundColor,
+    };
+  }, await above.elementHandle());
+  expect(g.prev, `${tag}: the divider comes right after the meta`).toBe(true);
+  expect(g.line.bottom - g.line.top, `${tag}: a 1px line`).toBeCloseTo(1, 0);
+  expect(g.line.top - g.above.bottom, `${tag}: space between the meta and the line`).toBeCloseTo(14, 0);
+  expect(g.line.left, `${tag}: the line starts at the content's left`).toBeCloseTo(g.contentLeft, 0);
+  expect(g.line.right, `${tag}: the line ends at the content's right`).toBeCloseTo(g.contentRight, 0);
+  expect(g.bg, `${tag}: the line is drawn`).not.toMatch(/^rgba\(\d+, \d+, \d+, 0\)$|^transparent$/);
+  expect(g.next, `${tag}: something under the line`).not.toBeNull();
+  expect(g.next!.top - g.line.bottom, `${tag}: the question starts 18px under the line`).toBeCloseTo(18, 0);
+}
 
 for (const viewport of [
   { name: "wide", width: 1440, layout: "wide" },
@@ -82,7 +118,7 @@ for (const viewport of [
 for (const width of [390, 1280]) {
   test.describe(() => {
     test.use({ hasTouch: width <= 720 });
-    test(`${width}px${width <= 720 ? ", touch" : ""}: the chat-card expiry icon button (${width <= 720 ? "26" : "22"}px) sits at the card's top-right, inside the card beside a summary with an unbreakable code block, and its confirmation fits the viewport`, async ({
+    test(`${width}px${width <= 720 ? ", touch" : ""}: the chat-card expiry icon button (24px, the task card's size) sits on the card's first line just before the chevron at its right end, inside the card above a summary with an unbreakable code block, and its confirmation fits the viewport`, async ({
       mount,
       page,
     }) => {
@@ -107,7 +143,7 @@ for (const width of [390, 1280]) {
       const expireBox = await expire.boundingBox();
       if (!cardBox || !expireBox) throw new Error("chat-card expiry action has no layout box");
       expect(await page.evaluate(() => matchMedia("(hover: none)").matches), "control: a touch screen").toBe(width <= 720);
-      const side = width <= 720 ? 26 : 22;
+      const side = 24;
       expect(expireBox.width, `the expiry button ${side}px wide`).toBeCloseTo(side, 0);
       expect(expireBox.height, `the expiry button ${side}px tall`).toBeCloseTo(side, 0);
       expect(expireBox.x).toBeGreaterThanOrEqual(cardBox.x - 1);
@@ -119,15 +155,15 @@ for (const width of [390, 1280]) {
         parseFloat(getComputedStyle(el).paddingRight),
       );
       if (!summaryBox) throw new Error("chat-card summary has no layout box");
-      expect(expireBox.y, "expiry shares the summary's first row").toBeLessThan(
-        summaryBox.y + summaryBox.height,
+      expect(expireBox.y + expireBox.height, "expiry on the first line, above the summary").toBeLessThanOrEqual(
+        summaryBox.y + 1,
       );
-      expect(expireBox.x, "expiry sits right of the summary, not over it").toBeGreaterThanOrEqual(
-        summaryBox.x + summaryBox.width - 1,
-      );
+      const foldBox = (await card.locator(".reply-card__head .reply-card__fold").boundingBox())!;
+      expect(Math.abs(expireBox.y + expireBox.height / 2 - (foldBox.y + foldBox.height / 2)), "expiry on the chevron's line").toBeLessThanOrEqual(1);
+      expect(foldBox.x - (expireBox.x + expireBox.width), "expiry just before the chevron").toBeLessThanOrEqual(9);
       expect(
-        cardBox.x + cardBox.width - (expireBox.x + expireBox.width),
-        "expiry is flush with the card's right padding",
+        cardBox.x + cardBox.width - (foldBox.x + foldBox.width),
+        "the chevron is flush with the card's right padding",
       ).toBeLessThanOrEqual(cardPaddingRight + 2);
       const codeOver = await card
         .locator(".reply-card__summary pre")
@@ -149,4 +185,32 @@ for (const width of [390, 1280]) {
       await expect(expire).toHaveCount(0);
     });
   });
+}
+
+for (const width of [320, 390, 1440]) {
+  for (const language of ["zh", "en"]) {
+    test(`${width}px ${language}: the open chat card draws a line under its title, or under 處理時間 on an answered card, and its question starts below it; the folded row has none`, async ({
+      mount,
+      page,
+    }) => {
+      for (const answered of [false, true]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.evaluate((lang) => localStorage.setItem("oc.language", lang), language);
+        const cmp = await mount(<ChatCardTimestampStory answered={answered} />);
+        const tag = `${width} ${language} ${answered ? "answered" : "waiting"}`;
+        const expand = cmp.getByTestId("chat-reply-card-expand");
+        await expect(expand).toBeVisible();
+        await expect(cmp.locator(".reply-card__divider"), `${tag}: folded`).toHaveCount(0);
+        await expand.click();
+        const card = cmp.getByTestId("chat-reply-card");
+        await expect(card.locator(".reply-card__body")).toBeVisible();
+        await expectDivider(
+          card,
+          card.locator(answered ? ".card-meta" : ".reply-card__summary"),
+          tag,
+        );
+        await cmp.unmount();
+      }
+    });
+  }
 }

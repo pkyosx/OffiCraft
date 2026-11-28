@@ -72,7 +72,7 @@ describe("gen-builtin-themes.mjs", { timeout: 60_000 }, () => {
   it("generates exactly the built-in themes, in picker order", () => {
     const r = run();
     expect(r.out).toContain(
-      'office (:root) 74 tokens, office-light (:root[data-theme="office-light"]) 73 tokens'
+      'office (:root) 79 tokens, office-light (:root[data-theme="office-light"]) 73 tokens'
     );
     expect(BUILTIN_THEME_IDS).toEqual(["office", "office-light"]);
   });

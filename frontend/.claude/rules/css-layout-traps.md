@@ -16,7 +16,7 @@ paths:
 
 重驗 mutant 時，整頁 overflow 那條若先炸，測試會中止，底下的 per-surface 斷言根本沒執行；要證明後者，先暫時放寬整頁斷言再跑 mutant，不能把「整體失敗」誤讀成「後面的斷言也驗過」。
 
-固定高度、可收縮 flex item、CJK 標籤同時出現時，用 `white-space: nowrap` 保住單行；中文的 min-content 可能只有一個字，固定高就會被折行溢出，而同一段 CSS 對拉丁字的幾何不等價。不要用 `flex:none` 代替，也不要只看 computed property：要用真瀏覽器量 line box 與實際 overflow。角色誌的 Insight 卡（`.mp-lessons__head`）與 DocCard（`.doc-card__head`）在 ≤720px 讓 header 換行：編輯模式的三顆按鈕在任何手機寬度都跟標題放不進同一列，閱讀模式的「編輯」鈕在窄螢幕也會掉到下一列，多出的列是預期形狀，換來的是標題與字數不折行。不要為了省那一列把斷點縮回去；也不要讓標題群 `min-width: 0` 卻不讓它跟 header 一起換行，那會把標題壓成零寬、一字一行，徽章與字數直接疊到按鈕上，而且沒有任何東西溢出卡片，只看 overflow 的守衛抓不到。
+固定高度、可收縮 flex item、CJK 標籤同時出現時，用 `white-space: nowrap` 保住單行；中文的 min-content 可能只有一個字，固定高就會被折行溢出，而同一段 CSS 對拉丁字的幾何不等價。不要用 `flex:none` 代替，也不要只看 computed property：要用真瀏覽器量 line box 與實際 overflow。角色誌的 Insight 卡（`.mp-lessons__head`）與 DocCard（`.doc-card__head`）在 ≤720px 讓 header 換行：編輯模式的三顆按鈕在任何手機寬度都跟標題放不進同一列，閱讀模式的「編輯」鈕在窄螢幕也會掉到下一列，多出的列是預期形狀，換來的是標題與字數不折行。不要為了省那一列把斷點縮回去；也不要讓標題群 `min-width: 0` 卻不讓它跟 header 一起換行，那會把標題壓成零寬、一字一行，徽章與字數直接疊到按鈕上，而且沒有任何東西溢出卡片，只看 overflow 的守衛抓不到。任務卡步驟的標題列（`.task-step__row`）是兩欄 grid：標題 `minmax(0, 1fr)`、右欄是固定 64px 的耗時膠囊，`align-items: start`。標題只在自己那一欄裡換行，膠囊永遠在標題第一行的右端、不會被擠到下一行；改回 flex wrap 會讓膠囊在窄寬掉到標題下面（CT `taskcard-sections` 在 320／375／390／1440 中英量）。時間軸圖示的垂直位置是算出來的（`--task-marker-y`：步驟框上緣到標題第一行中線，並行階段是它的標籤行）；改步驟的 padding、標題字級或行高要一起改它。
 
 ## 輸入欄位 16px（iOS 聚焦放大）
 
@@ -34,9 +34,21 @@ iOS Safari 在字小於 16px 的 input／textarea／select 聚焦時會放大整
 
 ⇒ 動這幾格的 padding／radius／border／字級時，兩份一起看；只改一份就會讓兩頁的篩選欄位在同一個畫面上長得不一樣，而測試與 lint 都不會叫。
 
-⚠️ 這一段原本寫「三份」，第三份是 `.replies__clear-filters`／`.tasks__clear-filters` 那一對清除鈕。**那一對已經不存在了**：T-93 第二／三輪把兩頁的篩選列換成共用的 `FilterPanel`，清除全部搬到面板的 已篩選 條上；T-118 又把那條摘要列整條拿掉了（owner 2026-09-06 `c-c3d681fe05da`）。
+清除鈕只有一份：`filter-panel.css` 的 `.filter-panel__clear`，長在篩選面板的底部。
 
-**但「清除」這個控制項本身還在，它只是換了第三個位置。** owner 看到摘要列消失的畫面後直接問「清除篩選怎麼不見了？」（`c-16e6fa704246`），並裁定「清除篩選還是要留著」（`c-2423dba8b65b`）⇒ 今天它是 `.filter-panel__clear`，**長在 `.filter-panel__fields` 這一排的最後一格**（不是另外一列，也不是絕對定位），只在真的有東西被篩住時才渲染出來。所以樣式仍然是**一份**在 `filter-panel.css`，不是三份，但**「沒有任何清除控制項」那句話已經不成立了**。數字與位置都會漂移，別再抄一次——動之前用 class 名 grep 回來數。
+請示頁的時間膠囊 `.reply-card__waited-pill`（`replies.css`）沒有拷貝：任務卡的步驟耗時與任務已歷時直接用同一個 class。改它的寬度、高度或字級，請示頁與任務卡一起變，兩邊的守衛（`reply-desk`、`taskcard-sections`）都要跑。
+
+## 卡片的 label/value 列
+
+任務卡、請示卡（請示頁、聊天室、任務步驟裡）、金鑰卡、檔案庫卡、傳承卡的 label/value 列都是 `card-meta.css` 的 `.card-meta`／`.card-meta__label`／`.card-meta__row`，各元件自己 import（styleOwnership 有登記）。owner 看過請示卡的「開卡人」比任務卡的列低、顏色不同、欄距不同：那是 `replies.css` 自己抄了一份（baseline、10px 欄距、沒有 opacity）。不要在各頁的 stylesheet 再寫一份格線或 label 樣式；值的樣式（chip、時間）才放在各頁。label 欄寬每張卡都一樣（owner `rc-78c425d0b261`）：`--card-meta-label-width` 依語系給一個最小寬度，取所有卡片中最長的 label（中文「處理時間」4em、英文 "Handed over from" 8.5em），所以每種卡的值從同一個 x 開始；新增更長的 label 時要一起調這個值。不要改回每張卡各自 max-content，也不要在 JS 量寬。請示卡外包開卡人的目前任務沒有 label，只占值那一欄（`grid-column: 2`）。CT `card-meta-rows` 在 320／390／1440 中英拿任務卡的列當基準量另外四種卡：label 顏色、透明度、字級相同，label 在列的左緣，同一語系的值在同一個 x（相對比較，不寫死像素），一行的值跟 label 垂直置中。沒有值的列寫 `t.common.emptyValue`（「-」，跟時間同一個樣式，不斜體、不灰）：金鑰卡沒讀過的最後存取、舊任務沒有建立者、沒有撰寫人的傳承、強制結案沒填的理由（owner：沒有值就顯示「-」）。任務卡的到期日另有規則：可編輯時寫「未設定」可點、不可編輯時整列不畫；負責人寫「未指派」；傳承的失效理由沒有就不畫那一列——這三處不是「-」。
+
+## 卡片上重複的樣子只有一份
+
+owner `c-c6bd1f555f89`：五種卡片（任務、請示、金鑰、檔案庫、傳承）重複出現的樣子要抽成共用的一份，免得改一處漏一處。現在共用的：label/value 列與值 chip（`card-meta.css`）、人名 chip（`MemberChip.tsx`）、複製編號 chip（`IdChips.tsx` 的 `CopyIdChip`＋`id-chip.css`；跳轉編號是 `TaskIdChip`，兩者的「#」都由 `idChipText` 加）、時間（`lib/dateFormat.ts` 的 `formatAbsolute`、到期用 `lib/dueDate.ts` 的 `formatDue`）、沒有值的「-」（`t.common.emptyValue`）、整張卡是開關（`lib/cardToggle.ts`）、頁面工具列（`PageToolbar.tsx`）、第一行的狀態圖示與圖示鈕（`card-head.css` 的 `.card-head__status-icon`／`.card-head__icon-btn`，任務卡的大小；各頁只留狀態顏色）。`lore.css` 檔頭列出的其餘幾樣還是拷貝。新卡片或改這些樣子時，先找共用的那一份；CT `card-meta-rows` 以任務卡為基準量另外四種卡的列與編號 chip。
+
+## 頁面工具列（筆數＋新增）
+
+檔案庫與金鑰頁卡片清單上面那一列是 `PageToolbar.tsx`＋`page-toolbar.css`：左邊筆數（`msg.sharedDocListedCount`／`msg.secretListedCount`，樣子跟任務頁的 `.filter-panel__summary` 一樣），右邊「＋ 新增」（`page-toolbar__btn`），右緣跟卡片右緣對齊（owner `c-0bd2716c5a31`、`c-ad3914549d2e`）。任務頁與傳承頁那一列是 `FilterPanel` 的 `summary`（右邊是篩選漏斗），不是這個元件。守衛：`shared-docs-list-narrow` 與 `secret-note-clamp` 在 320／390／1440 中英量筆數一行、在左緣，新增在卡片右緣、同一行。
 
 ## lazy fetch
 
@@ -66,3 +78,17 @@ styleOwnership test 防止最後一個間接 importer 消失後 dialog 變成原
 喚醒先開與更改相同的設定 dialog，預設保留原執行環境、模型、思考強度與已釘機器；落地順序是 model，再一支 activate，機器由那支 activate 的 machine_id 帶著（外包只在選到不同機器時帶）。喚醒不要先 relocate：已停好的外包會把 relocate 當成「停止後的重啟」當場派出 START，接著的 activate 再殺一次、再派一次。睡著的已釘機器照原樣帶，不能 fallback 到第一台線上機器；只有沒有固定機器時才預設第一台線上機器。
 
 兩邊都沒有「只儲存，不喚醒」（owner `rc-baa00a00dbc9`）。released worker 的身分文字與入口共用，依 worker.status 判定；released 不畫生命週期卡或 dead action，offline 對照仍要保留。
+
+## 說明收進 ⓘ
+
+ⓘ 只放讀者需要知道、又沒辦法從標題或控制項自己推出來的說明。只是把標題或控制項重講一遍的說明，**刪掉文字**，不留 ⓘ，也不留灰字：
+
+- 要加 ⓘ：單位或語意不明（「Codex 第一次通知」的數字是第幾次記憶壓縮，不是百分比）、範圍或生效時機（「機器憑證壽命」調小不影響已發出的、「背景動畫」只影響這台裝置）、標題看不出它是什麼（「系統互動」是每位成員開機都會讀的系統說明）。
+- 不加，刪掉：說明只是換句話重講標題（「任務結案」→「任務結案時給 agent 的收尾指示」）、子頁或控制項已經看得到（「帳號安全」→「修改密碼、兩步驟驗證、通行密鑰」，點進去就是這三列）、選項自己說得清楚（「外包上限設定」→「設為無限則不限制」，旁邊就是「無限」）。
+
+說明放在標題後的 ⓘ（`InfoHint`；接在一段標題文字後面用 `TitleWithInfo`）；沒有說明的列不傳 hint，`SetEntryText`、`RowText` 就不畫 ⓘ，列按鈕也不帶 `aria-describedby`。會讓人做錯事的字**留在畫面上**：警告與後果（會刪除、要重新安裝、不會喚醒、還原會覆蓋、會被別人看到）、目前狀態（可編輯、開著、份數）、錯誤、空狀態、正在進行的步驟該怎麼做。同一句兩種都有就拆成兩個 key，後果那一句照舊寫在標題下面；狀態改成標籤（例如全域情境列的「可編輯」用 `.set-badge`），不要跟著說明一起藏。拿不準時問：「沒點開 ⓘ 的人會不會因此做錯事？」會就留著。
+
+- ⓘ 是 InstantHint 的 span（`role="img"`、名稱「關於 標題」），不是 button：可以放進列按鈕或 `<label>` 裡，點擊不冒泡、在 label 裡不會聚焦欄位，Esc 走 `useEscapeLayer`，所以對話框裡的 Esc 只收提示。
+- 放進列按鈕時，按鈕用 `aria-labelledby` 指向標題（與狀態標籤），否則列的讀名會變成「標題 關於 標題」；並傳 `descriptionId`、按鈕用 `aria-describedby` 指向它：按鈕裡不能有可聚焦元素（與 presence-and-badges.md 的圓點同一條），所以列裡的 ⓘ 不進 Tab 順序、`aria-hidden`，說明改成按鈕的 description（隱藏的 span），滑鼠 hover 與手機點一下照舊。代價是看得見畫面的鍵盤使用者 focus 列時看不到泡泡。放進 `<h2>` 時同理給標題自己的名字。`<label>` 裡的 ⓘ 要求欄位自己帶 `aria-label`。
+- 不換行的黏合是 `TitleWithInfo` 把最後一個字（中文是最後一個字元）和 ⓘ 包進 `white-space: nowrap`。不要改回 word joiner 或尾端 padding：Chromium 在 inline-block 前面一定給斷行點，兩種都擋不住 ⓘ 單獨掉到下一行。守衛在 `visual-guards/info-hint.ct.spec.tsx`（含逐寬度掃描），jsdom 看不出來。
+- 會被硬擠窄、而最後一個字很長的地方（磁碟用量分項），容器可以把 `.info-hint__glue` 放回 `white-space: normal`，寧可 ⓘ 換行也不要壓到右邊的數值。

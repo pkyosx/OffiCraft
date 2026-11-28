@@ -160,7 +160,7 @@ describe("OutsourcePanel", () => {
       chip.compareDocumentPosition(typeLine) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
-    expect(chip.textContent).toBe("T-9c21");
+    expect(chip.textContent).toBe("#T-9c21");
     expect(typeLine.textContent).toBe("review-pr");
     expect(typeLine.querySelector(".lifecycle-dot")).toBeNull();
     // line 3 (T-3451, owner 2026-07-23 REVERSES the 2026-07-16 "no title" rule):
@@ -518,7 +518,7 @@ describe("OutsourcePanel", () => {
 
     const { findByTestId } = renderOutsource();
     const chip = await findByTestId("outsource-task-ow-jump");
-    expect(chip.textContent).toBe("T-950f");
+    expect(chip.textContent).toBe("#T-950f");
     fireEvent.click(chip);
     // The chip routes to the task card's locate anchor (owner 2026-07-14:
     // 點 task id 連到該任務頁) and must NOT also open the worker chat.
@@ -773,7 +773,7 @@ describe("OutsourcePanel", () => {
     const sub = await findByTestId("outsource-chat-sub");
     const chip = within(sub).getByTestId("outsource-chat-task-ow-1");
     const typeLine = within(sub).getByTestId("outsource-chat-type-ow-1");
-    expect(chip.textContent).toBe("T-50c6");
+    expect(chip.textContent).toBe("#T-50c6");
     expect(typeLine.textContent).toBe("review-pr");
     expect(
       chip.compareDocumentPosition(typeLine) &
@@ -825,14 +825,14 @@ describe("OutsourcePanel", () => {
     expect(queryByTestId("outsource-chat-sub")).toBeNull();
   });
 
-  it("owner messages a worker through the reused chat composer", async () => {
+  it("owner messages a worker by codename through the reused chat composer", async () => {
     __injectMockTask(mkTask({ id: "t-1", createdTs: 100 }));
     __injectMockOutsourceWorker(mkWorker({ id: "ow-1", codename: "O-9", taskId: "t-1" }));
 
-    const { findByTestId, findByPlaceholderText } = renderOutsource();
+    const { container, findByTestId, findByPlaceholderText } = renderOutsource();
     fireEvent.click(await findByTestId("outsource-row-ow-1"));
 
-    const input = await findByPlaceholderText("回覆 外包 · O-9…");
+    const input = await findByPlaceholderText("回覆 O-9…");
     fireEvent.change(input, { target: { value: "進度如何？" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
@@ -842,6 +842,17 @@ describe("OutsourcePanel", () => {
         ["ow-1", "進度如何？"],
       ]);
     });
+
+    const sent = await waitFor(() => {
+      const row = container.querySelector<HTMLElement>(".chat__msg--me .chat__msg-reply");
+      expect(row).not.toBeNull();
+      return row!;
+    });
+    fireEvent.click(sent);
+    expect(
+      (await findByTestId("chat-reply-banner")).querySelector(".chat__reply-banner__who")
+        ?.textContent,
+    ).toBe(`正在回覆 ${zh.user} → O-9`);
   });
 
   it("招攬新成員 popover steppers the cap down to 0 → 已暫停指派", async () => {

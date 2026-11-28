@@ -452,6 +452,87 @@ func TestSetLoreStateClearsTheReasonOnTheWayBack(t *testing.T) {
 	}
 }
 
+// TestSetLoreStateStampsRetiredTs — retired_ts is set when an entry becomes
+// retired, survives edits, bumps and a second retire, and is gone again once
+// the entry is moved back to active or pinned.
+func TestSetLoreStateStampsRetiredTs(t *testing.T) {
+	_, h, d, owner := newAPITestServer(t)
+	e, err := d.CreateLoreEntryMintingID(LoreEntry{
+		ScopeKind: LoreScopeEveryone, Title: "一件事", Body: "內容",
+		AuthorID: "m-lore-author", State: LoreStateActive,
+		EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100, LoreType: LoreTypeOther,
+	})
+	if err != nil {
+		t.Fatalf("CreateLoreEntryMintingID: %v", err)
+	}
+	read := func() map[string]any {
+		t.Helper()
+		status, data := apiJSON(t, h, "GET", "/api/lore?entry_id="+e.ID, owner, "")
+		if status != http.StatusOK {
+			t.Fatalf("GET /api/lore: %d %v", status, data)
+		}
+		return data["entries"].([]any)[0].(map[string]any)
+	}
+	do := func(method, path, body string) map[string]any {
+		t.Helper()
+		status, data := apiJSON(t, h, method, path, owner, body)
+		if status != http.StatusOK {
+			t.Fatalf("%s %s %s: %d %v", method, path, body, status, data)
+		}
+		return data
+	}
+	stateTo := func(body string) float64 {
+		t.Helper()
+		return do("POST", "/api/lore/"+e.ID+"/state", body)["updated_ts"].(float64)
+	}
+	wantNoRetiredTs := func(when string) {
+		t.Helper()
+		if got, has := read()["retired_ts"]; has {
+			t.Fatalf("%s: retired_ts = %v, want the field absent", when, got)
+		}
+	}
+	wantRetiredTs := func(when string, want float64) {
+		t.Helper()
+		if got := read()["retired_ts"]; got != want {
+			t.Fatalf("%s: retired_ts = %v, want %v", when, got, want)
+		}
+	}
+
+	wantNoRetiredTs("a new active entry")
+	stateTo(`{"state":"pinned"}`)
+	wantNoRetiredTs("after pinning an active entry")
+	stateTo(`{"state":"active"}`)
+	wantNoRetiredTs("after moving a pinned entry to active")
+
+	before := nowSecs()
+	retiredAt := stateTo(`{"state":"retired","retire_reason":"已被取代"}`)
+	if retiredAt < before || retiredAt > nowSecs() {
+		t.Fatalf("retire stamped updated_ts %v outside the request", retiredAt)
+	}
+	wantRetiredTs("after retiring", retiredAt)
+
+	do("PATCH", "/api/lore/"+e.ID, `{"title":"改過的標題","body":"改過的內容"}`)
+	wantRetiredTs("after a text edit", retiredAt)
+	do("POST", "/api/lore/"+e.ID+"/bump", "")
+	wantRetiredTs("after a bump", retiredAt)
+	stateTo(`{"state":"retired","retire_reason":"換個理由"}`)
+	wantRetiredTs("after retiring a retired entry again", retiredAt)
+	if got := read()["retire_reason"]; got != "換個理由" {
+		t.Fatalf("retire_reason = %v, want 換個理由", got)
+	}
+
+	stateTo(`{"state":"active"}`)
+	wantNoRetiredTs("after moving back to active")
+
+	retiredAgainAt := stateTo(`{"state":"retired"}`)
+	if retiredAgainAt <= retiredAt {
+		t.Fatalf("second retire stamped %v, not after the first %v", retiredAgainAt, retiredAt)
+	}
+	wantRetiredTs("after retiring it again", retiredAgainAt)
+	stateTo(`{"state":"pinned"}`)
+	wantNoRetiredTs("after pinning")
+}
+
 // TestSetLoreStateRejectsAnUnknownState — the closed set is enforced at the
 // door, not only by the schema CHECK (which would surface as a 500).
 func TestSetLoreStateRejectsAnUnknownState(t *testing.T) {
@@ -1021,7 +1102,7 @@ func (st loreScopeStack) wantLoreRow(t *testing.T, want loreEntryWant) {
 		t.Fatalf("read back %s: %d %v", want.e.ID, status, data)
 	}
 	apiWantBody(t, data, map[string]any{
-		"entries": []any{want.body()}, "limit": 30, "offset": 0,
+		"entries": []any{want.body()}, "limit": 30, "offset": 0, "total": 1,
 		"cap_chars": 0, "first_dropped_id": "",
 		"used_chars": 0, "first_dropped_chars": 0, "budget_segments": []any{},
 	})
@@ -1318,7 +1399,7 @@ func TestWriteLoreTypeTag(t *testing.T) {
 					"created_ts": apiAnyNumber, "updated_ts": apiAnyNumber, "task_type_key": "",
 					"scope_options": []any{"agent", "everyone"}, "lore_type": tc.want,
 				}},
-				"limit": 30, "offset": 0, "cap_chars": 0, "first_dropped_id": "",
+				"limit": 30, "offset": 0, "total": 1, "cap_chars": 0, "first_dropped_id": "",
 				"used_chars": 0, "first_dropped_chars": 0, "budget_segments": []any{},
 			})
 		})
@@ -1346,7 +1427,7 @@ func TestWriteLoreTypeTag(t *testing.T) {
 				t.Fatalf("list: %d %v", status, page)
 			}
 			apiWantBody(t, page, map[string]any{
-				"entries": []any{}, "limit": 30, "offset": 0, "cap_chars": 0, "first_dropped_id": "",
+				"entries": []any{}, "limit": 30, "offset": 0, "total": 0, "cap_chars": 0, "first_dropped_id": "",
 				"used_chars": 0, "first_dropped_chars": 0, "budget_segments": []any{},
 			})
 		})
@@ -1368,7 +1449,7 @@ func TestWriteLoreTypeTag(t *testing.T) {
 				t.Fatalf("list: %d %v", status, page)
 			}
 			apiWantBody(t, page, map[string]any{
-				"entries": []any{}, "limit": 30, "offset": 0, "cap_chars": 0, "first_dropped_id": "",
+				"entries": []any{}, "limit": 30, "offset": 0, "total": 0, "cap_chars": 0, "first_dropped_id": "",
 				"used_chars": 0, "first_dropped_chars": 0, "budget_segments": []any{},
 			})
 		})
@@ -1661,19 +1742,19 @@ func TestListLoreBudgets(t *testing.T) {
 			want        map[string]any
 		}{
 			{"agent", "scope_kind=agent&scope_key=m-scope-user", map[string]any{
-				"cap_chars": 20, "used_chars": 20, "first_dropped_id": apiAnyString, "first_dropped_chars": 5,
+				"total": 3, "cap_chars": 20, "used_chars": 20, "first_dropped_id": apiAnyString, "first_dropped_chars": 5,
 				"budget_segments": []any{budgetSegment("everyone", 2, 10, 2, 10), budgetSegment("agent", 3, 15, 2, 10)},
 			}},
 			{"everyone", "scope_kind=everyone", map[string]any{
-				"cap_chars": 20, "used_chars": 10, "first_dropped_id": "", "first_dropped_chars": 0,
+				"total": 2, "cap_chars": 20, "used_chars": 10, "first_dropped_id": "", "first_dropped_chars": 0,
 				"budget_segments": []any{budgetSegment("everyone", 2, 10, 2, 10)},
 			}},
 			{"manual", "scope_kind=manual&scope_key=tm-budget", map[string]any{
-				"cap_chars": 12, "used_chars": 10, "first_dropped_id": apiAnyString, "first_dropped_chars": 5,
+				"total": 3, "cap_chars": 12, "used_chars": 10, "first_dropped_id": apiAnyString, "first_dropped_chars": 5,
 				"budget_segments": []any{budgetSegment("manual", 3, 15, 2, 10)},
 			}},
 			{"a member with no entries of its own", "scope_kind=agent&scope_key=m-scope-admin", map[string]any{
-				"cap_chars": 20, "used_chars": 10, "first_dropped_id": "", "first_dropped_chars": 0,
+				"total": 0, "cap_chars": 20, "used_chars": 10, "first_dropped_id": "", "first_dropped_chars": 0,
 				"budget_segments": []any{budgetSegment("everyone", 2, 10, 2, 10), budgetSegment("agent", 0, 0, 0, 0)},
 			}},
 		} {
@@ -1740,7 +1821,7 @@ func TestListLoreBudgets(t *testing.T) {
 			t.Fatalf("page: %d %v", status, data)
 		}
 		delete(data, "entries")
-		apiWantBody(t, data, map[string]any{"limit": 1, "offset": 0,
+		apiWantBody(t, data, map[string]any{"limit": 1, "offset": 0, "total": 2,
 			"cap_chars": 12, "used_chars": 10, "first_dropped_id": "", "first_dropped_chars": 0,
 			"budget_segments": []any{budgetSegment("everyone", 2, 10, 0, 0), budgetSegment("agent", 2, 10, 2, 10)},
 		})
@@ -1803,7 +1884,7 @@ func TestEditLoreEntry(t *testing.T) {
 			t.Fatalf("read back: %d %v", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"entries": []any{want}, "limit": 30, "offset": 0, "cap_chars": 0,
+			"entries": []any{want}, "limit": 30, "offset": 0, "total": 1, "cap_chars": 0,
 			"first_dropped_id": "", "used_chars": 0, "first_dropped_chars": 0,
 			"budget_segments": []any{},
 		})

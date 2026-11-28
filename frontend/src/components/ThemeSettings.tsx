@@ -53,6 +53,7 @@ import {
 } from "./icons";
 import { ConfirmModal } from "./ConfirmModal";
 import { ThemeAppearancePanel, useThemeScheduleDraft } from "./ThemeAppearanceDialog";
+import { TitleWithInfo } from "./InfoHint";
 import "./settings.css";
 import "./theme-settings.css";
 
@@ -1010,8 +1011,9 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
           ))}
 
           {/* ── fonts (字型) — pick body / title font from a safe allowlist ── */}
-          <div className="ts-section-label">{t.settings.themeFontsSection}</div>
-          <div className="ts-wording-sub">{t.settings.themeFontsHint}</div>
+          <div className="ts-section-label">
+            {t.settings.themeFontsSection}
+          </div>
           {FONT_SLOTS.map(({ token, labelKey }) => (
             <div key={token} className="ts-font-row">
               <label className="ts-font-label" htmlFor={`ts-font-${token}`}>
@@ -1289,12 +1291,11 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
 
           {/* ── wording overlay (用詞) ── */}
           <div className="ts-section-label">
-            {t.settings.themeWordingSection}
+            <TitleWithInfo title={t.settings.themeWordingSection} hint={t.settings.themeWordingHint} />
             {wordingOverrideCount > 0 && (
               <span className="ts-badge">{wordingOverrideCount}</span>
             )}
           </div>
-          <div className="ts-wording-sub">{t.settings.themeWordingHint}</div>
           <div className="ts-wording-tabs" role="tablist">
             {(["zh", "en"] as const).map((lang) => (
               <button

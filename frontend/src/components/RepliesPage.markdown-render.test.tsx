@@ -12,6 +12,7 @@ import { AttachmentModalHost } from "./AttachmentModalHost";
 import { api } from "../api";
 import { __resetMock, __injectMockReplyCard } from "../api/mock";
 import type { ReplyCard } from "../api/adapter";
+import { selectRepliesTab } from "../test/tasksFilter";
 
 function mkCard(over: Partial<ReplyCard>): ReplyCard {
   return {
@@ -108,7 +109,7 @@ describe("RepliesPage markdown render (T-13af)", () => {
         })
       );
       const { findByTestId } = renderPage();
-      fireEvent.click(await findByTestId("answered-toggle"));
+      await selectRepliesTab("answered");
       const card = await findByTestId(status + "-card");
       expect(card.querySelector(".reply-card__body")).toBeNull();
       await openCards();
@@ -189,8 +190,7 @@ describe("RepliesPage markdown render (T-13af)", () => {
       })
     );
     const { findByTestId } = renderPage();
-    // 近期已處理 is collapsed by default — open it to reach the handled card.
-    fireEvent.click(await findByTestId("answered-toggle"));
+    await selectRepliesTab("answered");
     const card = await findByTestId("answered-card");
     await openCards();
 

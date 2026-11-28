@@ -1,4 +1,4 @@
-// T-122 — the 建議回覆 entry fields on 設定 › 參數調整 must be WIDE ENOUGH TO
+// T-122 — the 建議回覆 entry fields on 設定 › 一般設定 must be WIDE ENOUGH TO
 // READ, not the narrow box the numeric knobs use.
 //
 // 🔴 THE BUG THIS EXISTS FOR, MEASURED ON A REAL BROWSER: the input wears
@@ -48,7 +48,7 @@ for (const viewport of [390, 1280]) {
 
     // A numeric knob on the SAME page — the width the buggy build gave the
     // sentence field.
-    const numeric = page.locator("#param-backup-retain");
+    const numeric = page.locator("#param-due-soon-lead");
     await numeric.scrollIntoViewIfNeeded();
     const numericBox = (await numeric.boundingBox())!;
 

@@ -536,9 +536,7 @@ export interface ReplyCardAnswerInput {
 }
 
 /** Mirrors `ReplyCardCountDTO`. `waiting` drives the nav badge; `answered` +
- * `expired` are the recently-answered / recently-expired (24h) counts the
- * 等我回覆 page sums to render its collapsed 近期已處理 header without
- * fetching the lists. */
+ * `expired` are the recently-answered / recently-expired (24h) counts. */
 export interface ReplyCardCounts {
   waiting: number;
   answered: number;
@@ -552,11 +550,9 @@ export interface ReplyCardCounts {
 
 /** One workflow node of a task timeline, in view-model form. `status` is the
  * closed set `pending` | `in_progress` | `waiting_owner` | `waiting_external` |
- * `done` | `superseded`. Gate
- * projection (spec §核心名詞): `isGate` with an EMPTY `replyCardId` is the
- * ANNOUNCED gate (dashed 等我回覆 — the owner sees ahead of time where a reply
- * will be needed); a NON-EMPTY `replyCardId` is the ARMED gate carrying a live
- * M2 reply card. `startedTs`/`finishedTs` are 0 until real (never fabricated —
+ * `done` | `superseded`. `isGate` marks an approval step (declared in the plan,
+ * or set for good by the server once a reply card is bound); `replyCardId` is
+ * the latest bound card. `startedTs`/`finishedTs` are 0 until real (never fabricated —
  * the UI derives 耗時 only from non-zero stamps). */
 export interface TaskStepView {
   id: string;
@@ -565,7 +561,7 @@ export interface TaskStepView {
   dod: string;
   status: string;
   isGate: boolean;
-  /** "" ⇒ announced gate / not a gate; non-empty ⇒ the bound M2 reply card. */
+  /** "" ⇒ no card bound yet; non-empty ⇒ the latest bound M2 reply card. */
   replyCardId: string;
   /** Read-time join of the bound card's CURRENT status (`reply_card_status`):
    * `"waiting"` | `"answered"` | `"expired"`, or null when the step carries no card. Lets the
@@ -923,8 +919,8 @@ export interface TaskArtifactVersionView {
 }
 
 /** One LIVE outsource worker (anonymous, task-bound). The tasks page resolves
- * an outsource task's 「代號 · 模型 · 投入度」 through this list; a released
- * worker drops off (closed tasks honestly fall back to the bare 外包 label). */
+ * an outsource task's 代號 through this list; a released worker drops off
+ * (closed tasks fall back to the lazy per-id read, then the bare 外包 label). */
 export interface OutsourceWorkerView {
   id: string;
   /** Personal image URL bound to this stable worker id. */
@@ -2951,6 +2947,9 @@ export interface Api {
   editLoreEntry(entryId: string, patch: LoreEntryEdit): Promise<void>;
   /** Every boot-document target's budget in one read (`GET /api/lore/budgets`). */
   listLoreBudgets(): Promise<LoreBudgetTargetView[]>;
+  /** Every 傳承 entry in the office, any state (`GET /api/lore?limit=1`'s `total`);
+   * undefined from a server that predates `total`. */
+  countLoreEntries(): Promise<number | undefined>;
   // ── Product guide (設定 › 使用說明) ──────────────────────────────────
   /** List the product-guide docs (`GET /api/docs`) — the 使用說明 landing
    * (slug + title cards). The same embed Mira reads via get_doc. */
@@ -3604,6 +3603,9 @@ export interface LoreEntryView {
   sourceTaskId: string;
   state: LoreEntryState;
   retireReason: string;
+  /** When the entry became retired; absent while it is not retired and on
+   * entries retired before the server recorded it. */
+  retiredTs?: number;
   effectiveTs: number;
   createdTs: number;
   updatedTs: number;
@@ -3677,6 +3679,8 @@ export interface LoreEntryPageView {
   entries: LoreEntryView[];
   limit: number;
   offset: number;
+  /** Entries matching the filter across every page; absent from servers that predate it. */
+  total?: number;
   capChars: number;
   firstDroppedId: string;
   /** What the selection behind `firstDroppedId` spends; 0 with no single scope. */

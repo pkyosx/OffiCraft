@@ -1,11 +1,8 @@
 // TaskCard / stepBadge — superseded 已答卡凍結節點 (T-1aea). Locked here:
-//   1. resolveStepBadge (the ONE badge decision source) resolves a superseded
-//      step to the plain status badge — never the card-answered/expired badge
-//      (those fire only for waiting_owner) and never the dashed announced-gate
-//      preview (a superseded gate is frozen replan history: nothing will ever
-//      arm it).
-//   2. The rendered row carries the archive styling hooks: 已取代 badge text,
-//      the task-step--superseded greyscale class, the muted timeline dot.
+//   1. resolveStepBadge (the ONE step-status decision source) resolves a
+//      superseded step to superseded, whatever its card or gate state.
+//   2. The rendered row carries the archive styling hooks: the 已取代 timeline
+//      icon and the task-step--superseded greyscale class.
 //   3. Edge ③ (design §3-6): a task whose steps are ALL superseded honestly
 //      reports progress 0/0 — while its detail hydrates the card must show the
 //      loading placeholder, never the zero-step 「等待建立 Steps」 transition
@@ -60,41 +57,26 @@ function renderCard(task: TaskView, onHydrate: (id: string) => Promise<TaskView>
 }
 
 describe("resolveStepBadge — superseded (T-1aea)", () => {
-  it("resolves a superseded step to the plain status badge", () => {
+  it("resolves a superseded step with an answered card to superseded", () => {
     expect(
       resolveStepBadge({
-        status: "superseded", isGate: false,
+        status: "superseded",
         replyCardId: "rc-1", replyCardStatus: "answered",
       })
-    ).toEqual({ kind: "status", status: "superseded" });
+    ).toBe("superseded");
   });
 
-  it("never shows the announced-gate preview on a superseded gate", () => {
+  it("resolves a superseded card-less step to superseded", () => {
     expect(
       resolveStepBadge({
-        status: "superseded", isGate: true, replyCardId: "", replyCardStatus: null,
+        status: "superseded", replyCardId: "", replyCardStatus: null,
       })
-    ).toEqual({ kind: "status", status: "superseded" });
-    // Sanity: the preview still fires for a live announced gate.
-    expect(
-      resolveStepBadge({
-        status: "pending", isGate: true, replyCardId: "", replyCardStatus: null,
-      })
-    ).toEqual({ kind: "gate-announced" });
-  });
-
-  it("keeps the card-answered/expired badges for waiting_owner only", () => {
-    expect(
-      resolveStepBadge({
-        status: "waiting_owner", isGate: false,
-        replyCardId: "rc-1", replyCardStatus: "expired",
-      })
-    ).toEqual({ kind: "card-expired" });
+    ).toBe("superseded");
   });
 });
 
 describe("TaskCard renders superseded rows as greyed archive (T-1aea)", () => {
-  it("shows the 已取代 badge, the greyscale row class and the muted dot", async () => {
+  it("shows the 已取代 timeline icon and the greyscale row class", async () => {
     const steps = [
       mkStep({
         name: "問方向", status: "superseded",
@@ -103,21 +85,16 @@ describe("TaskCard renders superseded rows as greyed archive (T-1aea)", () => {
       mkStep({ name: "重新執行", status: "in_progress", startedTs: 2000 }),
     ];
     const detail = mkTask({ progressDone: 0, progressTotal: 1, steps });
-    const { container, findByTestId, findByText } = renderCard(
+    const { container, findByTestId, findAllByTestId } = renderCard(
       mkTask({ progressDone: 0, progressTotal: 1 }),
       vi.fn(async () => detail)
     );
     fireEvent.click(await findByTestId("task-card"));
     await act(async () => {});
 
-    await findByText("已取代"); // zh badge from stepStatus.superseded
+    const markers = await findAllByTestId("step-marker");
+    expect(markers.map((m) => m.getAttribute("aria-label"))).toEqual(["已取代", "進行中"]);
     expect(container.querySelector(".task-step--superseded")).not.toBeNull();
-    expect(
-      container.querySelector(".task-step-badge--superseded")!.textContent
-    ).toBe("已取代");
-    expect(
-      container.querySelector(".task-timeline__dot--superseded")
-    ).not.toBeNull();
   });
 });
 

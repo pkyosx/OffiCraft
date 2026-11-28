@@ -45,14 +45,6 @@
 // history list's 預設內容 row, exactly like every other editable document.
 // Do not "restore" it here; that decision was made with the trade-off in view.
 //
-// 🔴 SAVING REPLACES THE WHOLE EDITABLE HALF, and this page says so on screen
-// (`replaceNote`). The editor here used to be per-section — paste one block,
-// apply it, leave the rest alone — and the wire was a whole-document replace
-// underneath it either way. With one editor over the body, the thing that was
-// implicit in the section rows has to be stated, because the failure it
-// prevents (pasting one proposed block over a long document and saving the rest
-// away) is silent and unrecoverable except through history.
-//
 // 🔴 THE READ-ONLY HEAD IS SHOWN AND CANNOT BE SAVED (T-3201). It is passed to
 // DocCard as DATA (`doc.readOnlyHead`) rather than rendered here: this file
 // still holds no editor and still may not name the body-replacement prop — its
@@ -152,9 +144,6 @@ export function BootDocPage({
       // `doc === null` passes none rather than "0 / 0", which would read as a
       // real budget of zero.
       usage={doc ? { size: doc.sizeChars, cap: doc.capChars } : undefined}
-      // 「儲存＝整份取代」 is a fact about SAVING, so a document nobody may save
-      // does not owe it.
-      replaceNote={readOnly ? undefined : t.settings.docReplaceNote}
       // A no-op save would flip the document out of 預設 for ever, and these
       // are the documents where "is this still the factory version" is the
       // question people ask about them.

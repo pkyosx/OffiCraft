@@ -2,21 +2,23 @@
 // to show; the value lives only in the create/edit input until the request is
 // sent, and the input is cleared whether the save succeeds or not.
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useI18n } from "../i18n";
 import { useSecrets } from "../hooks/useSecrets";
-import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
 import type { SecretView } from "../types";
+import { ClampedText } from "./ClampedText";
 import { ConfirmModal } from "./ConfirmModal";
 import {
-  CheckIcon,
-  KeyIcon,
   PencilIcon,
   TrashIcon,
 } from "./icons";
+import { CopyIdChip } from "./IdChips";
+import { PageToolbar } from "./PageToolbar";
+import "./page-toolbar.css";
+import "./card-head.css";
 import "./lore.css";
-import "./theme-settings.css";
+import "./card-meta.css";
 import "./secrets.css";
 import { SecretValueInput } from "./SecretValueInput";
 
@@ -48,6 +50,40 @@ export function SecretsPage() {
 
   return (
     <div className="secrets" data-testid="secrets-page">
+      <PageToolbar
+        count={!loading && !loadError ? msg.secretListedCount(secrets.length) : ""}
+        countTestId="secrets-count"
+      >
+        <button
+          type="button"
+          className="secrets__btn secrets__submit page-toolbar__btn"
+          data-testid="secrets-add"
+          disabled={adding}
+          onClick={() => setAdding(true)}
+        >
+          <span aria-hidden="true">+</span>
+          {d.add}
+        </button>
+      </PageToolbar>
+
+      {adding && (
+        <div className="secrets__card">
+          <SecretForm
+            mode="create"
+            onCancel={() => setAdding(false)}
+            onSubmit={async (fields) => {
+              const err = await create({
+                name: fields.name,
+                value: fields.value,
+                note: fields.note,
+              });
+              if (!err) setAdding(false);
+              return err;
+            }}
+          />
+        </div>
+      )}
+
       {loadError && (
         <div className="lore__error" data-testid="secrets-load-error">
           {loadError}
@@ -96,33 +132,6 @@ export function SecretsPage() {
         </div>
       )}
 
-      {adding ? (
-        <div className="secrets__card">
-          <SecretForm
-            mode="create"
-            onCancel={() => setAdding(false)}
-            onSubmit={async (fields) => {
-              const err = await create({
-                name: fields.name,
-                value: fields.value,
-                note: fields.note,
-              });
-              if (!err) setAdding(false);
-              return err;
-            }}
-          />
-        </div>
-      ) : (
-        <button
-          type="button"
-          className="add-entry"
-          data-testid="secrets-add"
-          onClick={() => setAdding(true)}
-        >
-          + {d.add}
-        </button>
-      )}
-
       {deleteTarget && (
         <ConfirmModal
           body={msg.secretDeleteConfirmBody(deleteTarget.name)}
@@ -154,101 +163,67 @@ function SecretRow({
 }) {
   const { t, msg } = useI18n();
   const d = t.secrets;
-  // Same contract as the 傳承 entry id: 已複製 only when the clipboard write
-  // actually succeeded, and the timer dies with the row.
-  const [copied, setCopied] = useState(false);
-  const copiedTimer = useRef<number | null>(null);
-  useEffect(
-    () => () => {
-      if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current);
-    },
-    [],
-  );
-  async function copyId() {
-    const ok = await copyText(secret.id);
-    if (!ok) return;
-    setCopied(true);
-    if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current);
-    copiedTimer.current = window.setTimeout(() => setCopied(false), 1600);
-  }
-
   return (
     <article
-      className="secrets__row"
+      className="lore-row secrets__row"
       data-testid="secret-row"
       data-secret-id={secret.id}
     >
-      <div className="secrets__row-head">
-        <div className="secrets__row-title">
-          <button
-            type="button"
-            className="lore-row__id-badge"
-            data-testid="secret-id"
-            aria-label={msg.secretCopyId(secret.id)}
-            title={msg.secretCopyId(secret.id)}
-            onClick={copyId}
-          >
-            {copied ? <CheckIcon size={13} /> : <KeyIcon size={13} />}
-            {secret.id}
-            {copied && (
-              <span
-                className="lore-row__id-badge-copied"
-                role="status"
-                data-testid="secret-id-copied"
-              >
-                {d.idCopied}
-              </span>
-            )}
-          </button>
-          <span className="secrets__name" data-testid="secret-name">
-            {secret.name}
-          </span>
+      <div className="lore-row__head">
+        <div className="lore-row__badges">
+          <CopyIdChip
+            value={secret.id}
+            text={secret.id}
+            label={msg.secretCopyId(secret.id)}
+            copiedLabel={d.idCopied}
+            testId="secret-id"
+            copiedTestId="secret-id-copied"
+          />
         </div>
-        <span className="secrets__row-actions">
+        <span className="lore-row__actions">
           <button
             type="button"
-            className="ts-icon-btn"
+            className="card-head__icon-btn"
             data-testid="secret-edit"
             aria-label={`${d.edit} ${secret.name}`}
             title={d.edit}
             onClick={onEdit}
           >
-            <PencilIcon size={15} />
+            <PencilIcon size={14} />
           </button>
           <button
             type="button"
-            className="ts-icon-btn ts-icon-btn--danger"
+            className="card-head__icon-btn card-head__icon-btn--danger"
             data-testid="secret-delete"
             aria-label={`${d.delete} ${secret.name}`}
             title={d.delete}
             onClick={onDelete}
           >
-            <TrashIcon size={15} />
+            <TrashIcon size={14} />
           </button>
         </span>
       </div>
+      <h3 className="lore-row__title" data-testid="secret-name">
+        {secret.name}
+      </h3>
       {secret.note && (
-        <div
-          className="secrets__row-line secrets__row-line--block"
-          data-testid="secret-note"
-        >
-          <span className="secrets__label">{d.colNote}</span>
-          <span className="secrets__note">{secret.note}</span>
+        <div className="secrets__note" data-testid="secret-note">
+          <ClampedText text={secret.note} testId="secret-note-text" bodyToggle />
         </div>
       )}
-      <div className="secrets__row-line" data-testid="secret-last-accessed">
-        <span className="secrets__label">{d.colLastAccessed}</span>
-        <span className="secrets__row-value">
-          {secret.lastAccessedTs == null
-            ? d.neverAccessed
-            : formatAbsolute(secret.lastAccessedTs, nowSecs)}
-        </span>
-      </div>
-      <div className="secrets__row-line" data-testid="secret-updated">
-        <span className="secrets__label">{d.colUpdated}</span>
-        <span className="secrets__row-value">
-          {formatAbsolute(secret.updatedTs, nowSecs)}
-        </span>
+      <div className="card-meta">
+        <div className="card-meta__row" data-testid="secret-last-accessed">
+          <span className="card-meta__label">{d.colLastAccessed}</span>
+          <span className="secrets__time">
+            {secret.lastAccessedTs == null
+              ? t.common.emptyValue
+              : formatAbsolute(secret.lastAccessedTs, nowSecs)}
+          </span>
+        </div>
+        <div className="card-meta__row" data-testid="secret-updated">
+          <span className="card-meta__label">{d.colUpdated}</span>
+          <span className="secrets__time">{formatAbsolute(secret.updatedTs, nowSecs)}</span>
+        </div>
       </div>
     </article>
   );

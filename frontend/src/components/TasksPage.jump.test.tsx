@@ -1,8 +1,8 @@
 // 請示 ↔ 任務: the 請示 → 任務 leg. Locked here:
 //   1. A TASK-derived reply card (card.task non-null) shows the 精簡任務資訊
-//      row: the TYPE + the 查看任務 chevron — and NEVER the task number / 識別鍵
-//      (adjudicated). A pure chat ask shows nothing.
-//   2. Clicking 查看任務 routes to #tasks/<taskId>.
+//      row: the task-number chip (查看任務) + the TITLE — never the typeKey /
+//      識別鍵. A pure chat ask shows nothing.
+//   2. Clicking the task-number chip routes to #tasks/<taskId>.
 //   3. Arriving at #tasks/<id> narrows the page to that ONE task in the normal
 //      layout (a closed target included); emptying the 編號 field
 //      returns to the full list; an unknown id KEEPS its anchor and the page
@@ -30,6 +30,7 @@ import {
   toggleFilter,
   clearAllFilters,
   waitForListedCards,
+  openFiltersWhenReady,
 } from "../test/tasksFilter";
 
 let seq = 0;
@@ -136,7 +137,7 @@ async function openCards() {
 }
 
 describe("請示卡的任務資訊 (RepliesPage)", () => {
-  it("task-derived ask → #number chip, TITLE and 查看任務, never the typeKey; the jump lands on #tasks/<id>", async () => {
+  it("task-derived ask → the task-number chip named 查看任務 and the TITLE, never the typeKey; the chip lands on #tasks/<id>", async () => {
     __injectMockReplyCard(
       mkCard({
         task: {
@@ -153,20 +154,19 @@ describe("請示卡的任務資訊 (RepliesPage)", () => {
     );
     await findByTestId("waiting-card");
     const ref = await findByTestId("reply-task-ref");
-    expect(ref.querySelector('[data-testid="reply-task-no"]')?.textContent).toBe("#t-77");
     expect(ref.querySelector(".reply-card__task-title")?.textContent).toBe(
       "同步 PROJ-1421 到 T-9 的排程"
     );
-    const jump = within(ref).getByRole("button", { name: "查看任務" });
-    expect(jump).toBe(ref.querySelector('[data-testid="reply-task-jump"]'));
-    expect(jump.getAttribute("title")).toBe("查看任務");
+    const chip = within(ref).getByRole("button", { name: "查看任務" });
+    expect(chip).toBe(ref.querySelector('[data-testid="reply-task-no"]'));
+    expect(chip.textContent).toBe("#t-77");
+    expect(chip.getAttribute("title")).toBe("查看任務");
     // Named by aria-label, not only by the title fallback.
-    expect(jump.getAttribute("aria-label")).toBe("查看任務");
-    expect(jump.textContent).toBe("");
-    expect(jump.querySelector("svg")).not.toBeNull();
+    expect(chip.getAttribute("aria-label")).toBe("查看任務");
+    expect(within(ref).getAllByRole("button")).toEqual([chip]);
     expect(ref.textContent).not.toContain("sync-jira");
 
-    fireEvent.click(await findByTestId("reply-task-jump"));
+    fireEvent.click(chip);
     expect(window.location.hash).toBe("#tasks/t-77");
   });
 
@@ -189,7 +189,7 @@ describe("請示卡的任務資訊 (RepliesPage)", () => {
 });
 
 describe("請示卡的任務資訊 (ChatReplyCard)", () => {
-  it("the chat inline card carries the same title + jump", async () => {
+  it("the chat inline card carries the same task-number chip + title", async () => {
     __injectMockReplyCard(
       mkCard({
         id: "rc-chat",
@@ -207,10 +207,11 @@ describe("請示卡的任務資訊 (ChatReplyCard)", () => {
     const ref = await findByTestId("reply-task-ref");
     expect(ref.textContent).not.toContain("review-pr");
     expect(ref.textContent).toContain("修 PR");
-    // The chat card names the task by its title only; the jump is the same
-    // chevron, named 查看任務 like the 請示 page's.
-    expect(taskRefTextOutsideTitle(ref)).toBe("");
+    // The chat card names the task by its number chip and title; the chip is
+    // the jump, named 查看任務 like the 請示 page's.
+    expect(taskRefTextOutsideTitle(ref)).toBe("#t-99");
     const jump = within(ref).getByRole("button", { name: "查看任務" });
+    expect(jump.textContent).toBe("#t-99");
     expect(jump.getAttribute("title")).toBe("查看任務");
     expect(jump.getAttribute("aria-label")).toBe("查看任務");
     fireEvent.click(jump);
@@ -264,6 +265,7 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     // holding the anchored id, so THAT is what says a filter is on and that is
     // where it is cleared. Asserting the field is asserting the surviving
     // property; asserting the button was asserting the vanished mechanism.
+    await openFiltersWhenReady();
     expect(
       ((await findByTestId("filter-task-id")) as HTMLInputElement).value
     ).not.toBe("");
@@ -526,6 +528,7 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     // to be opened before its option rows exist at all, and the roster they are
     // built from arrives asynchronously. Reading too early gives `undefined`,
     // which is neither checked nor unchecked and must not be scored as either.
+    await openFiltersWhenReady();
     fireEvent.click(await findByTestId("filter-executor"));
     const tick = await waitFor(() => {
       const el = document
@@ -551,7 +554,7 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
   // both printed 所有X, a reader who ticked everyone was told he had selected
   // everyone — and then anyone who loaded afterwards was silently excluded from
   // a filter still claiming to show them all. On 請示卡 that is reachable in two
-  // clicks, because 近期已處理 fetches its rows on first unfold.
+  // clicks, because handled cards are fetched only once 已回覆 is ticked.
   //
   // It also made the pill disagree with the 清除篩選 button standing next to it:
   // the button keys on the page's own `anyFilter` (size > 0), so it appeared
@@ -562,6 +565,7 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     const { findByTestId } = renderTasks();
     await findByTestId("task-list");
 
+    await openFiltersWhenReady();
     const pill = () =>
       document.querySelector('[data-testid="filter-executor"] .tasks__ms-summary')
         ?.textContent ?? "";

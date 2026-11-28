@@ -915,12 +915,12 @@ async function autoJoinDialog(page: Page) {
       return (hi + 0.05) / (lo + 0.05);
     };
     const b = r(box);
-    const hint = box.querySelector(".chat-groups__dialog-hint")!;
+    const hint = box.querySelector("h2 .info-hint")!;
     const owner = box.querySelector(".chat-groups__autojoin-owner")!;
     const ownerRow = owner.closest("button")!;
     return {
       title: box.querySelector("h2")!.textContent,
-      hint: hint.textContent,
+      hint: hint.getAttribute("aria-label"),
       rows: Array.from(box.querySelectorAll("[role='checkbox']"), (row) => [
         row.querySelector(".chat-groups__autojoin-label")!.textContent,
         row.querySelector(".chat-groups__autojoin-owner")?.textContent ?? "",
@@ -987,7 +987,7 @@ test("1280px: 自動加入… opens a 400px dialog centred in the window, titled
   const m = await autoJoinDialog(page);
   expect(m).toEqual({
     title: "自動加入 · 前端外包",
-    hint: "勾選的任務類型，該類型的外包會自動加入這個群組。",
+    hint: "關於 自動加入 · 前端外包",
     rows: AUTO_JOIN_ROWS,
     rowHeights: [32, 32, 32, 32],
     ownerToRowEnd: 10,

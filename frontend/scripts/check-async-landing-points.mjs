@@ -464,9 +464,35 @@ const REGISTRY = [
   {
     file: "components/ChatSelectionReply.tsx",
     kind: "Observer",
+    count: 2,
+    verdict:
+      "the selection-mode bar's ResizeObserver on itself and the selected row, and its MutationObserver on the thread that acts only when the selected row's place in the list moved. Neither writes React state: the room the bar covers (a CSS variable on the thread's parent pane) and, only while that row is under the bar and its top is still below the thread's top (never upwards), the thread's scrollTop (the thread handed in as `root`), both re-measured from the DOM as it is now. The bar is mounted only while that one message is in selection mode, so leaving the mode or the room disconnects both and removes the variable in the same cleanup",
+  },
+  {
+    file: "components/IdChips.tsx",
+    kind: "await",
     count: 1,
     verdict:
-      "the selection-mode bar's ResizeObserver on itself and the selected row. It writes no React state: the room the bar covers (a CSS variable on the thread's parent pane) and, only while that row is under the bar and its top is still below the thread's top (never upwards), the thread's scrollTop (the thread handed in as `root`), both re-measured from the DOM as it is now. The bar is mounted only while that one message is in selection mode, so leaving the mode or the room disconnects it and removes the variable in the same cleanup",
+      "the copy under a click on an id chip; it copies the chip's own value, captured at render, and the only write after it is that chip's own copied flag, which a discarded mount drops",
+  },
+  {
+    file: "components/IdChips.tsx",
+    kind: "setTimeout/setInterval",
+    count: 1,
+    verdict: "the 1.6s copied flash on the same chip; cleared on unmount, carries no room's data",
+  },
+  {
+    file: "hooks/useDueSoonLeadMinutes.ts",
+    kind: ".then/.catch/.finally",
+    count: 2,
+    verdict:
+      "the workspace's due-soon lead read for a chat card's task box; `alive` guards the write and the value is the workspace's, the same in every room",
+  },
+  {
+    file: "hooks/useDueSoonLeadMinutes.ts",
+    kind: "subscribe",
+    count: 1,
+    verdict: "task deltas that name no task re-read the lead; unsubscribed in the effect cleanup",
   },
   {
     file: "components/ChatGalleryPanel.tsx",
@@ -634,9 +660,9 @@ const REGISTRY = [
   {
     file: "components/InstantHint.tsx",
     kind: "addEventListener",
-    count: 4,
+    count: 3,
     verdict:
-      "scroll + resize + capture-phase document click + document keydown (Escape) while a hint is shown; all four only close this mount's own hint, carry no conversation's value, and are removed by the effect cleanup when the hint closes or the host unmounts",
+      "scroll + resize + capture-phase document click while a hint is shown (Escape goes through useEscapeLayer); all three only close this mount's own hint, carry no conversation's value, and are removed by the effect cleanup when the hint closes or the host unmounts",
   },
   {
     file: "hooks/sharedServerSettings.ts",

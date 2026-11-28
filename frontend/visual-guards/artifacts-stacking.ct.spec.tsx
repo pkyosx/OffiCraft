@@ -232,23 +232,23 @@ test("with the artifacts panel open, nothing in its own task card paints above i
   // identity rows and the 送出 composer are in the head and show either way; the
   // expansion is what puts everything else in front of it too.
   await cmp.locator(".task-card__title").click();
-  await expect(cmp.locator(".task-card__meta")).toBeVisible();
+  await expect(cmp.locator(".card-meta")).toBeVisible();
   await expect(cmp.getByTestId("task-msg-send")).toBeVisible();
   await openPopover(cmp);
 
   const rows = (await page.evaluate(CARD_PROBE)) as CardRow[];
 
   // A probe that found nothing to compare would pass vacuously — and vacuous is
-  // exactly what the previous round's cost table was. Measured on this build:
-  // 65 card descendants with a non-zero box, 46 of them overlapping the panel,
-  // 10 of them positioned or establishing a stacking context. The floors are set
+  // exactly what the previous round's cost table was. Measured with the panel
+  // opening under the expanded card's 產物 row: 26 card descendants overlap
+  // it (it used to open higher, under the badge row). The floors are set
   // below those so a layout change does not red them, but well above zero so a
   // story that stops rendering the card, stops expanding it, or stops opening
   // the panel fails here instead of passing silently.
   expect(Array.isArray(rows)).toBe(true);
   expect(rows.length).toBeGreaterThan(40);
   const overlapping = rows.filter((r) => r.overlapsPanel);
-  expect(overlapping.length).toBeGreaterThan(30);
+  expect(overlapping.length).toBeGreaterThan(20);
   // The two the regression screenshot named must be among what was compared —
   // the panel has to be tall enough to actually reach them.
   expect(overlapping.map((r) => r.el)).toContain("button.task-card__send");
@@ -281,6 +281,7 @@ test("narrow 390: with chrome outranking the popover, the preview overlay still 
 }) => {
   await page.setViewportSize({ width: 390, height: 780 });
   const cmp = await mount(<ArtifactsStackingStory />);
+  await cmp.locator(".task-card__title").click();
   await page.addStyleTag({ content: CHROME_OUTRANKS });
   await openPreview(cmp, page);
 
@@ -307,6 +308,7 @@ test("the preview overlay participates in the root stacking context, not the pop
 }) => {
   await page.setViewportSize({ width: 390, height: 780 });
   const cmp = await mount(<ArtifactsStackingStory />);
+  await cmp.locator(".task-card__title").click();
   await openPreview(cmp, page);
 
   const seen = (await page.evaluate(PROBE)) as Probe;
@@ -331,6 +333,7 @@ test("clicking the preview backdrop closes nothing — the popover survives (own
 }) => {
   await page.setViewportSize({ width: 390, height: 780 });
   const cmp = await mount(<ArtifactsStackingStory />);
+  await cmp.locator(".task-card__title").click();
   await openPreview(cmp, page);
 
   // A point on the backdrop: beside the panel, well clear of it.
@@ -357,6 +360,7 @@ test("Esc closes the preview first and the popover second, still in that order",
 }) => {
   await page.setViewportSize({ width: 390, height: 780 });
   const cmp = await mount(<ArtifactsStackingStory />);
+  await cmp.locator(".task-card__title").click();
   await openPreview(cmp, page);
 
   await page.keyboard.press("Escape");

@@ -27,7 +27,9 @@ If the user writes one of the Chinese screen names in this table, it means the E
 | Duty | 職責 |
 | Insight | 判準 |
 | General | 一般設定 |
+| Advanced | 進階設定 |
 | System update & backup | 系統更新與備份 |
+| Security | 安全性 |
 | Theme | 主題 |
 | Preferences | 偏好設定 |
 | Member | 成員 |

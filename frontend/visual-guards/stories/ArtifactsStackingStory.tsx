@@ -14,6 +14,9 @@
 import { I18nProvider } from "../../src/i18n";
 import { TaskCard } from "../../src/components/TaskCard";
 import { mkTask, serveArtifacts, MIRA, NOOP, WORKERS } from "./taskFixtures";
+import type { Member } from "../../src/types";
+
+const KYLE = { id: "kyle", name: "Kyle", kind: "agent" } as unknown as Member;
 
 const MD = ["# Global Context", "", "AI 工作室・成員 boot context", "", "x".repeat(40)].join("\n");
 const DATA_URL = "data:text/markdown;charset=utf-8," + encodeURIComponent(MD);
@@ -22,7 +25,8 @@ const DATA_URL = "data:text/markdown;charset=utf-8," + encodeURIComponent(MD);
 // 前任 and 識別鍵 rows in the tree, and those two are named in owner's
 // regression screenshot alongside 負責探員 / 建立者. The default fixture omits
 // both, so a card built from it would let the stacking probe walk right past
-// half of what was reported.
+// half of what was reported. The creator is a roster member so the 建立者 row
+// below the 產物 row carries an avatar the open panel has to cover.
 // Served from the mock store because the panel FETCHES its rows since T-66
 // (see serveArtifacts) — without it the popover opens on its failure state and
 // there is no panel for the stacking probe to measure.
@@ -33,6 +37,7 @@ const TASK = serveArtifacts(
     title: "stacking",
     reassignedFrom: "m-prev",
     dedupeKey: "t-76cd-stacking",
+    creatorId: "kyle",
     // SIX artifacts, not one. The panel's height is its content's, so a
     // single-row panel is a short box that reaches no further down the card than
     // the 建立者 row — and the stacking probe can only speak about what the panel
@@ -93,7 +98,7 @@ export function ArtifactsStackingStory() {
               <div className="tasks__list">
                 <TaskCard
                   task={TASK}
-                  members={[MIRA]}
+                  members={[MIRA, KYLE]}
                   workers={WORKERS}
                   nowTs={3000}
                   onTerminate={NOOP as never}

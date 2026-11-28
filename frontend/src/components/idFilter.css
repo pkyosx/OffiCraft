@@ -2,22 +2,10 @@
  * (.tasks__filter), restated here so the component carries its own look to
  * whichever page hosts it instead of depending on that page's stylesheet.
  * Colours are theme tokens only — no literal colour lives in this file. */
-/* 🔴 THE FIELD IS AS WIDE AS THE WIDER OF TWO THINGS, AND THE BROWSER PICKS.
- * Two things have to fit in this box: the ID it filters on, and the LABEL —
- * which is the placeholder, because the field has no caption beside it. On
- * 請示卡頁 the id wins (15 characters against 「請示卡編號」); on 任務頁 the label
- * wins (「任務編號」 against 7). owner 2026-09-07 `rc-e2edbb0fff01` circled
- * 「寬度取編號跟標籤的較大者」 over shortening the label.
- *
- * A NUMBER FOR THE LABEL IS NOT WRITTEN DOWN ANYWHERE, on purpose. How wide
- * 「任務編號」 renders depends on the font, and it is a different string in each
- * locale ("Task ID", "Reply-card id"), so any constant would be a guess that is
- * already wrong in one of them — and a picked constant on this very field is
- * what owner has objected to twice (2026-09-06 「200px」, 2026-09-07 「ID寬度要
- * 合理」). Instead a HIDDEN COPY OF THE LABEL sits in the same grid cell as the
- * input, carrying the id count as its `min-width`; the cell takes the wider of
- * the two and the input fills it. The measurement is the browser's, in the
- * field's own font, and it re-measures itself when either side changes. */
+/* The field is as wide as the id it holds: a hidden sizer in the same grid
+ * cell as the input carries the id count as its `min-width`, and the input
+ * fills the cell. Inside a filter panel the field fills its cell instead
+ * (filter-panel.css). */
 .id-filter-field {
   display: inline-grid;
   /* Carried over from .id-filter, which used to be the outermost box here. A
@@ -26,8 +14,7 @@
    * assertion is what this line answers to. */
   max-width: 100%;
 }
-/* Both children occupy the ONE cell, so the cell is as wide as the wider of
- * them — that is the 「取較大者」 owner circled in `rc-e2edbb0fff01`.
+/* Both children occupy the ONE cell.
  *
  * 🔴 ON HEIGHT THIS IS CONDITIONAL, NOT FREE. One cell means the cell takes the
  * TALLER of the two, so the sizer CAN add height to the input. It does not
@@ -47,9 +34,8 @@
   grid-area: 1 / 1;
 }
 
-/* Measured, never seen. `visibility: hidden` rather than `display: none`
- * because a `display: none` box is not laid out and therefore measures
- * nothing — it would silently make the id count the only input again. */
+/* Never seen. `visibility: hidden` rather than `display: none` because a
+ * `display: none` box is not laid out and its min-width would size nothing. */
 .id-filter-sizer {
   visibility: hidden;
   pointer-events: none;
@@ -104,9 +90,6 @@
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
-}
-.id-filter::placeholder {
-  color: var(--color-text-muted);
 }
 .id-filter:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--color-overlay) 35%, transparent);

@@ -116,8 +116,7 @@ describe("SettingsPage · boot / lifecycle documents", () => {
     ).toBe(s.acceleratedStopName);
   });
 
-  // A SYNTHETIC read-only document with a read-only head, which the shipped
-  // read-only glossary does not have.
+  // A SYNTHETIC read-only document: no shipped document is read-only.
   it("renders a read-only document and offers no way to change it", async () => {
     __setBootDocReadOnly(["task_unblocked/global"]);
     const utils = await openRolesLog();
@@ -143,9 +142,6 @@ describe("SettingsPage · boot / lifecycle documents", () => {
     expect(utils.queryByTestId("doc-card-edit")).toBeNull();
     expect(utils.queryByTestId("doc-card-editor")).toBeNull();
     expect(utils.queryByText(s.historyTaskUnblockedTitle)).toBeNull();
-    // 「儲存＝整份取代」 is a fact about saving, so a document nobody may save
-    // does not carry it.
-    expect(utils.queryByTestId("doc-card-replace-note")).toBeNull();
   });
 
   // 決定 2 itself, on the UI side. Without this, the mock could quietly start
@@ -159,7 +155,7 @@ describe("SettingsPage · boot / lifecycle documents", () => {
   });
 
   for (const developerMode of [true, false]) {
-    it(`shows the glossary read-only with developer mode ${developerMode ? "on" : "off"}`, async () => {
+    it(`shows the glossary ${developerMode ? "with" : "without"} the editor when developer mode is ${developerMode ? "on" : "off"}`, async () => {
       await api.patchServerSettings({ developerMode });
       const utils = await openRolesLog();
       fireEvent.click(utils.getByTestId("boot-doc-entry-term_glossary"));
@@ -167,8 +163,7 @@ describe("SettingsPage · boot / lifecycle documents", () => {
         "If the user writes one of the Chinese screen names in this table, it means the English term in the same row."
       );
       expect(utils.getByRole("cell", { name: "辦公室" })).toBeTruthy();
-      expect(utils.queryByTestId("doc-card-edit")).toBeNull();
-      expect(utils.queryByTestId("doc-card-replace-note")).toBeNull();
+      expect(utils.queryByTestId("doc-card-edit") !== null).toBe(developerMode);
     });
   }
 
@@ -178,6 +173,5 @@ describe("SettingsPage · boot / lifecycle documents", () => {
     const utils = await openRolesLog();
     fireEvent.click(utils.getByTestId("boot-doc-entry-task_takeover_with_predecessor"));
     await utils.findByTestId("doc-card-edit");
-    expect(utils.getByTestId("doc-card-replace-note")).toBeTruthy();
   });
 });

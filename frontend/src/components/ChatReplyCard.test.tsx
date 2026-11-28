@@ -172,8 +172,10 @@ describe("ChatReplyCard", () => {
     );
   });
 
-  it("renders inline in the chat thread as a card: chips (the ai_pick one tagged) + composer, no close/skip", async () => {
-    __injectMockReplyCard(mkCard({}));
+  it("renders inline in the chat thread as a card: the first line (state icon, its id, 標為過期, chevron), the task box, the title and the line under it, chips (the ai_pick one tagged) + composer, no close/skip", async () => {
+    __injectMockReplyCard(
+      mkCard({ id: "rc-83935a1b2c3d", task: { id: "T-9", typeKey: "", title: "寄信", priority: "high", dueTs: null, dueSoonLeadMinutes: null } }),
+    );
     messages = [
       {
         id: "msg-1",
@@ -182,7 +184,7 @@ describe("ChatReplyCard", () => {
         body: "要幫你寄出這封信嗎？",
         ts: 1000,
         attachments: [],
-        replyCardId: "rc-1",
+        replyCardId: "rc-83935a1b2c3d",
       },
     ];
     const { container, findAllByText } = render(
@@ -208,6 +210,21 @@ describe("ChatReplyCard", () => {
     expect(
       [...row.querySelectorAll(".reply-option")].map((e) => e.textContent),
     ).toEqual(["1寄出", "2先不要AI 建議"]);
+    const card = row.querySelector('[data-testid="chat-reply-card"]')!;
+    const head = card.firstElementChild!;
+    expect(head.className).toBe("reply-card__head");
+    expect(
+      [...head.querySelectorAll("[data-testid], .reply-card__fold")].map(
+        (el) => el.getAttribute("data-testid") ?? el.className,
+      ),
+    ).toEqual(["reply-status-icon", "reply-card-id", "chat-reply-card-expire", "reply-card__fold reply-card__fold--open"]);
+    expect(head.querySelector('[data-testid="reply-status-icon"]')!.getAttribute("data-state")).toBe("waiting");
+    expect(head.querySelector('[data-testid="reply-card-id"]')!.textContent).toBe("#rc-83935a");
+    expect(head.nextElementSibling!.getAttribute("data-testid")).toBe("reply-task-ref");
+    expect(head.nextElementSibling!.textContent).toBe("#T-9高寄信");
+    const summary = head.nextElementSibling!.nextElementSibling!;
+    expect(summary.className).toBe("reply-card__summary doc-md");
+    expect(summary.nextElementSibling!.className).toBe("reply-card__divider");
     // The typed composer rides the card; no close/skip control exists.
     expect(row.querySelector(".reply-composer")).not.toBeNull();
     expect(row.textContent).not.toContain("關閉");
@@ -500,6 +517,8 @@ describe("ChatReplyCard", () => {
     expect(final.textContent).toBe(
       "你選的AI 建議先不要",
     );
+    expect((await findByTestId("reply-status-icon")).getAttribute("data-state")).toBe("answered");
+    expect((await findByTestId("reply-card-handled-at")).textContent).toMatch(/^處理時間 \d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
     expect(getSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -642,14 +661,18 @@ describe("ChatReplyCard", () => {
     await waitFor(() => expect(tagOf("rc-1")).toBe("已回覆"));
   });
 
-  it("an EXPIRED-hinted card is collapsed, tagged 已過期, and fetches nothing", async () => {
-    __injectMockReplyCard(mkCard({ status: "expired" }));
+  it("an EXPIRED-hinted card is collapsed, tagged 已過期, fetches nothing, and shows 處理時間 once expanded", async () => {
+    __injectMockReplyCard(mkCard({ status: "expired", expiredTs: Date.now() / 1000 - 60 }));
     const getSpy = vi.spyOn(api, "getReplyCard");
     const { findByTestId } = renderHinted("expired");
 
     const stub = await findByTestId("chat-reply-card-expand");
     expect(stub.textContent).toContain("已過期");
     expect(getSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(stub);
+    expect((await findByTestId("reply-status-icon")).getAttribute("data-state")).toBe("expired");
+    expect((await findByTestId("reply-card-handled-at")).textContent).toMatch(/^處理時間 \d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
   });
 
   it("an ANSWERED-hinted card paints nothing actionable while its expand read is in flight", async () => {

@@ -39,7 +39,7 @@ async function openParamsPage() {
       <SettingsPage />
     </I18nProvider>
   );
-  fireEvent.click(utils.getByTestId("settings-params-entry"));
+  fireEvent.click(utils.getByTestId("settings-advanced-entry"));
   await utils.findByLabelText(s.stepNoteCap);
   return utils;
 }

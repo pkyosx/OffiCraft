@@ -147,7 +147,6 @@ describe("BootDocPage", () => {
       expect(utils.getByTestId("doc-card-status-badge").textContent).toBe("已修改")
     );
     expect(utils.queryByTestId("doc-card-edit")).toBeNull();
-    expect(utils.queryByTestId("doc-card-replace-note")).toBeNull();
   });
 
   it("an open document locks and unlocks as developer mode is switched elsewhere", async () => {
@@ -201,26 +200,6 @@ describe("BootDocPage", () => {
     await waitFor(() =>
       expect(utils.queryByTestId("doc-card-editor")).toBeNull()
     );
-  });
-
-  it("says on screen that a save replaces the WHOLE document", async () => {
-    // 🔴 T-c33e. The per-section editor made this implicit — a row was the unit,
-    // so nothing else could be at risk. With one box over the whole text, the
-    // failure it prevents (pasting one proposed block over a long document
-    // document and saving the rest away) is silent and only recoverable through
-    // history, so the page has to SAY it. All three blocks, and before the
-    // editor is opened as well as after: the sentence is useless if it only
-    // appears once the paste has already happened.
-    for (const open of [renderSystem, renderClaude, renderCodex]) {
-      const utils = open();
-      const note = await utils.findByTestId("doc-card-replace-note");
-      expect(note.textContent).toBe(s.docReplaceNote);
-      fireEvent.click(await utils.findByTestId("doc-card-edit"));
-      expect(utils.getByTestId("doc-card-replace-note").textContent).toBe(
-        s.docReplaceNote
-      );
-      utils.unmount();
-    }
   });
 
   it("edits the whole editable half in ONE box", async () => {

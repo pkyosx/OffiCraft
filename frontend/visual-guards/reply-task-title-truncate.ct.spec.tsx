@@ -4,7 +4,7 @@
 // contractor's card said who was asking but not WHICH piece of work). Titles
 // are free-length — real ones run past 40 characters — so the row needs one
 // element that gives way. If none does, the row grows past the card and the
-// 查看任務 jump is pushed out of reach, or the card itself starts panning
+// task-number chip (查看任務) is squeezed, or the card itself starts panning
 // sideways.
 //
 // WHY A REAL BROWSER: this is layout. jsdom resolves no flex box and no
@@ -48,7 +48,7 @@ for (const viewport of WIDTHS) {
     const card = cmp.getByTestId("card-long");
     const row = card.getByTestId("reply-task-ref");
     const title = card.locator(".reply-card__task-title");
-    const jump = card.getByTestId("reply-task-jump");
+    const jump = card.getByTestId("reply-task-no");
     await expect(title).toBeVisible();
 
     // (1) CORE red→green: nothing in the chain gets WIDER than the viewport.
@@ -96,9 +96,9 @@ for (const viewport of WIDTHS) {
       ).toBeLessThanOrEqual(1);
     }
 
-    // (2) The title is the element that gave way — it is clipped, and the jump
-    // button is still fully inside the row. Without this, (1) could be
-    // satisfied by the jump button being the one that got squashed away.
+    // (2) The title is the element that gave way — it is clipped, and the
+    // task-number chip (the jump) is still whole and inside the row. Without
+    // this, (1) could be satisfied by the chip being the one that got squashed.
     const titleOverflow = await title.evaluate(
       (el) => el.scrollWidth - el.clientWidth,
     );
@@ -112,8 +112,12 @@ for (const viewport of WIDTHS) {
     expect(rowBox && jumpBox).toBeTruthy();
     expect(
       jumpBox!.x + jumpBox!.width,
-      "查看任務 must stay inside the row",
+      "the task-number chip must stay inside the row",
     ).toBeLessThanOrEqual(rowBox!.x + rowBox!.width + 1);
+    expect(
+      await jump.evaluate((el) => el.scrollWidth - el.clientWidth),
+      "the task-number chip is not cut",
+    ).toBeLessThanOrEqual(0);
 
     // (3) CONTROL — a title that fits is NOT clipped. This is what separates
     // "the long one is clipped" from "titles are always clipped"; it stays
@@ -146,7 +150,7 @@ for (const viewport of WIDTHS) {
 const LEAD_WIDTHS = [320, 390];
 
 for (const viewport of LEAD_WIDTHS) {
-  test(`${viewport}px: the task row sits at the TOP of the card, above the summary, with 標為過期 at its right end`, async ({
+  test(`${viewport}px: the first line leads the card with 標為過期 at its right end, and the task box sits right under it, above the summary`, async ({
     mount,
     page,
   }) => {
@@ -175,12 +179,11 @@ for (const viewport of LEAD_WIDTHS) {
       "the task row must end before the summary starts",
     ).toBeLessThanOrEqual(summaryBox.y + 1);
 
-    // (2) Nothing else is above it either: it is the card's first content, not
-    // merely somewhere above the summary.
-    expect(
-      rowBox.y - cardBox.y,
-      "the task row must be the first thing in the card",
-    ).toBeLessThanOrEqual(rowBox.height + 2);
+    // (2) Only the first line is above it.
+    const headBox = (await card.locator(".reply-card__head").boundingBox())!;
+    const cardPaddingTop = await card.evaluate((el) => parseFloat(getComputedStyle(el).paddingTop));
+    expect(headBox.y - cardBox.y, "the first line is the first thing in the card").toBeLessThanOrEqual(cardPaddingTop + 1);
+    expect(rowBox.y, "the task box under the first line").toBeGreaterThanOrEqual(headBox.y + headBox.height - 0.5);
 
     // (3) The move must not have cost the row its fit. Same contract as the
     // truncation tests above, re-asserted in its new position and at the
@@ -203,24 +206,15 @@ for (const viewport of LEAD_WIDTHS) {
     const rowOver = await row.evaluate((el) => el.scrollWidth - el.clientWidth);
     expect(rowOver, "the row must not overflow").toBeLessThanOrEqual(1);
 
-    // (4) 標為過期 shares the task row (the card's first row), at its right end.
+    // (4) 標為過期 is on the first line, at its right end before the chevron.
     const expire = card.getByTestId("chat-reply-card-expire");
     await expect(expire).toBeVisible();
     const expireBox = (await expire.boundingBox())!;
     const expireMid = expireBox.y + expireBox.height / 2;
-    expect(expireMid, "標為過期 sits on the task row").toBeGreaterThanOrEqual(rowBox.y);
-    expect(expireMid, "標為過期 sits on the task row").toBeLessThanOrEqual(
-      rowBox.y + rowBox.height,
-    );
-    expect(expireBox.x, "標為過期 sits right of the task row").toBeGreaterThanOrEqual(
-      rowBox.x + rowBox.width - 1,
-    );
-    const cardPaddingRight = await card.evaluate((el) =>
-      parseFloat(getComputedStyle(el).paddingRight),
-    );
-    expect(
-      cardBox.x + cardBox.width - (expireBox.x + expireBox.width),
-      "標為過期 is flush with the card's right padding",
-    ).toBeLessThanOrEqual(cardPaddingRight + 2);
+    expect(expireMid, "標為過期 sits on the first line").toBeGreaterThanOrEqual(headBox.y);
+    expect(expireMid, "標為過期 sits on the first line").toBeLessThanOrEqual(headBox.y + headBox.height);
+    const foldBox = (await card.locator(".reply-card__head .reply-card__fold").boundingBox())!;
+    expect(foldBox.x, "標為過期 before the chevron").toBeGreaterThanOrEqual(expireBox.x + expireBox.width - 0.5);
+    expect(Math.abs(foldBox.x + foldBox.width - (headBox.x + headBox.width)), "the chevron at the first line's right end").toBeLessThanOrEqual(0.5);
   });
 }

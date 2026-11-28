@@ -80,8 +80,7 @@ export interface HashRoute {
    * T-93: this SEEDS the page's ID 篩選 — the list narrows to that one card and
    * stays narrowed, which is the effect. The scroll-and-focus that used to be
    * the whole of it is now secondary and happens AFTER the filter: it only
-   * saves the reader a scroll when the hit sits in the collapsed 近期已處理
-   * pane. Do not describe this as a locate mechanism; without it the filter
+   * saves the reader a scroll when the hit sits further down the list. Do not describe this as a locate mechanism; without it the filter
    * still works, and the owner's way out is 清除篩選, not the hash clearing
    * itself. */
   replyCardId?: string;
@@ -102,7 +101,7 @@ export interface HashRoute {
    * already tagged with the task). One-shot, only seeds an empty draft. */
   composeTaskNo?: string;
   /** tasks only — the task the page narrows to + highlights on open (§3.6 請示
-   * → 任務跳轉: the reply card's 查看任務 chevron routes here; the page
+   * → 任務跳轉: the reply card's task-number chip routes here; the page
    * guarantees visibility — expands its lane, overrides the other filters).
    *
    * T-93 (owner 2026-09-05, `rc-428906235337`): when the id names NO task the

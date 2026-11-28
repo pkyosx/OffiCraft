@@ -31,6 +31,7 @@ import {
 } from "./icons";
 import { FILTER_SECTIONS, matchesCheck, matchesFilter, readFilterChecks, writeFilterChecks } from "../lib/chatFilter";
 import type { FilterCheck, FilterSection, RowFacts } from "../lib/chatFilter";
+import { InfoHint } from "./InfoHint";
 import "./chat-groups.css";
 
 const EDGE = 8;
@@ -438,10 +439,10 @@ function Menu({
   );
 }
 
-/** Tab and Shift+Tab go round the buttons inside `box`. */
+/** Tab and Shift+Tab go round the buttons and ⓘ inside `box`. */
 function trapTab(e: KeyboardEvent<HTMLElement>, box: HTMLElement | null) {
   if (e.key !== "Tab" || !box) return;
-  const buttons = Array.from(box.querySelectorAll<HTMLElement>("button"));
+  const buttons = Array.from(box.querySelectorAll<HTMLElement>("button, .info-hint"));
   const i = buttons.indexOf(document.activeElement as HTMLElement);
   const next = e.shiftKey ? (i <= 0 ? buttons.length - 1 : i - 1) : (i + 1) % buttons.length;
   e.preventDefault();
@@ -481,13 +482,13 @@ function AutoJoinDialog({
     </button>
   );
   const heading = (
-    <h2 id={titleId} className="chat-groups__dialog-title">
-      {title}
+    <h2 className="chat-groups__dialog-title" aria-label={title}>
+      <span id={titleId}>{title}</span>
+      <InfoHint about={title} hint={t.office.groups.autoJoinHint} />
     </h2>
   );
   const content = (
     <>
-      <p className="chat-groups__dialog-hint">{t.office.groups.autoJoinHint}</p>
       <div className="chat-groups__autojoin-list" role="group" aria-labelledby={titleId}>
         {items.map((it) => (
           <button

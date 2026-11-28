@@ -285,7 +285,7 @@
    * `overflow-wrap: anywhere` additionally breaks an unbreakable long token
    * (an id/url run with no spaces) so it cannot re-stretch the column — the
    * same pair the repo already uses for this bug class (office.css chat bubble
-   * T-84c8, tasks.css `.task-badge--type`). NO `min-width: 0` companion:
+   * T-84c8). NO `min-width: 0` companion:
    * measured inert here (overflow-wrap:anywhere already collapses this cell's
    * min-content, so a flex item's min-width:auto stops binding — the same
    * finding the card-mode `.mon-table td` note below records), and an inert

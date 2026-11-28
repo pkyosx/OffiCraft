@@ -230,8 +230,15 @@ describe("T-1d82 ① 非終態 dep: 編號 + 標題, 整列可點跳轉", () => 
 
     const [dep] = await depsOf("被擋的");
     expect(dep.querySelector(".task-card__dep-no")?.textContent).toBe(
-      "等 T-35e0"
+      "等 #T-35e0"
     );
+    expect(
+      Array.from(dep.querySelector(".task-card__dep-no")!.childNodes).map((n) =>
+        n.nodeName === "svg" ? (n as Element).querySelector("polyline")?.getAttribute("points") : n.textContent,
+      ),
+      "the jump icon sits right before the number",
+    ).toEqual(["等", " ", "15 3 21 3 21 9", "#T-35e0"]);
+    expect(dep.lastElementChild?.className).toBe("task-card__dep-title");
     expect(dep.querySelector(".task-card__dep-title")?.textContent).toBe(
       "先把 SSE 重連補起來"
     );
@@ -305,7 +312,7 @@ describe("T-1d82 ② 終態 dep: 解析得到 + 淡化收斂, 仍留在列", () 
       // 🔴 The regression owner reported: without the closed population loaded,
       // this row falls back to the raw id and neither line below can pass.
       expect(dep.querySelector(".task-card__dep-no")?.textContent).toBe(
-        "等 T-35e0"
+        "等 #T-35e0"
       );
       expect(dep.querySelector(".task-card__dep-title")?.textContent).toBe(
         "已經做完的前置"
@@ -453,7 +460,7 @@ describe("T-1d82 ③ 壞 id: 明說查無, 不可點, 不炸版", () => {
       "好的前置"
     );
     // …and the card around it is intact (status badge + progress still render).
-    expect(card.querySelector('[data-testid="task-status"]')?.textContent).toBe(
+    expect(card.querySelector('[data-testid="task-status"]')?.getAttribute("aria-label")).toBe(
       "進行中"
     );
     expect(card.querySelector('[data-testid="task-progress"]')).toBeTruthy();

@@ -25,6 +25,7 @@ import { zh } from "../i18n/locales/zh";
 import { SettingsPage } from "./SettingsPage";
 import { api } from "../api";
 import { __resetMock } from "../api/mock";
+import { infoHintText } from "../test/infoHint";
 
 const s = zh.settings;
 
@@ -41,8 +42,10 @@ async function openBootIndex() {
   return utils;
 }
 
-function entrySub(row: HTMLElement) {
-  return row.querySelector(".set-entry__sub")?.textContent;
+/** A row's explanation (behind its ⓘ) and its state tag (null when none). */
+function entryCopy(row: HTMLElement) {
+  const hint = row.querySelector('[data-testid="info-hint"]') ? infoHintText(row) : null;
+  return [hint, row.querySelector('[data-testid="set-entry-tag"]')?.textContent ?? null];
 }
 
 beforeEach(async () => {
@@ -52,7 +55,7 @@ beforeEach(async () => {
 
 describe("SettingsPage · 啟動步驟 index", () => {
   it("lists both runtimes as rows and shows no document of its own", async () => {
-    const { container, getByText, getByTestId } = await openBootIndex();
+    const { container, getByText, getByTestId, getByRole } = await openBootIndex();
 
     // Each row names its OWN runtime. This is the assertion T-6278's review
     // sent that build back on: its collapse toggles carried a shared
@@ -63,11 +66,10 @@ describe("SettingsPage · 啟動步驟 index", () => {
     expect(getByText(s.bootCodexName)).toBeTruthy();
     expect(getByTestId("boot-entry-claude")).toBeTruthy();
     expect(getByTestId("boot-entry-codex")).toBeTruthy();
-    expect(entrySub(getByTestId("boot-entry-claude"))).toBe(
-      s.bootClaudeSub + s.bootDocEditableSuffix
-    );
-    expect(entrySub(getByTestId("boot-entry-codex"))).toBe(
-      s.bootCodexSub + s.bootDocEditableSuffix
+    expect(entryCopy(getByTestId("boot-entry-claude"))).toEqual([null, s.bootDocEditableTag]);
+    expect(entryCopy(getByTestId("boot-entry-codex"))).toEqual([null, s.bootDocEditableTag]);
+    expect(getByRole("button", { name: `${s.bootClaudeName} ${s.bootDocEditableTag}`, description: "" })).toBe(
+      getByTestId("boot-entry-claude")
     );
 
     // The index holds no document at all — not a collapsed one, none. This is
@@ -82,8 +84,8 @@ describe("SettingsPage · 啟動步驟 index", () => {
   it("while developer mode is off, neither runtime row says it is editable", async () => {
     await api.patchServerSettings({ developerMode: false });
     const { getByTestId } = await openBootIndex();
-    expect(entrySub(getByTestId("boot-entry-claude"))).toBe(s.bootClaudeSub);
-    expect(entrySub(getByTestId("boot-entry-codex"))).toBe(s.bootCodexSub);
+    expect(entryCopy(getByTestId("boot-entry-claude"))).toEqual([null, null]);
+    expect(entryCopy(getByTestId("boot-entry-codex"))).toEqual([null, null]);
   });
 
   it("opens ONE runtime's page, and the other is not on it", async () => {

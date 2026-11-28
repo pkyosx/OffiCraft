@@ -5,6 +5,7 @@ import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { SuggestedRepliesEditor } from "./SuggestedRepliesEditor";
 import { CloseIcon } from "./icons";
 import "./chat-groups.css";
+import { InfoHint } from "./InfoHint";
 import "./suggested-replies.css";
 
 /** One member's chat 建議回覆, opened from the chat room's header. */
@@ -52,7 +53,7 @@ export function ChatSuggestedRepliesDialog({
     }
     if (e.key !== "Tab" || !boxRef.current) return;
     const items = Array.from(
-      boxRef.current.querySelectorAll<HTMLElement>("button:not(:disabled), input"),
+      boxRef.current.querySelectorAll<HTMLElement>("button:not(:disabled), input, .info-hint"),
     );
     const at = items.indexOf(document.activeElement as HTMLElement);
     const next = e.shiftKey ? (at <= 0 ? items.length - 1 : at - 1) : (at + 1) % items.length;
@@ -105,10 +106,12 @@ export function ChatSuggestedRepliesDialog({
       >
         <div className="chat-suggested-replies__head">
           <div>
-            <h2 id={titleId} className="chat-groups__dialog-title">
-              {t.chat.suggestedRepliesLabel} · {memberName}
+            <h2 className="chat-groups__dialog-title" aria-labelledby={titleId}>
+              <span id={titleId}>
+                {t.chat.suggestedRepliesLabel} · {memberName}
+              </span>
+              <InfoHint about={t.chat.suggestedRepliesLabel} hint={t.chat.suggestedRepliesSub} />
             </h2>
-            <p className="chat-groups__dialog-hint">{t.chat.suggestedRepliesSub}</p>
           </div>
           <button
             type="button"

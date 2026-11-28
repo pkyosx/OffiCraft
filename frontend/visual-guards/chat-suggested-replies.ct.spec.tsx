@@ -73,40 +73,76 @@ const inside = (b: { x: number; y: number; width: number; height: number }, h: t
   expect(b.y + b.height).toBeLessThanOrEqual(h.y + h.height);
 };
 
-test("390px: with four or more buttons, the tasks, role and suggested-replies buttons stack over search and gallery at the right, leaving a long name whole without growing the header", async ({ mount, page }) => {
-  await page.setViewportSize({ width: 390, height: 800 });
-  const name = "GF Eva Slack Inbox";
-  const bare = await mount(<ChatSuggestedRepliesStory name={name} />);
-  const bareHeight = (await bare.locator(".chat__header").boundingBox())!.height;
-  await bare.unmount();
+const rowTops = async (cmp: import("@playwright/test").Locator) =>
+  cmp.locator(".chat__header-actions button").evaluateAll((els) =>
+    els.map((el) => ({
+      id: el.getAttribute("data-testid") ?? el.className,
+      top: Math.round(el.getBoundingClientRect().top),
+      right: Math.round(el.getBoundingClientRect().right),
+    })),
+  );
+const splitRows = (buttons: { id: string; top: number; right: number }[]) => {
+  const tops = [...new Set(buttons.map((b) => b.top))].sort((a, b) => a - b);
+  return tops.map((t) => buttons.filter((b) => b.top === t));
+};
 
-  const cmp = await mount(<ChatSuggestedRepliesStory replies={["繼續"]} allHeaderButtons name={name} />);
-  const { header, name: text, top, bottom } = await headerBoxes(cmp);
-  [...top, ...bottom].forEach((b) => {
-    inside(b, header);
-    expect(b.width).toBeGreaterThanOrEqual(30);
-    expect(b.height).toBeGreaterThanOrEqual(30);
-  });
-  for (const row of [top, bottom]) {
-    row.forEach((b, i) => {
-      expect(b.y).toBeCloseTo(row[0].y, 0);
-      if (i > 0) expect(b.x).toBeGreaterThanOrEqual(row[i - 1].x + row[i - 1].width);
+for (const width of [375, 390]) {
+  test(`${width}px: with four or more buttons, they wrap into two right-aligned rows split evenly (6 → 3+3, 5 → 3+2, 4 → 2+2), leaving a long name whole without growing the header`, async ({ mount, page }) => {
+    await page.setViewportSize({ width, height: 800 });
+    const name = "GF Eva Slack Inbox";
+    const bare = await mount(<ChatSuggestedRepliesStory name={name} />);
+    const bareHeight = (await bare.locator(".chat__header").boundingBox())!.height;
+    await bare.unmount();
+
+    const cmp = await mount(<ChatSuggestedRepliesStory replies={["繼續"]} allHeaderButtons name={name} />);
+    const { header, name: text, top, bottom } = await headerBoxes(cmp);
+    [...top, ...bottom].forEach((b) => {
+      inside(b, header);
+      expect(b.width).toBeGreaterThanOrEqual(30);
+      expect(b.height).toBeGreaterThanOrEqual(30);
     });
-  }
-  expect(bottom[0].y).toBeGreaterThanOrEqual(top[0].y + top[0].height);
-  expect(top[2].x + top[2].width).toBeCloseTo(bottom[1].x + bottom[1].width, 0);
-  expect(text.x + text.width).toBeLessThanOrEqual(top[0].x);
-  const nameSpan = cmp.locator(".chat__header-name > span:last-child");
-  expect(await nameSpan.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-  expect(header.height).toBeCloseTo(bareHeight, 0);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await cmp.unmount();
+    for (const row of [top, bottom]) {
+      row.forEach((b, i) => {
+        expect(b.y).toBeCloseTo(row[0].y, 0);
+        if (i > 0) expect(b.x).toBeGreaterThanOrEqual(row[i - 1].x + row[i - 1].width);
+      });
+    }
+    expect(bottom[0].y).toBeGreaterThanOrEqual(top[0].y + top[0].height);
+    expect(top[2].x + top[2].width).toBeCloseTo(bottom[1].x + bottom[1].width, 0);
+    expect(text.x + text.width).toBeLessThanOrEqual(top[0].x);
+    const nameSpan = cmp.locator(".chat__header-name > span:last-child");
+    expect(await nameSpan.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    expect(header.height).toBeCloseTo(bareHeight, 0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await cmp.unmount();
 
-  const four = await mount(<ChatSuggestedRepliesStory allHeaderButtons name={name} />);
-  const tasks = (await four.getByTestId("chat-header-tasks").boundingBox())!;
-  const search = (await four.getByTestId("chat-header-search").boundingBox())!;
-  expect(search.y).toBeGreaterThanOrEqual(tasks.y + tasks.height);
-});
+    const four = await mount(<ChatSuggestedRepliesStory allHeaderButtons name={name} />);
+    const tasks = (await four.getByTestId("chat-header-tasks").boundingBox())!;
+    const search = (await four.getByTestId("chat-header-search").boundingBox())!;
+    expect(search.y).toBeGreaterThanOrEqual(tasks.y + tasks.height);
+    expect(splitRows(await rowTops(four)).map((r) => r.length)).toEqual([2, 2]);
+    await four.unmount();
+
+    const six = await mount(
+      <ChatSuggestedRepliesStory replies={["繼續"]} allHeaderButtons waitingReplies={3} name={name} />,
+    );
+    const sixRows = splitRows(await rowTops(six));
+    expect(sixRows.map((r) => r.map((b) => b.id))).toEqual([
+      ["chat-header-replies", "chat-header-tasks", "chat-header-role-settings"],
+      ["chat-header-suggested-replies", "chat-header-search", "chat__gallery-toggle"],
+    ]);
+    expect(sixRows[0][2].right).toBe(sixRows[1][2].right);
+    const sixHeader = (await six.locator(".chat__header").boundingBox())!;
+    expect(sixHeader.height).toBeCloseTo(bareHeight, 0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await six.unmount();
+
+    const outsource = await mount(
+      <ChatSuggestedRepliesStory replies={["繼續"]} allHeaderButtons outsource waitingReplies={3} name={name} />,
+    );
+    expect(splitRows(await rowTops(outsource)).map((r) => r.length)).toEqual([2, 2]);
+  });
+}
 
 test("390px: with three or fewer buttons, they sit in one row at the header's right edge without growing the header", async ({ mount, page }) => {
   await page.setViewportSize({ width: 390, height: 800 });

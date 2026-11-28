@@ -56,9 +56,6 @@ export function OutsourceCapPopover({
           {t.office.outsource.capTitle}
         </span>
       </div>
-      <div className="outsource-panel__pop-hint">
-        {t.office.outsource.capHint}
-      </div>
       <div className="outsource-panel__pop-label">
         {t.office.outsource.capMaxLabel}
       </div>

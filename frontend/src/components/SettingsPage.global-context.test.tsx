@@ -15,6 +15,13 @@ import { zh } from "../i18n/locales/zh";
 import { SettingsPage } from "./SettingsPage";
 import { api } from "../api";
 import { __resetMock } from "../api/mock";
+import { infoHintText } from "../test/infoHint";
+
+/** A row's explanation (behind its ⓘ) and its state tag (null when none). */
+function entryCopy(row: HTMLElement) {
+  const hint = row.querySelector('[data-testid="info-hint"]') ? infoHintText(row) : null;
+  return [hint, row.querySelector('[data-testid="set-entry-tag"]')?.textContent ?? null];
+}
 
 const s = zh.settings;
 
@@ -37,13 +44,17 @@ beforeEach(() => {
 });
 
 describe("SettingsPage · global-context 4 blocks", () => {
-  it("lists 使用者語言 then 使用者自訂 on top, then the boot documents in boot-assembly order", async () => {
+  it("lists 使用者語言 then 使用者自訂 under 使用者偏好 on top, then the boot documents in boot-assembly order", async () => {
     // 啟動步驟 is ONE row, not one per runtime (owner 2026-08-14, card
     // rc-e1abbc506b70 option 1: "我沒有想到被切割成這麼多份"). The runtime is
     // chosen inside the page. The two DOCUMENTS stay separate — that is
     // asserted on the page itself, in BootDocPage.test.tsx.
     const { container, getByText } = await openRolesLog();
     const text = container.textContent ?? "";
+    expect(
+      Array.from(container.querySelectorAll(".set-group-label")).map((el) => el.textContent)
+    ).toEqual(["使用者偏好", "上線（BOOT）", "下線（STOP）", "任務事件（TASK）"]);
+    const iUserPrefs = text.indexOf("使用者偏好");
     const iUserLanguage = text.indexOf(s.userLanguageName);
     const iCustom = text.indexOf(s.customName);
     const iBootGroup = text.indexOf(s.globalSection);
@@ -53,7 +64,8 @@ describe("SettingsPage · global-context 4 blocks", () => {
     // 〈停止〉 follows 啟動步驟: the list runs an agent's life end to end,
     // 開機 → 下線.
     const iOffboard = text.indexOf(s.offboardName);
-    expect(iUserLanguage).toBeGreaterThanOrEqual(0);
+    expect(iUserPrefs).toBeGreaterThanOrEqual(0);
+    expect(iUserLanguage).toBeGreaterThan(iUserPrefs);
     expect(iCustom).toBeGreaterThan(iUserLanguage);
     expect(iBootGroup).toBeGreaterThan(iCustom);
     expect(iSystem).toBeGreaterThan(iBootGroup);
@@ -66,29 +78,39 @@ describe("SettingsPage · global-context 4 blocks", () => {
     expect(getByText(s.globalSection)).toBeTruthy();
   });
 
-  it("while developer mode is off, only 使用者語言 and 使用者自訂 say they are editable", async () => {
+  it("while developer mode is off, no row says it is editable, and 使用者語言 and 使用者自訂 carry no tag", async () => {
     const utils = await openRolesLog();
-    const sub = (testId: string) =>
-      utils.getByTestId(testId).querySelector(".set-entry__sub")?.textContent;
-    expect(sub("boot-doc-entry-custom")).toBe("每位成員開機時都會讀到的自訂內容 · 可編輯");
-    expect(sub("boot-doc-entry-system_interaction")).toBe("每位成員開機時都會讀到的系統運作說明");
-    expect(sub("boot-doc-entry-task_closeout")).toBe("任務被判定結束時給 agent 的收尾指示");
-    expect(sub("boot-doc-entry-user_language")).toBe("成員跟你說話用的語言 · 沒改過時跟著顯示語言 · 可編輯");
+    const copy = (testId: string) => entryCopy(utils.getByTestId(testId));
+    expect(copy("boot-doc-entry-custom")).toEqual(["每位成員開機時都會讀到的自訂內容", null]);
+    expect(copy("boot-doc-entry-system_interaction")).toEqual(["每位成員開機時都會讀到的系統運作說明", null]);
+    expect(copy("boot-doc-entry-task_closeout")).toEqual([null, null]);
+    expect(copy("boot-doc-entry-user_language")).toEqual(["成員跟你說話用的語言 · 沒改過時跟著顯示語言", null]);
+    expect(copy("boot-doc-entry-term_glossary")).toEqual([null, null]);
+    expect(copy("boot-doc-entry-accelerated_stop")).toEqual([null, null]);
+    expect(copy("boot-doc-entry-task_takeover_with_predecessor")).toEqual([s.taskTakeoverWithPredecessorSub, null]);
+    expect(utils.getByTestId("boot-doc-entry-task_closeout").hasAttribute("aria-describedby")).toBe(false);
+    expect(
+      utils.getByRole("button", { name: s.userLanguageName, description: "成員跟你說話用的語言 · 沒改過時跟著顯示語言" }),
+    ).toBe(
+      utils.getByTestId("boot-doc-entry-user_language")
+    );
   });
 
-  it("with developer mode on, every boot document but the glossary says it is editable", async () => {
+  it("with developer mode on, every boot document but User Language says it is editable", async () => {
     await api.patchServerSettings({ developerMode: true });
     const utils = await openRolesLog();
-    const sub = (testId: string) =>
-      utils.getByTestId(testId).querySelector(".set-entry__sub")?.textContent;
+    const copy = (testId: string) => entryCopy(utils.getByTestId(testId));
     await waitFor(() =>
-      expect(sub("boot-doc-entry-system_interaction")).toBe(
-        "每位成員開機時都會讀到的系統運作說明 · 可編輯"
-      )
+      expect(copy("boot-doc-entry-system_interaction")).toEqual([
+        "每位成員開機時都會讀到的系統運作說明",
+        "可編輯",
+      ])
     );
-    expect(sub("boot-doc-entry-task_closeout")).toBe("任務被判定結束時給 agent 的收尾指示 · 可編輯");
-    expect(sub("boot-doc-entry-term_glossary")).toBe("功能的英文與中文名稱對照 · 隨版本更新，不能編輯");
-    expect(sub("boot-doc-entry-boot_sequence")).toBe(s.bootSub + s.bootDocEditableSuffix);
+    expect(copy("boot-doc-entry-task_closeout")).toEqual([null, "可編輯"]);
+    expect(copy("boot-doc-entry-term_glossary")).toEqual([null, "可編輯"]);
+    expect(copy("boot-doc-entry-boot_sequence")).toEqual([null, s.bootDocEditableTag]);
+    expect(copy("boot-doc-entry-user_language")).toEqual(["成員跟你說話用的語言 · 沒改過時跟著顯示語言", null]);
+    expect(copy("boot-doc-entry-custom")).toEqual(["每位成員開機時都會讀到的自訂內容", null]);
   });
 
   it("使用者語言 opens its document directly and saves it while developer mode is off", async () => {

@@ -599,11 +599,6 @@
     flex-wrap: wrap;
   }
 }
-.mp-lessons__note {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--color-text-muted);
-}
 .mp-lessons__body {
   margin-top: 12px;
   font-size: 13.5px;

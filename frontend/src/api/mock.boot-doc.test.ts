@@ -503,7 +503,9 @@ describe("mockApi · User Language block", () => {
     "| Duty | 職責 |\n" +
     "| Insight | 判準 |\n" +
     "| General | 一般設定 |\n" +
+    "| Advanced | 進階設定 |\n" +
     "| System update & backup | 系統更新與備份 |\n" +
+    "| Security | 安全性 |\n" +
     "| Theme | 主題 |\n" +
     "| Preferences | 偏好設定 |\n" +
     "| Member | 成員 |\n" +
@@ -629,10 +631,20 @@ describe("mockApi · User Language block", () => {
     });
   });
 
-  it("refuses a write to the glossary with 405", async () => {
+  it("an edited glossary reaches the next preview after the User Language text, and while developer mode is off a glossary write answers 409", async () => {
+    injectWorker();
+    await mockApi.saveBootDoc("system_interaction", "global", "系統互動本文\n");
+    await mockApi.patchServerSettings({ displayLanguage: "en" });
+    await mockApi.saveBootDoc("term_glossary", "global", "| a | b |\n");
+    const block = `# User Language\n\n${EN_DEFAULT}\n\n| a | b |`;
+    const staff = `系統互動本文\n\n${block}\n\n# Role: Assistant\n\n`;
+    const worker = `系統互動本文\n\n${block}\n\n# Claude Code Runtime\n\n`;
+    expect(await heads([staff.length, worker.length])).toEqual([staff, worker]);
+
+    await mockApi.patchServerSettings({ developerMode: false });
     await expect(
-      mockApi.saveBootDoc("term_glossary", "global", "| a | b |\n")
-    ).rejects.toMatchObject({ status: 405 });
+      mockApi.saveBootDoc("term_glossary", "global", "| c | d |\n")
+    ).rejects.toMatchObject({ status: 409 });
   });
 });
 

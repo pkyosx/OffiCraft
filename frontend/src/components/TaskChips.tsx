@@ -1,18 +1,47 @@
-// The task card's read-only chips, for surfaces that show a task without being
-// one (the 請示 page's task row). Same classes as TaskCard's own, so a task's
-// number, priority and due colour look the same wherever it is named.
+// Chips for surfaces that show a task without being one (the 請示 page's task
+// row, the outsource row). Same classes as the owners' own, so a task's number,
+// priority and due colour look the same wherever it is named.
 
 import { useI18n } from "../i18n";
 import { useDueState } from "../hooks/useDueState";
-import { dueRemaining, hasDueTime } from "../lib/dueDate";
-import { TasksIcon } from "./icons";
+import { formatDue } from "../lib/dueDate";
+import { JumpToMessageIcon } from "./replyCardActionIcons";
+import { idChipText } from "./IdChips";
 import "./tasks.css";
+import "./office.css";
+import "./card-meta.css";
 
-export function TaskNoBadge({ taskNo, testId }: { taskNo: string; testId?: string }) {
+/** The task-number chip that jumps to the task, led by the jump icon every
+ * id that takes you somewhere wears: the outsource rail row's, the worker chat
+ * header's and the reply card's. stopPropagation so the jump never also
+ * toggles the row or card it sits in. */
+export function TaskIdChip({
+  taskNo,
+  label,
+  onOpen,
+  testId,
+}: {
+  taskNo: string;
+  label: string;
+  onOpen: () => void;
+  testId?: string;
+}) {
   return (
-    <span className="task-card__id-badge" data-testid={testId}>
-      <TasksIcon size={13} />#{taskNo}
-    </span>
+    <button
+      type="button"
+      className="outsource-row__chip outsource-row__chip--task"
+      title={label}
+      aria-label={label}
+      data-testid={testId}
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen();
+      }}
+      onKeyDown={(e) => e.stopPropagation()}
+    >
+      <JumpToMessageIcon size={11} />
+      {idChipText(taskNo)}
+    </button>
   );
 }
 
@@ -43,17 +72,21 @@ export function TaskDueChip({
   leadMinutes: number;
   testId?: string;
 }) {
-  const { t, msg } = useI18n();
+  const { t } = useI18n();
   const { nowSec, due } = useDueState(dueTs, leadMinutes);
   const tone = due === null || due.kind === "later" ? "" : ` task-card__due-date--${due.kind}`;
+  const text = formatDue(dueTs, nowSec);
   return (
-    <span className={`task-card__chip task-card__due-chip${tone}`} data-testid={testId}>
-      {hasDueTime(dueTs) ? msg.taskDueDateTime(dueTs) : msg.taskDueDate(dueTs)}
-      <span className={`task-card__due-remaining${tone}`}>
-        {msg.taskDueRemaining(dueRemaining(dueTs, nowSec))}
-      </span>
-      {due?.kind === "soon" && (
-        <span className="task-card__due-status">{t.tasks.dueSoonHint}</span>
+    <span
+      className={`card-meta__chip task-card__due-chip${tone}`}
+      data-testid={testId}
+      title={`${t.replies.taskDueLabel} ${text}`}
+    >
+      {t.replies.taskDueLabel} {text}
+      {due !== null && due.kind !== "later" && (
+        <span className="task-card__due-status">
+          {due.kind === "soon" ? t.tasks.dueSoonHint : t.tasks.dueOverdueHint}
+        </span>
       )}
     </span>
   );

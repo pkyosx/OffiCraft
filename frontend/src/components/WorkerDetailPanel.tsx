@@ -488,7 +488,8 @@ export function WorkerDetailPanel({
             </span>
           </NameWithActivity>
         </div>
-        {/* The chat header's lines for this worker, from the same components. */}
+        {/* The chat header's lines for this worker, from the same components;
+            the title clamps to two lines like the roster row's. */}
         <div className="mp-identity__task">
           <OutsourceTaskLine
             worker={worker}
@@ -498,7 +499,7 @@ export function WorkerDetailPanel({
           />
           <CurrentTaskTitle
             title={worker.taskTitle ?? ""}
-            clamp={false}
+            clamp
             showEmpty={false}
             testid="worker-detail-header-task-title"
           />

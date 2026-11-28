@@ -80,7 +80,8 @@ var apiTestBootDocRows = []apiTestBootDocRow{
 	}, {
 		kind: "term_glossary", keys: []string{"global"},
 		seeds: []string{"term_glossary.md"}, docNames: []string{"Term glossary"},
-		capChars: 37500, vars: nil, split: false, join: "", readOnly: true,
+		capChars: 37500, vars: nil, split: false, join: "", readOnly: false,
+		developerModeRequiredWhileOff: true,
 	}, {
 		kind: "boot_sequence", keys: []string{"claude", "codex"},
 		seeds:    []string{"boot_sequence.md", "boot_sequence_codex.md"},
@@ -2253,11 +2254,15 @@ func TestHandleGetBootDocApiBootDocsKindKeyGet(t *testing.T) {
 		want("zh", apiTestUserLanguageZh+"\n", true)
 	})
 
-	t.Run("the glossary answers its shipped table as read-only, with or without developer mode", func(t *testing.T) {
-		for name, newServer := range map[string]func(*testing.T) (*apiServer, http.Handler, *DAL, string){
-			"developer mode off": newAPITestServer, "developer mode on": newAPITestServerInDeveloperMode,
+	t.Run("the glossary answers its shipped table, locked while developer mode is off and open once it is on", func(t *testing.T) {
+		for name, c := range map[string]struct {
+			newServer     func(*testing.T) (*apiServer, http.Handler, *DAL, string)
+			devModeNeeded bool
+		}{
+			"developer mode off": {newAPITestServer, true},
+			"developer mode on":  {newAPITestServerInDeveloperMode, false},
 		} {
-			_, h, _, owner := newServer(t)
+			_, h, _, owner := c.newServer(t)
 			status, data := apiJSON(t, h, "GET", "/api/boot-docs/term_glossary/global", owner, "")
 			if status != 200 {
 				t.Fatalf("%s: want 200, got %d (%v)", name, status, data)
@@ -2275,8 +2280,8 @@ func TestHandleGetBootDocApiBootDocsKindKeyGet(t *testing.T) {
 				"schema_version":          3,
 				"is_default":              true,
 				"has_seed":                true,
-				"read_only":               true,
-				"developer_mode_required": false,
+				"read_only":               false,
+				"developer_mode_required": c.devModeNeeded,
 			})
 		}
 	})
@@ -2466,24 +2471,37 @@ func TestHandleReplaceBootDocApiBootDocsKindKeyPost(t *testing.T) {
 		})
 	})
 
-	t.Run("the glossary answers 405 to the owner with developer mode on and off, and writes and fans nothing", func(t *testing.T) {
-		for name, newServer := range map[string]func(*testing.T) (*apiServer, http.Handler, *DAL, string){
-			"developer mode off": newAPITestServer, "developer mode on": newAPITestServerInDeveloperMode,
-		} {
-			api, h, _, owner := newServer(t)
-			dashboard := apiTestListen(t, api, "")
-			status, data := apiJSON(t, h, "POST", "/api/boot-docs/term_glossary/global", owner, `{"body":"| a | b |","allow_shrink":true}`)
-			if status != 405 {
-				t.Fatalf("%s: want 405, got %d (%v)", name, status, data)
+	t.Run("with developer mode on the glossary takes edits, restores the version it replaced, and resets to the shipped table", func(t *testing.T) {
+		_, h, _, owner := newAPITestServerInDeveloperMode(t)
+		const path = "/api/boot-docs/term_glossary/global"
+		text := func() (any, any) {
+			_, data := apiJSON(t, h, "GET", path, owner, "")
+			return data["text"], data["is_default"]
+		}
+		for _, body := range []string{"| a | b |", "| c | d |"} {
+			if status, data := apiJSON(t, h, "POST", path, owner, `{"body":"`+body+`","allow_shrink":true}`); status != 200 {
+				t.Fatalf("save %q: want 200, got %d (%v)", body, status, data)
 			}
-			apiWantError(t, data, "method_not_allowed", "the Term glossary is a read-only document — it is shown so you can "+
-				"see what agents are told, but no caller may edit it and there is no version "+
-				"of it other than the shipped one; nothing was written")
-			_, after := apiJSON(t, h, "GET", "/api/boot-docs/term_glossary/global", owner, "")
-			if after["is_default"] != true {
-				t.Fatalf("%s: the glossary changed under a refused write: %v", name, after)
-			}
-			dashboard.wantFrames()
+		}
+		if got, isDefault := text(); got != "| c | d |" || isDefault != false {
+			t.Fatalf("after saves: text/is_default = %q/%v", got, isDefault)
+		}
+		rec := apiRequest(t, h, "GET", "/api/document-history/term_glossary/global", owner, "")
+		var versions []any
+		if err := json.Unmarshal(rec.Body.Bytes(), &versions); rec.Code != 200 || err != nil || len(versions) != 1 {
+			t.Fatalf("history: want one version, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/document-history/term_glossary/global/1/restore", owner, ""); status != 200 {
+			t.Fatalf("restore: want 200, got %d (%v)", status, data)
+		}
+		if got, _ := text(); got != "| a | b |" {
+			t.Fatalf("after restore: text = %q", got)
+		}
+		if status, data := apiJSON(t, h, "POST", path+"/reset", owner, ""); status != 200 {
+			t.Fatalf("reset: want 200, got %d (%v)", status, data)
+		}
+		if got, isDefault := text(); got != apiTestUserLanguageGlossary+"\n" || isDefault != true {
+			t.Fatalf("after reset: text/is_default = %q/%v", got, isDefault)
 		}
 	})
 
@@ -2601,18 +2619,6 @@ func TestHandleResetBootDocApiBootDocsKindKeyResetPost(t *testing.T) {
 			"cap_chars":  37500,
 			"sha256":     "e46d844215f3ab59c5ccd8b86002281930ad3bb70e569c834bf03e31b10c1e7c",
 		})
-	})
-
-	t.Run("resetting the glossary answers 405 with developer mode on and off", func(t *testing.T) {
-		for name, newServer := range map[string]func(*testing.T) (*apiServer, http.Handler, *DAL, string){
-			"developer mode off": newAPITestServer, "developer mode on": newAPITestServerInDeveloperMode,
-		} {
-			_, h, _, owner := newServer(t)
-			status, data := apiJSON(t, h, "POST", "/api/boot-docs/term_glossary/global/reset", owner, "")
-			if status != 405 {
-				t.Fatalf("%s: want 405, got %d (%v)", name, status, data)
-			}
-		}
 	})
 
 	t.Run("while developer mode is off, resetting an edited document answers 409 to the owner and to an admin agent, and the edit stays", func(t *testing.T) {
