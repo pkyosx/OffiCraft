@@ -24,7 +24,7 @@ import {
   __injectMockReplyCard,
 } from "../api/mock";
 import type { TaskView, TaskStepView, ReplyCard } from "../api/adapter";
-import { CircleProgressIcon, UserClockIcon } from "./icons";
+import { CircleDashedIcon, CircleProgressIcon, UserClockIcon } from "./icons";
 
 let seq = 0;
 
@@ -95,9 +95,9 @@ function iconMarkup(Icon: (p: { size: number }) => React.JSX.Element): string {
   return render(<Icon size={16} />).container.innerHTML;
 }
 
-/** The timeline icon drawn for a step (a parallel stage's shared one). */
+/** The timeline icon drawn for a step. */
 function markerOf(step: HTMLElement): HTMLElement {
-  return step.closest(".task-timeline__row")!.querySelector('[data-testid="step-marker"]')!;
+  return step.closest(".task-parallel__item, .task-timeline__row")!.querySelector('[data-testid="step-marker"]')!;
 }
 
 function renderPage() {
@@ -394,7 +394,7 @@ describe("TaskCard 卡綁 step", () => {
       "進行中",
       "進行中",
       "進行中",
-      "進行中",
+      "待辦",
     ]);
     expect(
       steps.map((s) =>
@@ -405,14 +405,14 @@ describe("TaskCard 卡綁 step", () => {
       "task-timeline__marker--in_progress",
       "task-timeline__marker--in_progress",
       "task-timeline__marker--in_progress",
-      "task-timeline__marker--in_progress",
+      "task-timeline__marker--pending",
     ]);
     expect(steps.map((s) => markerOf(s).innerHTML)).toEqual([
       waitingIcon,
       progressIcon,
       progressIcon,
       progressIcon,
-      progressIcon,
+      iconMarkup(CircleDashedIcon),
     ]);
     expect(steps.map((s) => s.classList.contains("task-step--in_progress"))).toEqual([
       false,

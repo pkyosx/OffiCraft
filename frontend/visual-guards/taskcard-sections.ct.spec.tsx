@@ -184,9 +184,9 @@ async function stepGeometry(cmp: any): Promise<{ card: Box; steps: StepGeometry[
       card: box(card)!,
       steps: [...tl.querySelectorAll<HTMLElement>('[data-testid="task-step"]')].map((step, i, all) => {
         const name = step.querySelector<HTMLElement>(".task-step__name")!;
-        const row = step.closest(".task-timeline__row")!;
+        const row = step.closest(".task-parallel__item, .task-timeline__row")!;
         const parallel = step.closest(".task-parallel");
-        const firstLine = parallel ? parallel.querySelector(".task-parallel__label")! : name;
+        const firstLine = name;
         const lineHeight = parseFloat(getComputedStyle(firstLine).lineHeight);
         return {
           id: step.dataset.stepId!,
@@ -209,12 +209,49 @@ async function stepGeometry(cmp: any): Promise<{ card: Box; steps: StepGeometry[
   });
 }
 
+/** The parallel stage's header row and the bracket its items draw beside the spine. */
+async function stageGeometry(cmp: any): Promise<{ headerMarkers: number; label: Box; bracket: Box; bracketGap: number }> {
+  return cmp.locator(".task-parallel").evaluate((stage: HTMLElement) => {
+    const row = stage.closest(".task-timeline__row")!;
+    const label = stage.querySelector(".task-parallel__label")!.getBoundingClientRect();
+    const items = [...stage.querySelectorAll<HTMLElement>(".task-parallel__item")];
+    const piece = (item: HTMLElement) => {
+      const cs = getComputedStyle(item, "::before");
+      const r = item.getBoundingClientRect();
+      const top = r.top + parseFloat(cs.top);
+      const left = r.left + parseFloat(cs.left);
+      return { top, bottom: top + parseFloat(cs.height), left, right: left + parseFloat(cs.width), visible: cs.content !== "none" && parseFloat(cs.borderRightWidth) > 0 };
+    };
+    const pieces = items.map(piece).filter((p) => p.visible);
+    const labelMid = (label.top + label.bottom) / 2;
+    const headerMarkers = [...row.querySelectorAll('[data-testid="step-marker"]')].filter((m) => {
+      const r = m.getBoundingClientRect();
+      return r.top <= labelMid && r.bottom >= labelMid;
+    }).length;
+    const bracketGap = Math.max(0, ...pieces.slice(1).map((p, i) => p.top - pieces[i].bottom));
+    return {
+      headerMarkers,
+      bracketGap,
+      label: label.toJSON(),
+      bracket: pieces.length === 0
+        ? { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }
+        : {
+            top: Math.min(...pieces.map((p) => p.top)),
+            bottom: Math.max(...pieces.map((p) => p.bottom)),
+            left: Math.min(...pieces.map((p) => p.left)),
+            right: Math.max(...pieces.map((p) => p.right)),
+            width: 0, height: 0,
+          },
+    };
+  });
+}
+
 const overlaps = (a: Box, b: Box) =>
   a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
 
 for (const width of [320, 375, 390, 1440]) {
   for (const language of ["zh", "en"] as const) {
-    test(`each step keeps its time pill on the title's first line, its shield on the corner and its icon on the title line, and the task's time pill sits on the 步驟 N/M line @${width}px ${language}`, async ({
+    test(`each step keeps its time pill on the title's first line, its shield on the corner and its own icon on the timeline beside its title line (a parallel stage's steps bracketed together, its header with no icon), and the task's time pill sits on the 步驟 N/M line @${width}px ${language}`, async ({
       mount,
       page,
     }) => {
@@ -247,12 +284,27 @@ for (const width of [320, 375, 390, 1440]) {
         const markerMid = (s.marker.top + s.marker.bottom) / 2;
         const lineMid = s.firstLine.top + s.firstLineHeight / 2;
         expect.soft(Math.abs(markerMid - lineMid), `${id} timeline icon off the first text line`).toBeLessThanOrEqual(1.5);
-        expect.soft(s.marker.right, `${id} timeline icon runs into the box`).toBeLessThanOrEqual(s.step.left);
+        expect.soft(s.marker.right, `${id} timeline icon runs into the box`).toBeLessThanOrEqual((s.group ?? s.step).left);
 
         if (s.replyCard) {
           expect.soft(s.replyCard.right, `${id} reply card past the step`).toBeLessThanOrEqual(s.step.right);
         }
       }
+
+      const markerLefts = g.steps.map((s) => s.marker.left);
+      expect.soft(Math.max(...markerLefts) - Math.min(...markerLefts), `${at} timeline icons not on one line`).toBeLessThanOrEqual(0.5);
+      const grouped = g.steps.filter((s) => s.inParallel);
+      expect(grouped.map((s) => s.id), `${at} steps in the parallel stage`).toEqual(["s-par-1", "s-par-2"]);
+      const stage = await stageGeometry(cmp);
+      expect.soft(stage.headerMarkers, `${at} icons on the stage header row`).toBe(0);
+      const firstIcon = grouped[0].marker;
+      const lastIcon = grouped[grouped.length - 1].marker;
+      expect.soft(stage.bracket.top, `${at} bracket starts below the first grouped icon's top`).toBeLessThanOrEqual(firstIcon.top);
+      expect.soft(stage.bracket.bottom, `${at} bracket ends above the last grouped icon's bottom`).toBeGreaterThanOrEqual(lastIcon.bottom);
+      expect.soft(stage.bracketGap, `${at} bracket broken between grouped icons`).toBeLessThanOrEqual(0.5);
+      expect.soft(stage.bracket.top, `${at} bracket climbs onto the stage header`).toBeGreaterThan(stage.label.bottom);
+      expect.soft(stage.bracket.left, `${at} bracket over the icons`).toBeGreaterThanOrEqual(firstIcon.right);
+      expect.soft(stage.bracket.right, `${at} bracket inside the stage frame`).toBeLessThanOrEqual(grouped[0].group!.left);
 
       const gated = g.steps.filter((s) => s.shield);
       expect(gated.map((s) => s.id), `${at} steps with a shield`).toEqual(["s-par-2", "s-gate-pending", "s-gate-waiting", "s-gate-done"]);

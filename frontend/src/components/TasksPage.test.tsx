@@ -122,7 +122,7 @@ function mkCard(over: Partial<ReplyCard>): ReplyCard {
 
 /** The timeline icon drawn for a step or a parallel stage. */
 function markerOf(el: Element): Element {
-  return el.closest(".task-timeline__row")!.querySelector('[data-testid="step-marker"]')!;
+  return el.closest(".task-parallel__item, .task-timeline__row")!.querySelector('[data-testid="step-marker"]')!;
 }
 
 function renderPage() {
@@ -872,34 +872,35 @@ describe("TasksPage", () => {
     expect(steps[4].querySelector('[data-testid="step-gate"]')).not.toBeNull();
   });
 
-  it("gives a parallel stage one shared icon: any in_progress → 進行中, all done → 完成, else 待辦", async () => {
+  it("gives every step in a parallel stage its own timeline icon and the stage header none", async () => {
     const now = Date.now() / 1000;
     __injectMockTask(
       mkTask({
-        title: "三段並行",
+        title: "兩段並行",
         steps: [
-          // Stage 1: every lane done → the stage dot is done.
-          mkStep({ name: "a1", status: "done", parallelGroup: "pg-done", orderIdx: 0, startedTs: now - 900, finishedTs: now - 600 }),
-          mkStep({ name: "a2", status: "done", parallelGroup: "pg-done", orderIdx: 1, startedTs: now - 900, finishedTs: now - 700 }),
-          // Stage 2: one lane running → in_progress wins the dot.
-          mkStep({ name: "b1", status: "done", parallelGroup: "pg-run", orderIdx: 2, startedTs: now - 500, finishedTs: now - 400 }),
-          mkStep({ name: "b2", status: "in_progress", parallelGroup: "pg-run", orderIdx: 3, startedTs: now - 500 }),
-          // Stage 3: some done but none running → still pending as a stage.
-          mkStep({ name: "c1", status: "done", parallelGroup: "pg-wait", orderIdx: 4, startedTs: now - 300, finishedTs: now - 200 }),
-          mkStep({ name: "c2", status: "pending", parallelGroup: "pg-wait", orderIdx: 5 }),
+          mkStep({ name: "a1", status: "done", parallelGroup: "pg-a", orderIdx: 0, startedTs: now - 900, finishedTs: now - 600 }),
+          mkStep({ name: "a2", status: "waiting_external", parallelGroup: "pg-a", orderIdx: 1, startedTs: now - 900 }),
+          mkStep({ name: "b1", status: "in_progress", parallelGroup: "pg-b", orderIdx: 2, startedTs: now - 500 }),
+          mkStep({ name: "b2", status: "pending", parallelGroup: "pg-b", orderIdx: 3 }),
         ],
       })
     );
     const { findByTestId, findAllByTestId } = renderPage();
     fireEvent.click(await findByTestId("task-card"));
-    const stages = await findAllByTestId("task-parallel");
-    expect(stages).toHaveLength(3);
-    expect(stages.map((stage) => markerOf(stage).getAttribute("aria-label"))).toEqual([
+    const steps = await findAllByTestId("task-step");
+    expect(steps.map((step) => markerOf(step).getAttribute("aria-label"))).toEqual([
       "完成",
+      "等待外部",
       "進行中",
       "待辦",
     ]);
-    expect(await findAllByTestId("step-marker")).toHaveLength(3);
+    expect(steps.map((step) => markerOf(step).className)).toEqual([
+      "task-timeline__marker task-timeline__marker--done",
+      "task-timeline__marker task-timeline__marker--waiting_external",
+      "task-timeline__marker task-timeline__marker--in_progress",
+      "task-timeline__marker task-timeline__marker--pending",
+    ]);
+    expect(await findAllByTestId("step-marker")).toHaveLength(4);
   });
 
   it("renders a gate inside a parallel group with its shield, and folds a legacy split group into two separate stages", async () => {
@@ -926,7 +927,8 @@ describe("TasksPage", () => {
     expect(stages[1].textContent).toContain("同時進行 · 1 項並行");
     const inGroup = stages[0].querySelectorAll('[data-testid="task-step"]');
     expect(inGroup[1].querySelector('[data-testid="step-gate"]')).not.toBeNull();
-    expect(markerOf(stages[0]).getAttribute("aria-label")).toBe("進行中");
+    expect(markerOf(inGroup[0]).getAttribute("aria-label")).toBe("進行中");
+    expect(markerOf(inGroup[1]).getAttribute("aria-label")).toBe("待辦 · 需要你核可");
   });
 
   it("終止 double-confirms; the terminated task leaves the default view, and 終止 reveals it in the list again (action hidden on closed tasks)", async () => {

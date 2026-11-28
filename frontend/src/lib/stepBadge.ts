@@ -39,10 +39,3 @@ export function resolveStepBadge(
   }
   return step.status;
 }
-
-/** One status for a parallel stage's shared timeline marker. */
-export function resolveParallelStatus(statuses: string[]): string {
-  if (statuses.some((s) => s === "in_progress")) return "in_progress";
-  if (statuses.every((s) => s === "done")) return "done";
-  return "pending";
-}

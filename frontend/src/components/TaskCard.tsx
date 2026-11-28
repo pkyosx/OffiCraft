@@ -73,7 +73,7 @@ import { api } from "../api";
 import { isHttpStatus } from "../api/errors";
 import { formatDuration, formatDurationShort } from "../lib/duration";
 import { isCardToggleClick, isCardToggleKey } from "../lib/cardToggle";
-import { resolveParallelStatus, resolveStepBadge } from "../lib/stepBadge";
+import { resolveStepBadge } from "../lib/stepBadge";
 import { autosizeTextarea } from "../lib/autosize";
 import { navigateHash } from "../lib/hashRoute";
 import { deriveTaskNo } from "../lib/taskNo";
@@ -2838,19 +2838,19 @@ export function TaskCard({
                   key={row.steps[0].id}
                   className="task-timeline__row task-timeline__row--parallel"
                 >
-                  {(() => {
-                    const status = resolveParallelStatus(
-                      row.steps.map(resolveStepBadge)
-                    );
-                    return (
-                      <StepMarker status={status} label={stepStatusName(status)} />
-                    );
-                  })()}
                   <div className="task-parallel" data-testid="task-parallel">
                     <div className="task-parallel__label">
                       ‖ {t.tasks.parallel(row.steps.length)}
                     </div>
-                    {row.steps.map(renderStep)}
+                    {row.steps.map((step) => (
+                      <div key={step.id} className="task-parallel__item">
+                        <StepMarker
+                          status={resolveStepBadge(step)}
+                          label={stepMarkerLabel(step)}
+                        />
+                        {renderStep(step)}
+                      </div>
+                    ))}
                   </div>
                 </div>
               )

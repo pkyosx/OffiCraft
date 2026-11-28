@@ -15,7 +15,7 @@
 //      每種組合解出的狀態,經三語字典解出的名稱都不得長得像 raw key
 //      (^[a-z_]+$)。
 import { describe, it, expect } from "vitest";
-import { resolveParallelStatus, resolveStepBadge, STEP_STATUSES } from "./stepBadge";
+import { resolveStepBadge, STEP_STATUSES } from "./stepBadge";
 import { zh, type Dict } from "../i18n/locales/zh";
 import { en } from "../i18n/locales/en";
 
@@ -87,12 +87,5 @@ describe("step 狀態 i18n 枚舉守衛 (T-6f11)", () => {
         replyCardStatus: null,
       })
     ).toBe("waiting_external");
-  });
-
-  it("並行階段的共用圖示:有一項進行中就是進行中,全部完成才是完成,其餘是待辦", () => {
-    expect(resolveParallelStatus(["done", "in_progress", "pending"])).toBe("in_progress");
-    expect(resolveParallelStatus(["done", "done"])).toBe("done");
-    expect(resolveParallelStatus(["done", "pending"])).toBe("pending");
-    expect(resolveParallelStatus(["done", "waiting_owner"])).toBe("pending");
   });
 });
