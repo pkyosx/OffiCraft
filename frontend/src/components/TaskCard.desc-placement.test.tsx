@@ -223,11 +223,10 @@ describe("spec ③ 詳細敘述排在訊息輸入框之後", () => {
       return view;
     }
 
-    it("a long description is clamped with a fade and 展開全文 that opens and closes it, and the title bar counts its rendered lines", async () => {
+    it("a long description is clamped with a fade and 展開全文 that opens and closes it", async () => {
       fakeLayout();
       const { getByTestId } = await expand("字".repeat(200));
 
-      expect(getByTestId("task-desc-section-summary").textContent).toBe("約 20 行");
       const body = getByTestId("task-desc-body");
       const toggle = getByTestId("task-desc-toggle");
       expect(body.classList.contains("clamped-text__body--clamped")).toBe(true);
@@ -250,10 +249,16 @@ describe("spec ③ 詳細敘述排在訊息輸入框之後", () => {
       expect(getByTestId("task-desc-body").classList.contains("clamped-text__body--faded")).toBe(false);
     });
 
-    it("its title bar hides and restores the whole body without collapsing the card, and shows no line count before layout", async () => {
+    it("its title bar is the icon, 任務描述 and the chevron only, and hides and restores the whole body without collapsing the card", async () => {
+      fakeLayout();
       const { container, getByTestId } = await expand(DESC);
       const head = getByTestId("task-desc-section-head");
-      expect(head.textContent).toContain("任務描述");
+      expect(head.textContent).toBe("任務描述");
+      expect(Array.from(head.children).map((el) => el.className)).toEqual([
+        "task-section__icon",
+        "task-section__title",
+        "task-section__chevron",
+      ]);
       expect(container.querySelector('[data-testid="task-desc-section-summary"]')).toBeNull();
       expect(head.getAttribute("aria-expanded")).toBe("true");
 

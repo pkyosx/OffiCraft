@@ -5,9 +5,6 @@
 //
 // `children` in place of `text` clamps rendered blocks (Markdown) by height:
 // `lines` times the line height the caller sets in --clamped-text-line-height.
-//
-// `onLineCount` reports the full text's height in lines at the current width,
-// whether clamped or open; it is not called until the browser has laid it out.
 
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useI18n } from "../i18n";
@@ -18,7 +15,6 @@ type ClampedTextProps = {
   lines?: number;
   className?: string;
   testId?: string;
-  onLineCount?: (lines: number) => void;
 } & ({ text: string; children?: never } | { text?: never; children: ReactNode });
 
 export function ClampedText({
@@ -27,7 +23,6 @@ export function ClampedText({
   lines = 3,
   className = "",
   testId = "clamped-text",
-  onLineCount,
 }: ClampedTextProps) {
   const { t } = useI18n();
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -43,9 +38,6 @@ export function ClampedText({
     const measure = () => {
       const full = el.scrollHeight;
       const lineHeight = lineHeightPx(el);
-      if (onLineCount && full > 0 && lineHeight > 0) {
-        onLineCount(Math.max(1, Math.round(full / lineHeight)));
-      }
       // 1px of slack: a fractional line height rounds clientHeight down.
       if (!expanded) {
         setOverflows(full > el.clientHeight + 1);
@@ -58,7 +50,7 @@ export function ClampedText({
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [text, children, lines, expanded, onLineCount]);
+  }, [text, children, lines, expanded]);
 
   const label = expanded ? t.common.textShowLess : t.common.textShowAll;
   return (

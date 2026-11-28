@@ -21,26 +21,20 @@ function fakeLayout() {
   );
 }
 
-function view(text: string, onLineCount?: (n: number) => void) {
-  return <I18nProvider><ClampedText text={text} lines={3} onLineCount={onLineCount} /></I18nProvider>;
+function view(text: string) {
+  return <I18nProvider><ClampedText text={text} lines={3} /></I18nProvider>;
 }
 
 describe("ClampedText", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("reports the laid-out height in lines, clamped or open", () => {
+  it("clamps text taller than its lines with a fade and 展開全文, and opens it in full", () => {
     fakeLayout();
-    const onLineCount = vi.fn();
-    const { getByTestId } = render(view("字".repeat(120), onLineCount));
-    expect(onLineCount).toHaveBeenLastCalledWith(12);
+    const { getByTestId } = render(view("字".repeat(120)));
+    const body = getByTestId("clamped-text-body");
+    expect(body.classList.contains("clamped-text__body--faded")).toBe(true);
     fireEvent.click(getByTestId("clamped-text-toggle"));
-    expect(onLineCount).toHaveBeenLastCalledWith(12);
-  });
-
-  it("reports no line count before the text is laid out", () => {
-    const onLineCount = vi.fn();
-    render(view("字".repeat(120), onLineCount));
-    expect(onLineCount).not.toHaveBeenCalled();
+    expect(body.classList.contains("clamped-text__body--clamped")).toBe(false);
   });
 
   it("drops 收起 when the open text shrinks to fit under the clamp", () => {

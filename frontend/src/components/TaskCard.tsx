@@ -516,7 +516,6 @@ export function TaskCard({
   const [moreOpen, setMoreOpen] = useState(false);
   const [descOpen, setDescOpen] = useState(true);
   const [workflowOpen, setWorkflowOpen] = useState(true);
-  const [descLineCount, setDescLineCount] = useState(0);
   const moreId = useId();
   useEffect(() => {
     if (located) setExpanded(true);
@@ -2767,7 +2766,6 @@ export function TaskCard({
         <TaskCardSection
           icon={<FileTextIcon size={14} />}
           title={t.tasks.descTitle}
-          summary={view.description && descLineCount > 0 ? t.tasks.descLines(descLineCount) : ""}
           open={descOpen}
           onToggle={() => setDescOpen((v) => !v)}
           testId="task-desc-section"
@@ -2783,7 +2781,6 @@ export function TaskCard({
                 lines={6}
                 className="task-card__desc-clamp"
                 testId="task-desc"
-                onLineCount={setDescLineCount}
               >
                 <Markdown
                   source={view.description}
@@ -3148,7 +3145,7 @@ function TaskCardSection({
 }: {
   icon: React.ReactNode;
   title: string;
-  summary: string;
+  summary?: string;
   open: boolean;
   onToggle: () => void;
   testId: string;

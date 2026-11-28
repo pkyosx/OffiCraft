@@ -406,7 +406,7 @@ The first line of the card holds the status icon, the task number, the priority 
 - **Artifacts** (under "More") — How many artifacts the task has; click it to "View artifacts", where you can see versions and diffs. Not shown when there are none.
 - **Creator** (under "More") — The member who opened the task; not shown when it is the same as the assignee.
 - **Step done/total · Elapsed** — Progress and the time spent so far.
-- **Task description** — A framed block with its own title bar showing "~N lines": the number of lines the description takes on screen at the current width, wrapped lines included, so it changes when the window is resized. A long description shows its first few lines, fading out at the bottom, with "Show all" below it ("Show less" closes it again); a short description is shown whole, with no button.
+- **Task description** — A framed block with its own title bar: an icon, "Task description" and an arrow. A long description shows its first few lines, fading out at the bottom, with "Show all" below it ("Show less" closes it again); a short description is shown whole, with no button.
 - **Workflow** — A framed block like "Task description", with the list of steps, each step's status, DoD, step notes ("Show note"), and dependencies. Its title bar shows "4 steps · 1/4 done". Clicking the title bar of either block collapses that block only, not the card; the collapsed workflow's title bar shows "1/4 done · In progress: <step name>".
 - **Ask** — Reply cards embedded in the task; you can "Reply in chat".
 - **Reassign** — The swap icon next to "Assignee" (hover to see "Reassign…").

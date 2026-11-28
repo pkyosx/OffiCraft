@@ -384,7 +384,6 @@ export const en: Dict = {
     workflowDone: (done: number, total: number) => `${done}/${total} done`,
     workflowCurrent: (name: string) => `In progress: ${name}`,
     descTitle: "Task description",
-    descLines: (n: number) => `~${n} ${n === 1 ? "line" : "lines"}`,
     dod: "DoD",
     parallel: (n: number) => `In parallel · ${n} items`,
     waitingAssign: "Awaiting assignment",
