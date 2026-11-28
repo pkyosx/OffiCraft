@@ -123,7 +123,7 @@ Proceed according to the forwarding method confirmed in step 2.
 
 The final forwarding URL must be an `https://` URL with a valid certificate. Over plain HTTP the login password travels unencrypted, and passkeys, Add to Home Screen, and push notifications do not work.
 
-If the user chose to keep the current forwarding, do not recreate or modify it; confirm its run-at-boot setting, then verify the forwarding URL directly.
+If the user chose to keep the current forwarding, do not recreate or modify it; confirm its run-at-boot setting, then verify the forwarding URL with checks 5 and 6 below.
 
 If new forwarding needs to be set up:
 

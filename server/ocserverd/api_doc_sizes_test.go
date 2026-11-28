@@ -34,7 +34,7 @@ func apiBuiltinManualSizeRows(capChars int) []any {
 	return []any{
 		map[string]any{
 			"type_key": "builtin-remote-access",
-			"sop":      map[string]any{"size_chars": 16559, "cap_chars": capChars},
+			"sop":      map[string]any{"size_chars": 16576, "cap_chars": capChars},
 		},
 		map[string]any{
 			"type_key": "builtin-role-design",
@@ -84,7 +84,7 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 			"task_manuals": []any{
 				map[string]any{
 					"type_key": "builtin-remote-access",
-					"sop":      map[string]any{"size_chars": 16559, "cap_chars": 37500},
+					"sop":      map[string]any{"size_chars": 16576, "cap_chars": 37500},
 				},
 				map[string]any{
 					"type_key": "builtin-role-design",
@@ -142,7 +142,7 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 			"task_manuals": []any{
 				map[string]any{
 					"type_key": "builtin-remote-access",
-					"sop":      map[string]any{"size_chars": 16559, "cap_chars": 30000},
+					"sop":      map[string]any{"size_chars": 16576, "cap_chars": 30000},
 				},
 				map[string]any{
 					"type_key": "builtin-role-design",
