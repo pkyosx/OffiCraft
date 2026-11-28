@@ -630,8 +630,19 @@ export function ChatArea({
   // component. The message rows have written it this way for inter-agent
   // traffic since before T-4e95; the quote row and the composer banner now use
   // the SAME join, so a reader never meets two ways of saying who-to-whom.
-  const directionLabel = (from: string, to: string): string =>
-    `${nameOf(from)} → ${nameOf(to)}`;
+  const directionLabel = (
+    from: string,
+    to: string,
+    name: (id: string) => string = nameOf,
+  ): string => `${name(from)} → ${name(to)}`;
+  // The composer already says it is addressing someone, so an outsource member
+  // is named there by codename alone, without the 「外包 · 」 identity label.
+  const recipientNameOf = (id: string): string => {
+    const codename =
+      workers.find((w) => w.id === id)?.codename ??
+      (id.startsWith("ow-") ? unlistedNames.get(id) : undefined);
+    return codename ?? nameOf(id);
+  };
   const docCommentRecipientFor = (id: string) =>
     docCommentRecipient(
       id,
@@ -3109,7 +3120,7 @@ export function ChatArea({
                       * line it was, here as well as on the sent row. */}
                     {replyQuote
                       ? t.chat.replyingTo(
-                          directionLabel(replyQuote.from, replyQuote.to),
+                          directionLabel(replyQuote.from, replyQuote.to, recipientNameOf),
                         )
                       : t.chat.replyingToEarlier}
                   </span>
@@ -3189,7 +3200,7 @@ export function ChatArea({
                 }}
                 onKeyDown={onKeyDown}
                 onPaste={onPaste}
-                placeholder={t.chat.inputPlaceholder(member.name)}
+                placeholder={t.chat.inputPlaceholder(recipientNameOf(member.id))}
               />
               <MentionHighlight inputRef={inputRef} text={draft} ranges={mention.ranges} />
               <button
