@@ -271,7 +271,7 @@ func notifyModWrites(t *testing.T) []writtenFile {
 	}
 }
 
-const goldenNotifyClaudeTooOldReason = "notify_claude_too_old: Claude Code on this machine is 2.1.286, below 2.1.287, " +
+const goldenNotifyClaudeTooOldReason = "notify_claude_too_old: Claude Code on this machine is 2.1.316, below 2.1.317, " +
 	"so Claude members cannot come online. Upgrade this machine's Claude Code under Monitor › Machines."
 
 const goldenNotifyModNotLoadedReason = "notify_mod_not_loaded: the notification module did not load, so the member cannot receive OffiCraft messages; bringing it online was stopped. " +
@@ -1397,9 +1397,9 @@ func TestStart(t *testing.T) {
 		}
 	})
 
-	t.Run("under a Claude Code older than 2.1.287, the start fails with the upgrade reason and launches nothing", func(t *testing.T) {
+	t.Run("under a Claude Code older than 2.1.317, the start fails with the upgrade reason and launches nothing", func(t *testing.T) {
 		h := newSpawnHarness()
-		h.runner.script["/usr/local/bin/claude --version"] = wardenRun{out: "2.1.286 (Claude Code)\n"}
+		h.runner.script["/usr/local/bin/claude --version"] = wardenRun{out: "2.1.316 (Claude Code)\n"}
 		got := h.deps().start(startParamsM1())
 
 		if want := (SpawnOutcome{OK: false, Reason: goldenNotifyClaudeTooOldReason}); got != want {
@@ -1416,7 +1416,7 @@ func TestStart(t *testing.T) {
 			t.Errorf("mkdirs=%v writes=%v removes=%v symlinks=%v asked=%v pretrusts=%d, want nothing touched",
 				h.mkdirs, h.writes, h.removes, h.symlinks, h.asked, h.pretrusts)
 		}
-		if want := []string{"m1: Claude Code 2.1.286 is older than 2.1.287; not starting"}; !reflect.DeepEqual(h.logs, want) {
+		if want := []string{"m1: Claude Code 2.1.316 is older than 2.1.317; not starting"}; !reflect.DeepEqual(h.logs, want) {
 			t.Errorf("logs = %v, want %v", h.logs, want)
 		}
 	})
@@ -2082,12 +2082,12 @@ func TestStart(t *testing.T) {
 		}
 	})
 
-	t.Run("under a Claude Code at or past 2.1.287, or one whose version cannot be read, the member starts with the mod", func(t *testing.T) {
+	t.Run("under a Claude Code at or past 2.1.317, or one whose version cannot be read, the member starts with the mod", func(t *testing.T) {
 		for _, tc := range []struct {
 			name    string
 			version wardenRun
 		}{
-			{"exactly the minimum", wardenRun{out: "2.1.287 (Claude Code)\n"}},
+			{"exactly the minimum", wardenRun{out: "2.1.317 (Claude Code)\n"}},
 			{"a later major", wardenRun{out: "3.0.0 (Claude Code)\n"}},
 			{"a version that is no version", wardenRun{out: "Claude Code nightly\n"}},
 			{"a probe that failed", wardenRun{err: errors.New("timeout after 2s")}},

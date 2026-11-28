@@ -874,7 +874,7 @@ func TestFoldCommandResult(t *testing.T) {
 	t.Run("under a warden's Claude-Code-too-old refusal, the reason and log stay as the warden wrote them and last_op_at is the server's receipt time", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		before := apiTestMemberRow(t, d, "kip")
-		text := "notify_claude_too_old: Claude Code on this machine is 2.1.200, below 2.1.287" +
+		text := "notify_claude_too_old: Claude Code on this machine is 2.1.200, below 2.1.317" +
 			", so Claude members cannot come online. Upgrade this machine's Claude Code under Monitor › Machines."
 
 		received := nowSecs()

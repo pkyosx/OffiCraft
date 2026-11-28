@@ -511,9 +511,10 @@ var sessionOwnerMarker = []byte(`"session-owner"`)
 
 // transcriptSessionOwner answers the account key of the LAST session-owner
 // record, the same accountUuid/organizationUuid shape readClaudeAccount builds.
-// Claude Code repeats the record in each metadata block it appends, so it sits
-// near the end and the file is scanned backwards in chunks. A line still being
-// written is not valid JSON yet and is skipped.
+// Claude Code writes the record near the top of a session and repeats it
+// through the session, so the last one sits near the end and the file is
+// scanned backwards in chunks. A line still being written is not valid JSON
+// yet and is skipped.
 func transcriptSessionOwner(path string) string {
 	if path == "" {
 		return ""
@@ -527,28 +528,42 @@ func transcriptSessionOwner(path string) string {
 	if err != nil || !info.Mode().IsRegular() {
 		return ""
 	}
-	var fragment []byte
-	for end := info.Size(); ; {
+	// The record is a few hundred bytes, so a line longer than one chunk cannot
+	// be one and is skipped unread.
+	line := func(buf []byte, bufStart, lineStart, lineEnd int64) []byte {
+		if lineEnd-lineStart > sessionOwnerScanChunk {
+			return nil
+		}
+		if lineEnd <= bufStart+int64(len(buf)) {
+			return buf[lineStart-bufStart : lineEnd-bufStart]
+		}
+		whole := make([]byte, lineEnd-lineStart)
+		if _, err := f.ReadAt(whole, lineStart); err != nil {
+			return nil
+		}
+		return whole
+	}
+	lineEnd := info.Size()
+	for end := lineEnd; ; {
 		start := max(end-sessionOwnerScanChunk, 0)
-		buf := make([]byte, int(end-start), int(end-start)+len(fragment))
+		buf := make([]byte, end-start)
 		if _, err := f.ReadAt(buf, start); err != nil && err != io.EOF {
 			return ""
 		}
-		buf = append(buf, fragment...)
 		for {
 			i := bytes.LastIndexByte(buf, '\n')
 			if i < 0 && start > 0 {
 				break
 			}
-			if id, found := sessionOwnerKey(buf[i+1:]); found {
+			if id, found := sessionOwnerKey(line(buf, start, start+int64(i)+1, lineEnd)); found {
 				return id
 			}
 			if i < 0 {
 				return ""
 			}
+			lineEnd = start + int64(i)
 			buf = buf[:i]
 		}
-		fragment = buf
 		end = start
 	}
 }

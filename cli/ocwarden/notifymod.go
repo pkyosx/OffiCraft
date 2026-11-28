@@ -40,7 +40,10 @@ const (
 	// listenAckFileEnv); bin/listen-notice-mirror-guard.py holds the two equal.
 	listenAckFileEnv = "OC_LISTEN_ACK_FILE"
 
-	notifyModMinClaudeVersion = "2.1.287"
+	// Also the minimum for the session-owner record ocagent takes a Claude
+	// member's account from (cli/ocagent/contextreport.go): 2.1.308–2.1.316 never
+	// write it, and a member without it reports no account.
+	notifyModMinClaudeVersion = "2.1.317"
 )
 
 type notifyModListener struct {

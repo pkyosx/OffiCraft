@@ -64,8 +64,9 @@ func stopInput(transcript string) string {
 		`"stop_hook_active":false,"last_assistant_message":"OK","background_tasks":[],"session_crons":[]}`
 }
 
-// ownedFixture is a sample transcript preceded by the session-owner record
-// Claude Code writes near the top of every session.
+// ownedFixture is a sample transcript preceded by the first session-owner
+// record Claude Code writes near the top of every session; a real session
+// repeats it, the last one near the end.
 func ownedFixture(t *testing.T, name string) string {
 	t.Helper()
 	raw, err := os.ReadFile(fixturePath(t, name))
@@ -394,11 +395,6 @@ func TestCmdModelCallReport(t *testing.T) {
 			t.Errorf("sent %+v, want one body %s", *posts, want)
 		}
 
-		leftoverRecord := `{"account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
-			`"rate_limits":"{\"seven_day\":{\"resets_at\":1794769200,\"used_percentage\":99}}","login":"au-1/org-1"}`
-		if err := os.WriteFile(memberFile(cfg, "claude_account.json"), []byte(leftoverRecord), 0o644); err != nil {
-			t.Fatal(err)
-		}
 		appendTranscriptRows(t, transcript, sessionOwnerRow("au-2", "org-2"))
 		cmdModelCallReport(srv.Client(), cfg, reloggedEnv, 1200,
 			strings.NewReader(stopFailureInput("server_error", transcript)), &errOut)

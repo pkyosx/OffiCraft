@@ -343,7 +343,7 @@ func homebrewUnchangedReason(output []string, current string) (string, bool) {
 	}
 	lagging := func(v string) string {
 		return "this machine's Claude Code is managed by Homebrew's regular cask, whose newest version is only " + v +
-			", below the " + notifyModMinClaudeVersion + " needed to receive notifications; on this machine switch to the latest cask: `" + latestCmd + "`"
+			", below the " + notifyModMinClaudeVersion + " Claude members need; on this machine switch to the latest cask: `" + latestCmd + "`"
 	}
 	if target != "" {
 		if below, known := claudeBelowNotifyMinimum(target); known {

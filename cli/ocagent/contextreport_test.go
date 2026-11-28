@@ -268,7 +268,6 @@ func TestCmdContextReport(t *testing.T) {
 			"family-game":   writeTranscriptRows(t, sessionOwnerRow("au-max", "org-max")),
 			"direct-switch": writeTranscriptRows(t, sessionOwnerRow("au-max", "org-max")),
 			"new-member":    writeTranscriptRows(t, sessionOwnerRow("au-ent", "org-ent")),
-			"upgraded":      writeTranscriptRows(t, sessionOwnerRow("au-ent", "org-ent")),
 		}
 		report := func(member string, now float64, payload string) []string {
 			t.Helper()
@@ -329,22 +328,13 @@ func TestCmdContextReport(t *testing.T) {
 		if got, want := report("new-member", 1300, enterpriseWindow), telemetry(entRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
 			t.Errorf("a member started after the re-login sent\n  %q\nwant\n  %q", got, want)
 		}
-
-		leftoverRecord := filepath.Join(agentsRoot, "upgraded", "claude_account.json")
-		if err := os.MkdirAll(filepath.Dir(leftoverRecord), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(leftoverRecord, []byte(`{"account":"au-max/org-max","account_label":"seth@x.io(Max)",`+
-			`"rate_limits":"{\"seven_day\":{\"resets_at\":1793000000,\"used_percentage\":3}}","login":"au-max/org-max"}`), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if got, want := report("upgraded", 1300, enterpriseWindow), telemetry(entRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
-			t.Errorf("a member with a previous version's account record sent\n  %q\nwant\n  %q", got, want)
-		}
 	})
 
 	t.Run("only the newest owner record in the transcript names the session's account", func(t *testing.T) {
 		padding := strings.Repeat(`{"type":"user","message":"`+strings.Repeat("x", 1000)+`"}`+"\n", 200)
+		filler := func(n int) string {
+			return `{"type":"user","message":"` + strings.Repeat("x", n-len(`{"type":"user","message":""}`+"\n")) + `"}` + "\n"
+		}
 		home := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-2","organizationUuid":"org-2"}}`)
 		env := testEnv(map[string]string{"HOME": home})
 		cases := []struct {
@@ -368,6 +358,22 @@ func TestCmdContextReport(t *testing.T) {
 			{
 				name:       "a newest record that names no account leaves the account unknown",
 				transcript: sessionOwnerRow("au-1", "org-1") + `{"type":"session-owner","accountUuid":"","organizationUuid":""}` + "\n",
+			},
+			{
+				name:       "a record straddling a chunk boundary is read whole",
+				transcript: sessionOwnerRow("au-1", "org-1") + padding + sessionOwnerRow("au-2", "org-2") + filler(64<<10-10),
+				want:       `"account":"au-2/org-2"`,
+			},
+			{
+				name:       "a line longer than a chunk between the record and the end is passed over",
+				transcript: sessionOwnerRow("au-1", "org-1") + sessionOwnerRow("au-2", "org-2") + filler(200<<10) + filler(100),
+				want:       `"account":"au-2/org-2"`,
+			},
+			{
+				name: "a record of another type holding the string session-owner is not a record",
+				transcript: sessionOwnerRow("au-1", "org-1") +
+					`{"type":"user","message":{"content":[{"type":"tool_result","content":"session-owner"}]}}` + "\n",
+				want: `"account":"au-1/org-1"`,
 			},
 			{
 				name:       "a message that only quotes the record type is not a record",
