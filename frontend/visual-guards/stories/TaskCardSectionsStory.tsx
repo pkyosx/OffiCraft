@@ -22,6 +22,15 @@ const LONG_DESC = [
   "- 描述維持唯讀。",
 ].join("\n");
 
+const DESCRIPTIONS = {
+  long: LONG_DESC,
+  short: "只有一行的描述。",
+  paragraph: "這張卡要把週報的彙整流程整理成可以重複執行的步驟。".repeat(24),
+  joined: "第一行\n第二行\n第三行",
+};
+
+export type StoryDescription = keyof typeof DESCRIPTIONS;
+
 const STEPS = [
   mkStep({ name: "收集本週各任務進度", status: "done", dod: "每位成員的進度都有一句話摘要", startedTs: 1000, finishedTs: 1060 }),
   mkStep({ name: "草擬週報", status: "in_progress", dod: "週報草稿放進共享文件", startedTs: 1060 }),
@@ -29,12 +38,12 @@ const STEPS = [
   mkStep({ name: "發佈週報", status: "pending", dod: "週報發佈到共享文件區" }),
 ];
 
-export function TaskCardSectionsStory({ description }: { description: "long" | "short" }) {
+export function TaskCardSectionsStory({ description }: { description: StoryDescription }) {
   const task = mkTask({
     id: "t-0048a0000002",
     taskNo: "t-0048a0000002",
     title: "第 48 週週報彙整與發佈",
-    description: description === "long" ? LONG_DESC : "只有一行的描述。",
+    description: DESCRIPTIONS[description],
     progressDone: 1,
     progressTotal: 4,
     steps: STEPS,

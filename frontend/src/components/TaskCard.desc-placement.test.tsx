@@ -197,13 +197,21 @@ describe("spec ③ 詳細敘述排在訊息輸入框之後", () => {
     afterEach(() => vi.restoreAllMocks());
 
     // jsdom lays nothing out: the clamped body reports one height unit per
-    // character against a box of 40.
+    // character against a box of 40, at a line height of 10.
     function fakeLayout() {
       vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
         return this.dataset.testid === "task-desc-body" ? (this.textContent ?? "").length : 0;
       });
       vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) {
         return this.dataset.testid === "task-desc-body" ? 40 : 0;
+      });
+      const real = window.getComputedStyle.bind(window);
+      vi.spyOn(window, "getComputedStyle").mockImplementation((el, pseudo) => {
+        const style = real(el, pseudo);
+        if ((el as HTMLElement).dataset.testid !== "task-desc-body") return style;
+        return Object.assign(Object.create(style), {
+          getPropertyValue: (name: string) => (name === "--clamped-text-line-height" ? "10px" : style.getPropertyValue(name)),
+        });
       });
     }
 
@@ -215,10 +223,9 @@ describe("spec ③ 詳細敘述排在訊息輸入框之後", () => {
       return view;
     }
 
-    it("a long description is clamped with a fade and 展開全文 that opens and closes it, and the title bar counts its lines", async () => {
+    it("a long description is clamped with a fade and 展開全文 that opens and closes it, and the title bar counts its rendered lines", async () => {
       fakeLayout();
-      const long = Array.from({ length: 20 }, (_, i) => `第 ${i + 1} 行的敘述內容。`).join("\n");
-      const { getByTestId } = await expand(long);
+      const { getByTestId } = await expand("字".repeat(200));
 
       expect(getByTestId("task-desc-section-summary").textContent).toBe("約 20 行");
       const body = getByTestId("task-desc-body");
@@ -243,10 +250,11 @@ describe("spec ③ 詳細敘述排在訊息輸入框之後", () => {
       expect(getByTestId("task-desc-body").classList.contains("clamped-text__body--faded")).toBe(false);
     });
 
-    it("its title bar hides and restores the whole body without collapsing the card", async () => {
+    it("its title bar hides and restores the whole body without collapsing the card, and shows no line count before layout", async () => {
       const { container, getByTestId } = await expand(DESC);
       const head = getByTestId("task-desc-section-head");
       expect(head.textContent).toContain("任務描述");
+      expect(container.querySelector('[data-testid="task-desc-section-summary"]')).toBeNull();
       expect(head.getAttribute("aria-expanded")).toBe("true");
 
       fireEvent.click(head);

@@ -516,6 +516,7 @@ export function TaskCard({
   const [moreOpen, setMoreOpen] = useState(false);
   const [descOpen, setDescOpen] = useState(true);
   const [workflowOpen, setWorkflowOpen] = useState(true);
+  const [descLineCount, setDescLineCount] = useState(0);
   const moreId = useId();
   useEffect(() => {
     if (located) setExpanded(true);
@@ -1532,9 +1533,6 @@ export function TaskCard({
   }
 
   const timeline = buildTimeline(view.steps);
-  const descLineCount = view.description
-    ? view.description.split("\n").filter((l) => l.trim() !== "").length
-    : 0;
   const currentStep = view.steps.find((s) => s.status === "in_progress");
   const workflowSummary =
     task.progressTotal === 0
@@ -2769,7 +2767,7 @@ export function TaskCard({
         <TaskCardSection
           icon={<FileTextIcon size={14} />}
           title={t.tasks.descTitle}
-          summary={descLineCount > 0 ? t.tasks.descLines(descLineCount) : ""}
+          summary={view.description && descLineCount > 0 ? t.tasks.descLines(descLineCount) : ""}
           open={descOpen}
           onToggle={() => setDescOpen((v) => !v)}
           testId="task-desc-section"
@@ -2781,7 +2779,12 @@ export function TaskCard({
                 `update_task`, and POST /api/tasks/{id}/description stays on the
                 HTTP surface for this client. */}
             {view.description ? (
-              <ClampedText lines={6} className="task-card__desc-clamp" testId="task-desc">
+              <ClampedText
+                lines={6}
+                className="task-card__desc-clamp"
+                testId="task-desc"
+                onLineCount={setDescLineCount}
+              >
                 <Markdown
                   source={view.description}
                   className="task-card__desc doc-md"

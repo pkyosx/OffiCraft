@@ -5,6 +5,9 @@
 //
 // `children` in place of `text` clamps rendered blocks (Markdown) by height:
 // `lines` times the line height the caller sets in --clamped-text-line-height.
+//
+// `onLineCount` reports the full text's height in lines at the current width,
+// whether clamped or open; it is not called until the browser has laid it out.
 
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useI18n } from "../i18n";
@@ -15,6 +18,7 @@ type ClampedTextProps = {
   lines?: number;
   className?: string;
   testId?: string;
+  onLineCount?: (lines: number) => void;
 } & ({ text: string; children?: never } | { text?: never; children: ReactNode });
 
 export function ClampedText({
@@ -23,6 +27,7 @@ export function ClampedText({
   lines = 3,
   className = "",
   testId = "clamped-text",
+  onLineCount,
 }: ClampedTextProps) {
   const { t } = useI18n();
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -30,19 +35,30 @@ export function ClampedText({
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
 
-  // Measured only while clamped: open, the box is as tall as its text and has
-  // nothing to compare against. Closing re-runs this, so a width change made
-  // while open is caught then.
+  // Open, the box is as tall as its text, so overflow can only be judged
+  // against the clamp height; text that has shrunk under it drops 收起.
   useLayoutEffect(() => {
     const el = bodyRef.current;
-    if (!el || expanded) return;
-    // 1px of slack: a fractional line height rounds clientHeight down.
-    const measure = () => setOverflows(el.scrollHeight > el.clientHeight + 1);
+    if (!el) return;
+    const measure = () => {
+      const full = el.scrollHeight;
+      const lineHeight = lineHeightPx(el);
+      if (onLineCount && full > 0 && lineHeight > 0) {
+        onLineCount(Math.max(1, Math.round(full / lineHeight)));
+      }
+      // 1px of slack: a fractional line height rounds clientHeight down.
+      if (!expanded) {
+        setOverflows(full > el.clientHeight + 1);
+      } else if (lineHeight > 0 && full <= lines * lineHeight + 1) {
+        setOverflows(false);
+        setExpanded(false);
+      }
+    };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [text, children, lines, expanded]);
+  }, [text, children, lines, expanded, onLineCount]);
 
   const label = expanded ? t.common.textShowLess : t.common.textShowAll;
   return (
@@ -76,4 +92,12 @@ export function ClampedText({
       )}
     </div>
   );
+}
+
+function lineHeightPx(el: HTMLElement): number {
+  const style = getComputedStyle(el);
+  const custom = style.getPropertyValue("--clamped-text-line-height").trim();
+  if (custom.endsWith("em")) return parseFloat(custom) * parseFloat(style.fontSize);
+  if (custom.endsWith("px")) return parseFloat(custom);
+  return parseFloat(style.lineHeight);
 }
