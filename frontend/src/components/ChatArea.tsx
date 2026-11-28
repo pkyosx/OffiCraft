@@ -2573,14 +2573,14 @@ export function ChatArea({
           <div className="chat__header-sub">
             {headerSub ?? <PresenceBadge member={member} dot={false} />}
           </div>
-          {/* T-3451: the peer's CURRENT task title, FULL (no clamp) — owner 圖2.
-           * Rendered only when present (a taskless / released peer grows no
-           * empty line here; showEmpty=false). */}
+          {/* The peer's current task title, clamped to two lines like the
+           * roster row's (hover shows it in full). Rendered only when present
+           * (a taskless / released peer grows no empty line here). */}
           {headerTaskTitle ? (
             <div className="chat__header-task">
               <CurrentTaskTitle
                 title={headerTaskTitle}
-                clamp={false}
+                clamp
                 showEmpty={false}
                 testid="chat-header-task-title"
               />

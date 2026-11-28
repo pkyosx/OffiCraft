@@ -3063,7 +3063,7 @@ button.chat__msg-file {
 .outsource-row__task-line + .current-task-title {
   margin-top: 3px;
 }
-/* Chat-header full-title line — sits under the presence / task-type sub, a hair
+/* Chat-header task-title line — sits under the presence / task-type sub, a hair
  * stronger than the muted sub so the actual work reads as the header's point. */
 .chat__header-task {
   margin-top: 2px;

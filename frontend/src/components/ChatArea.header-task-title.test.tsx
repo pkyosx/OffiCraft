@@ -1,8 +1,7 @@
-// T-3451: the chat header's CURRENT task title line (owner 圖2 — the selected
-// member's header shows the COMPLETE task title, un-truncated). Locked here:
-//   1. headerTaskTitle present → the full title renders in the header as its
-//      own line (data-testid chat-header-task-title), un-clamped, with the full
-//      text on the `title` tooltip.
+// The chat header's current task title line. Locked here:
+//   1. headerTaskTitle present → the title renders in the header as its own
+//      line (data-testid chat-header-task-title), clamped to two lines, with the
+//      full text on the `title` tooltip.
 //   2. headerTaskTitle absent / "" → NO empty line grows in the header (a
 //      released / taskless peer never gets a "no task" line there).
 import { describe, it, expect, vi } from "vitest";
@@ -60,7 +59,7 @@ function mkMember(over: Partial<Member> = {}): Member {
 const LONG = "把整包報告重寫成第一原理版本並補齊三語 i18n 與窄版 CT 護欄";
 
 describe("ChatArea header current-task title (T-3451)", () => {
-  it("renders the FULL task title in the header when headerTaskTitle is set", () => {
+  it("renders the task title in the header clamped to two lines with the full text on hover", () => {
     const { getByTestId } = render(
       <I18nProvider>
         <ChatArea member={mkMember()} headerTaskTitle={LONG} />
@@ -68,9 +67,8 @@ describe("ChatArea header current-task title (T-3451)", () => {
     );
     const el = getByTestId("chat-header-task-title");
     expect(el.textContent).toBe(LONG);
-    // full text on hover, and NOT the 2-line clamp variant (header = un-truncated).
     expect(el.getAttribute("title")).toBe(LONG);
-    expect(el.className).not.toContain("current-task-title--clamp");
+    expect(el.className).toContain("current-task-title--clamp");
   });
 
   it("renders NO task-title line when headerTaskTitle is absent", () => {
