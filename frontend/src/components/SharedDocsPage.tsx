@@ -8,10 +8,10 @@ import { authedAttachmentUrl } from "../api/http";
 import { useActors } from "../hooks/useActorName";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { useSharedDoc, useSharedDocAction, useSharedDocs } from "../hooks/useSharedDocs";
-import { useHashRoute } from "../lib/hashRoute";
+import { navigateHash, useHashRoute } from "../lib/hashRoute";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import type { Member, SharedDocView } from "../types";
-import { Avatar } from "./Avatar";
+import { MemberChatChip, MemberChip } from "./MemberChip";
 import { ConfirmModal } from "./ConfirmModal";
 import {
   SharedDocDetail,
@@ -475,7 +475,7 @@ function UpdatedButton({ text, onOpen }: { text: string; onOpen: () => void }) {
   return (
     <button
       type="button"
-      className="lore-row__chip lore-row__chip--link shared-docs__updated-open"
+      className="card-meta__chip card-meta__chip--link shared-docs__updated-open"
       data-testid="shared-doc-updated"
       aria-label={`${text} · ${d.openHistory}`}
       title={d.openHistory}
@@ -551,17 +551,22 @@ function RowActions({
   );
 }
 
-/** 建立者: who made the doc, as an avatar chip; the owner wears the profile pill's avatar. */
+/** 建立者: who made the doc, as an avatar chip that opens their chat; the owner
+ * wears the profile pill's avatar and has no chat. */
 function CreatorChip({ id, name, member }: { id: string; name: string; member: Member | undefined }) {
+  const { t } = useI18n();
+  const avatar = member ? { kind: avatarKindForMember(member), src: member.avatarUrl } : null;
+  if (id === "owner") {
+    return <MemberChip name={name} avatar={{ kind: "owner" }} testId="shared-doc-creator" />;
+  }
   return (
-    <span className="lore-row__chip" data-testid="shared-doc-creator">
-      {id === "owner" ? (
-        <Avatar size={18} kind="owner" />
-      ) : member ? (
-        <Avatar size={18} kind={avatarKindForMember(member)} src={member.avatarUrl} />
-      ) : null}
-      <span className="shared-docs__chip-text">{name}</span>
-    </span>
+    <MemberChatChip
+      name={name}
+      avatar={avatar}
+      label={t.tasks.messageCreator}
+      onOpen={() => navigateHash({ page: "office", chatId: id })}
+      testId="shared-doc-creator"
+    />
   );
 }
 

@@ -122,6 +122,7 @@ export const zh = {
     openManualLabel: "開啟任務手冊",
     copyEntryIdLabel: "複製條目編號",
     authorLabel: "撰寫人",
+    messageAuthor: "傳訊息給撰寫人",
     effectiveLabel: "生效期",
     retireReasonLabel: "失效理由",
     // 適用範圍徽章與選單
@@ -775,6 +776,7 @@ export const zh = {
     copyWholeCard: "複製整張卡片內容",
     taskDueLabel: "到期",
     openerLabel: "開卡人",
+    messageOpener: "傳訊息給開卡人",
     askerTaskLabel: "目前任務",
     openTask: "查看任務",
     expandCard: "展開這張請示卡",

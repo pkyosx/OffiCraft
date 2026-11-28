@@ -86,7 +86,7 @@ const isCut = (l: Locator) => l.evaluate((el) => el.scrollWidth > el.clientWidth
  * its whole text is on hover. Returns the texts that had to be cut. */
 async function expectOpenerCutWithEllipsis(meta: Locator, what: string, oneLine: boolean): Promise<string[]> {
   const cutTexts: string[] = [];
-  for (const line of await meta.locator(".reply-card__name, .outsource-row__task-line, .outsource-row__chip, .outsource-row__type, .current-task-title").all()) {
+  for (const line of await meta.locator(".card-meta__chip-name, .outsource-row__task-line, .outsource-row__chip, .outsource-row__type, .current-task-title").all()) {
     const text = (await line.textContent()) ?? "";
     if (oneLine) expect(await textLines(line), `${what}: 「${text}」 on one line`).toBe(1);
     if (!(await isCut(line))) continue;
@@ -161,7 +161,7 @@ async function expectHeadLine(card: Locator, what: string, mode: "touch" | "mous
   const meta = card.locator(".card-meta");
   const rows = await box(meta);
   expect(inside(rows, c), `${what}: the meta rows inside the card`).toBe(true);
-  for (const part of await meta.locator(".reply-card__opener, .reply-card__worker-task-value").all()) {
+  for (const part of await meta.locator("[data-testid='reply-card-opener'], .reply-card__worker-task-value").all()) {
     expect(inside(await box(part), rows), `${what}: ${await part.textContent()} inside the meta rows`).toBe(true);
   }
   const phone = (await card.page().viewportSize())!.width <= 720;

@@ -8,6 +8,7 @@ import { formatDue } from "../lib/dueDate";
 import { JumpToMessageIcon } from "./replyCardActionIcons";
 import "./tasks.css";
 import "./office.css";
+import "./card-meta.css";
 
 /** The task-number chip that jumps to the task, led by the jump icon every
  * id that takes you somewhere wears: the outsource rail row's, the worker chat
@@ -76,7 +77,7 @@ export function TaskDueChip({
   const text = formatDue(dueTs, nowSec);
   return (
     <span
-      className={`task-card__chip task-card__due-chip${tone}`}
+      className={`card-meta__chip task-card__due-chip${tone}`}
       data-testid={testId}
       title={`${t.replies.taskDueLabel} ${text}`}
     >

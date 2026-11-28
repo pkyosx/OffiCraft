@@ -227,7 +227,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     const link = await findByTestId("task-key-link");
     expect(link.getAttribute("href")).toBe("https://github.com/x/y/pull/9");
     expect(link.getAttribute("target")).toBe("_blank");
-    expect(link.classList.contains("task-card__chip")).toBe(true);
+    expect(link.classList.contains("card-meta__chip")).toBe(true);
   });
 
   it("任務類型 value is a chip with the gear inside; clicking jumps to the type's settings hub; ad-hoc is plain", async () => {
@@ -258,7 +258,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     const link = typed.querySelector<HTMLButtonElement>(
       '[data-testid="task-type-link"]'
     )!;
-    expect(link.classList.contains("task-card__chip")).toBe(true);
+    expect(link.classList.contains("card-meta__chip")).toBe(true);
     expect(link.querySelector("svg")).toBeTruthy();
     fireEvent.click(link);
     expect(window.location.hash).toBe("#settings/manuals/review-pr");
@@ -304,7 +304,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     expect(
       link.querySelector('[data-testid="task-executor"]')?.textContent
     ).toBe("Mira");
-    expect(link.classList.contains("task-card__chip")).toBe(true);
+    expect(link.classList.contains("card-meta__chip")).toBe(true);
     expect(link.querySelector("svg")).toBeTruthy(); // chat bubble inside the chip
     fireEvent.click(link);
     expect(window.location.hash).toBe(

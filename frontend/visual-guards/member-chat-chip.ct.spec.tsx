@@ -1,5 +1,5 @@
-// GUARD (T-a706) — the 請示 card's 開卡人 chip (avatar and name) is a real
-// click + keyboard target that opens the profile.
+// GUARD (T-a706) — the member chip that opens a chat (the 請示 card's 開卡人 and
+// every other person on a card's label/value rows) is a real click target.
 //
 // Owner (2026-07-21 screenshot): the 請示 page card avatar was the one place
 // in the cockpit whose avatar did NOT open the member panel. jsdom (vitest)
@@ -11,7 +11,7 @@
 // a focused <button>, which jsdom does not implement).
 //
 // MUTANT (verified red→green, see task conclusion doc): delete the `onClick`
-// prop wiring in ReplyCardOpenerChip.tsx → every test below goes red
+// prop wiring in MemberChip.tsx → every test below goes red
 // (click and keyboard alike, since both ultimately fire the same handler).
 // Deleting `aria-label` alone (title still set) leaves click/keyboard green
 // and reddens ONLY the aria-label assertion below — checked via the raw
@@ -21,18 +21,17 @@
 // — a role-name assertion here would have been unfalsifiable against exactly
 // the regression it claims to catch).
 import { test, expect } from "@playwright/experimental-ct-react";
-import { ReplyCardOpenerStory } from "./stories/ReplyCardOpenerStory";
-import { zh } from "../src/i18n/locales/zh";
+import { MemberChatChipStory } from "./stories/MemberChatChipStory";
 
 for (const width of [1280, 390]) {
-  test(`width ${width}: clicking the opener chip opens the profile`, async ({
+  test(`width ${width}: clicking the chip opens the chat`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width, height: 800 });
-    const cmp = await mount(<ReplyCardOpenerStory />);
+    const cmp = await mount(<MemberChatChipStory />);
     await expect(cmp.getByTestId("open-count")).toHaveText("0");
-    await cmp.locator(".reply-card__opener").click();
+    await cmp.getByTestId("member-chip").click();
     await expect(cmp.getByTestId("open-count")).toHaveText("1");
   });
 
@@ -60,8 +59,8 @@ for (const width of [1280, 390]) {
     page,
   }) => {
     await page.setViewportSize({ width, height: 800 });
-    const cmp = await mount(<ReplyCardOpenerStory />);
-    const avatarBtn = cmp.locator(".reply-card__opener");
+    const cmp = await mount(<MemberChatChipStory />);
+    const avatarBtn = cmp.getByTestId("member-chip");
 
     await page.keyboard.press("Tab");
     await expect(avatarBtn).toBeFocused();
@@ -77,16 +76,16 @@ for (const width of [1280, 390]) {
 test("the opener chip carries aria-label (Avatar's inner glyphs are aria-hidden, so the button's OWN label is the only accessible name)", async ({
   mount,
 }) => {
-  const cmp = await mount(<ReplyCardOpenerStory />);
+  const cmp = await mount(<MemberChatChipStory />);
   const ariaLabel = await cmp
-    .locator(".reply-card__opener")
+    .getByTestId("member-chip")
     .getAttribute("aria-label");
-  expect(ariaLabel).toBe(`${zh.office.viewProfile} Mira`);
+  expect(ariaLabel).toBe("傳訊息給開卡人");
   // Independent confirmation the real accessibility tree resolves the SAME
   // name (not required for the mutant to redden — see comment above — but a
   // second, real-Chromium-computed signal that the name is actually exposed).
   await expect(
-    cmp.getByRole("button", { name: `${zh.office.viewProfile} Mira` })
+    cmp.getByRole("button", { name: "傳訊息給開卡人" })
   ).toBeVisible();
 });
 
@@ -115,8 +114,8 @@ test("the opener chip carries aria-label (Avatar's inner glyphs are aria-hidden,
 test("focus-visible paints a non-transparent ring on the opener chip", async ({
   mount,
 }) => {
-  const cmp = await mount(<ReplyCardOpenerStory />);
-  const btn = cmp.locator(".reply-card__opener");
+  const cmp = await mount(<MemberChatChipStory />);
+  const btn = cmp.getByTestId("member-chip");
   await btn.focus();
   // Asserted separately so a future Chromium that stops applying
   // :focus-visible to programmatic focus fails HERE, naming itself, instead of

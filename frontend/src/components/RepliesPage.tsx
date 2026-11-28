@@ -96,7 +96,7 @@ import { useHashRoute } from "../lib/hashRoute";
 import { isSyntheticSender } from "../lib/syntheticSender";
 import { docCommentRecipient } from "../lib/docComments";
 import { avatarKindForMember } from "../lib/avatarKind";
-import { ReplyCardOpenerChip } from "./ReplyCardOpenerChip";
+import { MemberChatChip } from "./MemberChip";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
 import { OutsourceTaskLine } from "./OutsourcePanel";
 import {
@@ -1216,27 +1216,6 @@ export function RepliesPage({
   // silent wrong-room landing when opened via this cross-page deep link,
   // since there was never a chat selected to return to. The marker tells
   // OfficePage's 返回 to reopen this exact card instead.
-  function openProfile(row: ReplyCardRow) {
-    const isRosterMember = members.some(
-      (m) => m.id === row.from && m.kind === "staff",
-    );
-    setRoute(
-      isRosterMember
-        ? {
-            page: "office",
-            detailId: row.from,
-            backTo: "replies",
-            backToId: row.id,
-          }
-        : {
-            page: "office",
-            workerId: row.from,
-            backTo: "replies",
-            backToId: row.id,
-          },
-    );
-  }
-
   // §3.6 請示 → 任務: an ask that names a task shows it in a box right under
   // the first line. The route carries the task id so the tasks page can locate
   // the card. A pure chat ask renders nothing here.
@@ -1513,14 +1492,17 @@ export function RepliesPage({
     return (
       <div className="card-meta">
         <span className="card-meta__label">{t.replies.openerLabel}</span>
-        <ReplyCardOpenerChip
-          onClick={() => openProfile(row)}
+        <MemberChatChip
           name={who.chipName}
-          src={
-            (asker?.kind === "outsource" ? undefined : asker?.avatarUrl) ??
-            workerAvatarUrls.get(row.from)
-          }
-          kind={avatarKindForMember(asker ?? { id: row.from })}
+          avatar={{
+            kind: avatarKindForMember(asker ?? { id: row.from }),
+            src:
+              (asker?.kind === "outsource" ? undefined : asker?.avatarUrl) ??
+              workerAvatarUrls.get(row.from),
+          }}
+          label={t.replies.messageOpener}
+          onOpen={() => setRoute({ page: "office", chatId: row.from })}
+          testId="reply-card-opener"
         />
         {askerTask}
         {handled}

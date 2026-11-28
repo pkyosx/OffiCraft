@@ -130,13 +130,12 @@ import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 import { TaskArtifactsBadge } from "./TaskArtifactsPopover";
 import { TaskReassignDialog } from "./TaskReassignDialog";
 import { TaskReplyCard } from "./TaskReplyCard";
-import { Avatar } from "./Avatar";
+import { MemberChatChip, MemberChip } from "./MemberChip";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { OWNER_ID } from "../lib/ownerUnread";
 import { docCommentRecipient } from "../lib/docComments";
 import { AttachmentLinkCommentsContext } from "../hooks/useAttachmentOpener";
 import {
-  ChatBubbleIcon,
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
@@ -1476,7 +1475,6 @@ export function TaskCard({
             commentRecipientFor={docCommentRecipientFor}
             members={members}
             workers={workers}
-            taskId={task.id}
           />
         )}
       </div>
@@ -1891,28 +1889,16 @@ export function TaskCard({
           <span className="card-meta__label">{t.tasks.assigneeLabel}</span>
           <div className="task-card__assignee-cell">
             {assigneePeerId ? (
-              <button
-                type="button"
-                className="task-card__chip task-card__chip--link"
-                title={t.tasks.messageAssignee}
-                aria-label={t.tasks.messageAssignee}
-                data-testid="task-assignee-link"
-                onClick={() => openChat(assigneePeerId)}
-              >
-                {assigneeAvatar ? (
-                  <Avatar size={18} kind={assigneeAvatar.kind} src={assigneeAvatar.src} />
-                ) : null}
-                <span className="task-card__executor" data-testid="task-executor">
-                  {executorText}
-                </span>
-                <ChatBubbleIcon size={13} />
-              </button>
+              <MemberChatChip
+                name={executorText}
+                avatar={assigneeAvatar}
+                label={t.tasks.messageAssignee}
+                onOpen={() => openChat(assigneePeerId)}
+                testId="task-assignee-link"
+                nameTestId="task-executor"
+              />
             ) : (
-              <span className="task-card__chip" data-testid="task-assignee-row">
-                <span className="task-card__executor" data-testid="task-executor">
-                  {executorText}
-                </span>
-              </span>
+              <MemberChip name={executorText} avatar={null} testId="task-assignee-row" nameTestId="task-executor" />
             )}
             {!closed && (
               <button
@@ -1935,7 +1921,7 @@ export function TaskCard({
                 {dueEditable ? (
                   <button
                     type="button"
-                    className={`task-card__chip task-card__chip--link${
+                    className={`card-meta__chip card-meta__chip--link${
                       dueDateText === null ? " task-card__due-date--unset" : dueToneClass
                     }`}
                     title={t.tasks.dueEditLabel}
@@ -1952,7 +1938,7 @@ export function TaskCard({
                   </button>
                 ) : (
                   <span
-                    className={`task-card__chip${dueToneClass}`}
+                    className={`card-meta__chip${dueToneClass}`}
                     aria-describedby={dueDescribedBy}
                     data-testid="task-due"
                   >
@@ -2140,7 +2126,7 @@ export function TaskCard({
               {typeClickable ? (
                 <button
                   type="button"
-                  className="task-card__chip task-card__chip--link"
+                  className="card-meta__chip card-meta__chip--link"
                   title={t.tasks.typeSettingsLink}
                   data-testid="task-type-link"
                   onClick={openTypeSettings}
@@ -2151,7 +2137,7 @@ export function TaskCard({
                   </span>
                 </button>
               ) : (
-                <span className="task-card__chip" data-testid="task-type-row">
+                <span className="card-meta__chip" data-testid="task-type-row">
                   <span className="task-card__type" data-testid="task-type">
                     {typeLabel}
                   </span>
@@ -2182,28 +2168,16 @@ export function TaskCard({
                 <>
                   <span className="card-meta__label">{t.tasks.creatorLabel}</span>
                   {creator.peerId ? (
-                    <button
-                      type="button"
-                      className="task-card__chip task-card__chip--link"
-                      title={t.tasks.messageCreator}
-                      aria-label={t.tasks.messageCreator}
-                      data-testid="task-creator-link"
-                      onClick={() => openChat(creator.peerId)}
-                    >
-                      {creatorAvatar ? (
-                        <Avatar size={18} kind={creatorAvatar.kind} src={creatorAvatar.src} />
-                      ) : null}
-                      <span className="task-card__creator" data-testid="task-creator">
-                        {creator.text}
-                      </span>
-                      <ChatBubbleIcon size={13} />
-                    </button>
+                    <MemberChatChip
+                      name={creator.text}
+                      avatar={creatorAvatar}
+                      label={t.tasks.messageCreator}
+                      onOpen={() => openChat(creator.peerId)}
+                      testId="task-creator-link"
+                      nameTestId="task-creator"
+                    />
                   ) : (
-                    <span className="task-card__chip" data-testid="task-creator-row">
-                      <span className="task-card__creator" data-testid="task-creator">
-                        {creator.text}
-                      </span>
-                    </span>
+                    <MemberChip name={creator.text} avatar={null} testId="task-creator-row" nameTestId="task-creator" />
                   )}
                 </>
               )}
@@ -2219,25 +2193,14 @@ export function TaskCard({
               <span className="card-meta__label">
                 {t.tasks.previousAssigneeLabel}
               </span>
-              <button
-                type="button"
-                className="task-card__chip task-card__chip--link"
-                title={t.tasks.messagePreviousAssignee}
-                aria-label={t.tasks.messagePreviousAssignee}
-                data-testid="task-previous-assignee-link"
-                onClick={() => openChat(previousAssignee.peerId)}
-              >
-                {previousAvatar ? (
-                  <Avatar size={18} kind={previousAvatar.kind} src={previousAvatar.src} />
-                ) : null}
-                <span
-                  className="task-card__creator"
-                  data-testid="task-previous-assignee"
-                >
-                  {previousAssignee.text}
-                </span>
-                <ChatBubbleIcon size={13} />
-              </button>
+              <MemberChatChip
+                name={previousAssignee.text}
+                avatar={previousAvatar}
+                label={t.tasks.messagePreviousAssignee}
+                onOpen={() => openChat(previousAssignee.peerId)}
+                testId="task-previous-assignee-link"
+                nameTestId="task-previous-assignee"
+              />
             </>
           )}
 
@@ -2247,7 +2210,7 @@ export function TaskCard({
               <span className="card-meta__label">{t.tasks.keyLabel}</span>
               {isUrl(task.dedupeKey) ? (
                 <a
-                  className="task-card__chip task-card__chip--link task-card__key-chip"
+                  className="card-meta__chip card-meta__chip--link task-card__key-chip"
                   href={task.dedupeKey}
                   target="_blank"
                   rel="noreferrer"
@@ -2259,7 +2222,7 @@ export function TaskCard({
                 </a>
               ) : (
                 <span
-                  className="task-card__chip task-card__key-chip"
+                  className="card-meta__chip task-card__key-chip"
                   data-testid="task-key-row"
                 >
                   <span className="task-card__key" data-testid="task-key">
@@ -2528,7 +2491,7 @@ export function TaskCard({
         <div className="task-card__duplicate" data-testid="task-duplicate-of">
           <button
             type="button"
-            className="task-card__chip task-card__chip--link"
+            className="card-meta__chip card-meta__chip--link"
             title={t.tasks.duplicateJump}
             data-testid="task-duplicate-link"
             onClick={() =>

@@ -51,6 +51,7 @@ import {
   PaperclipIcon,
   TrashIcon,
 } from "./icons";
+import "./card-meta.css";
 
 /** Project a file/image artifact onto the ChatAttachmentView the shared
  * AttachmentStrip renders (id/url/filename/mime/isImage — the exact reuse
@@ -210,7 +211,7 @@ export function TaskArtifactsBadge({
     <span className="task-artifacts-anchor" ref={anchorRef}>
       <button
         type="button"
-        className="task-card__chip task-card__chip--link task-card__artifacts-chip"
+        className="card-meta__chip card-meta__chip--link task-card__artifacts-chip"
         data-testid="task-artifacts-badge"
         aria-haspopup="dialog"
         aria-expanded={open}

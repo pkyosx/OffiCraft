@@ -290,7 +290,7 @@ describe("RepliesPage", () => {
       ).toBe("reply-card__waited");
     }
     // Initiator identity resolves through the roster (mock Mira), name only.
-    expect(cards[2].querySelector(".reply-card__opener")?.textContent).toBe("Mira");
+    expect(cards[2].querySelector('[data-testid="reply-card-opener"]')?.textContent).toBe("Mira");
     // 已等你 {t} computed from createdTs.
     expect(cards[2].querySelector('[data-testid="waited-pill"]')?.getAttribute("title")).toBe(
       "已等你 3 小時"
@@ -327,7 +327,7 @@ describe("RepliesPage", () => {
     const cards = await findAllByTestId("waiting-card");
     await openCards();
     const names = cards.map(
-      (c) => c.querySelector(".reply-card__name")?.textContent
+      (c) => c.querySelector(".card-meta__chip-name")?.textContent
     );
     expect(names).toContain("R-2");
     expect(names).toContain("ow-9");
@@ -346,7 +346,7 @@ describe("RepliesPage", () => {
     const nameOf = (summary: string) =>
       cards
         .find((c) => c.textContent?.includes(summary))
-        ?.querySelector(".reply-card__name")?.textContent;
+        ?.querySelector(".card-meta__chip-name")?.textContent;
     expect(nameOf("離職正職的請示")).toBe("阿哲");
     expect(nameOf("查無正職的請示")).toBe("m-unknown");
 
@@ -380,7 +380,7 @@ describe("RepliesPage", () => {
       land(roster);
       const left = cards.find((c) => c.textContent?.includes("離職正職的請示"))!;
       await waitFor(() =>
-        expect(left.querySelector(".reply-card__name")?.textContent).toBe("阿哲"),
+        expect(left.querySelector(".card-meta__chip-name")?.textContent).toBe("阿哲"),
       );
       expect([...lookedUp]).toEqual(["m-left"]);
     } finally {
@@ -397,7 +397,7 @@ describe("RepliesPage", () => {
       const { findAllByTestId } = renderPage();
       const [card] = await findAllByTestId("waiting-card");
       await waitFor(() =>
-        expect(card.querySelector(".reply-card__name")?.textContent).toBe("阿哲"),
+        expect(card.querySelector(".card-meta__chip-name")?.textContent).toBe("阿哲"),
       );
     } finally {
       listMembers.mockRestore();
@@ -433,7 +433,7 @@ describe("RepliesPage", () => {
           </I18nProvider>
         );
         const card = await findByTestId("expired-card");
-        expect(card.querySelector(".reply-card__name")?.textContent).toBe(expected);
+        expect(card.querySelector(".card-meta__chip-name")?.textContent).toBe(expected);
         expect(card.getAttribute("aria-expanded")).toBe("true");
         expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
         unmount();
@@ -1028,50 +1028,44 @@ describe("RepliesPage", () => {
     expect(window.location.hash).toBe("#office/chat/mira/msg/msg-1");
   });
 
-  // T-a706 (owner 2026-07-21 screenshot): the header avatar was the one place
-  // in the cockpit whose avatar did NOT open the member panel — every other
-  // surface (roster row, etc.) already does. Mirrors MemberCard's avatar
-  // click semantics + the SAME hash seam (frontend/src/lib/hashRoute.ts).
-  it("clicking the 開卡人 chip opens that member's detail panel (#office/member/<id>), tagged so 返回 lands back on 請示", async () => {
+  it("clicking the 開卡人 chip opens that member's chat (#office/chat/<id>)", async () => {
     __injectMockReplyCard(mkCard({}));
     const { findAllByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
     await openCards();
 
-    fireEvent.click(card.querySelector(".reply-card__opener")!);
-    // T-a706 owner-acceptance finding: without the /from/replies tag,
-    // OfficePage's own 返回 button reset to its default chat view instead of
-    // back here — see OfficePage.member-detail-backto.test.tsx for the fix
-    // proven from the OTHER side of this hash contract.
-    expect(window.location.hash).toBe("#office/member/mira/from/replies/rc-1");
+    fireEvent.click(card.querySelector('[data-testid="reply-card-opener"]')!);
+    expect(window.location.hash).toBe("#office/chat/mira");
   });
 
-  it("clicking an outsource asker's 開卡人 chip opens the worker panel (#office/worker/<id>), not the member one, same 返回 tag", async () => {
+  it("clicking an outsource asker's 開卡人 chip opens the worker's chat, released or not", async () => {
     __injectMockMember({ id: "ow-rel", kind: "outsource", name: "R-2" });
     __injectMockReplyCard(mkCard({ id: "rc-ow", from: "ow-rel" }));
     const { findAllByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
     await openCards();
 
-    expect(card.querySelector(".reply-card__opener img")?.getAttribute("src")).toBe(
+    expect(card.querySelector('[data-testid="reply-card-opener"] img')?.getAttribute("src")).toBe(
       "/api/chat/attachment/ava-worker",
     );
-    fireEvent.click(card.querySelector(".reply-card__opener")!);
-    expect(window.location.hash).toBe("#office/worker/ow-rel/from/replies/rc-ow");
+    fireEvent.click(card.querySelector('[data-testid="reply-card-opener"]')!);
+    expect(window.location.hash).toBe("#office/chat/ow-rel");
   });
 
-  it("the 開卡人 chip is a button named by its action and the asker — Avatar's inner glyphs are aria-hidden", async () => {
+  it("the 開卡人 chip is the task card's chat chip: a button named 傳訊息給開卡人 with the asker's name and the chat bubble after it", async () => {
     __injectMockReplyCard(mkCard({}));
     const { findAllByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
     await openCards();
 
-    const opener = card.querySelector(".reply-card__opener")!;
+    const opener = card.querySelector('[data-testid="reply-card-opener"]')!;
     expect(opener.tagName).toBe("BUTTON");
-    expect([opener.getAttribute("aria-label"), opener.textContent]).toEqual([
-      `${zh.office.viewProfile} Mira`,
+    expect([opener.className, opener.getAttribute("aria-label"), opener.textContent]).toEqual([
+      "card-meta__chip card-meta__chip--link",
+      "傳訊息給開卡人",
       "Mira",
     ]);
+    expect(opener.lastElementChild!.tagName).toBe("svg");
   });
 
   it("標為過期 double-confirms, closes the card without an answer, and lists it as 已過期 under 近期已回覆", async () => {
@@ -1341,7 +1335,7 @@ describe("RepliesPage", () => {
     // (owner:「折疊起來那一列的內容不要另外設計」): the first line with its
     // actions and the ticking counter, the task box, and who asked.
     const head = cards[0].querySelector(".reply-card__head")!;
-    expect(cards[0].querySelector(".reply-card__opener")?.textContent).toBe("Mira");
+    expect(cards[0].querySelector('[data-testid="reply-card-opener"]')?.textContent).toBe("Mira");
     expect(within(head as HTMLElement).getByRole("button", { name: "跳到原訊息" })).toBeTruthy();
     expect(within(head as HTMLElement).getByRole("button", { name: "標為過期" })).toBeTruthy();
     expect(head.querySelector('[data-testid="waited"]')).toBeTruthy();
@@ -1638,7 +1632,7 @@ describe("RepliesPage", () => {
     expect(due.getAttribute("title")).toBe(`到期 ${shown}`);
     expect(due.textContent).toBe(`到期 ${shown}已逾期`);
     expect(over.querySelector('[data-testid="reply-task-due"]')!.className).toBe(
-      "task-card__chip task-card__due-chip task-card__due-date--overdue"
+      "card-meta__chip task-card__due-chip task-card__due-date--overdue"
     );
     const jump = over.querySelector<HTMLElement>('[data-testid="reply-task-no"]')!;
     expect(within(over as HTMLElement).getAllByRole("button")).toEqual([jump]);
@@ -1652,11 +1646,11 @@ describe("RepliesPage", () => {
 
     const tone = (id: string) => rowOf(id).querySelector('[data-testid="reply-task-due"]')!.className;
     expect(tone("rc-own-lead")).toBe(
-      "task-card__chip task-card__due-chip task-card__due-date--soon"
+      "card-meta__chip task-card__due-chip task-card__due-date--soon"
     );
-    expect(tone("rc-short-lead")).toBe("task-card__chip task-card__due-chip");
+    expect(tone("rc-short-lead")).toBe("card-meta__chip task-card__due-chip");
     expect(tone("rc-workspace-lead")).toBe(
-      "task-card__chip task-card__due-chip task-card__due-date--soon"
+      "card-meta__chip task-card__due-chip task-card__due-date--soon"
     );
 
     fireEvent.click(jump);

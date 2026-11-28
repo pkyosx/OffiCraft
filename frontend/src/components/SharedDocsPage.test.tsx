@@ -182,10 +182,13 @@ describe("SharedDocsPage", () => {
     ]);
     const creator = (id: string) => {
       const chip = within(row(id)).getByTestId("shared-doc-creator");
-      return [chip.textContent, chip.querySelectorAll(".avatar").length];
+      return [chip.tagName, chip.getAttribute("aria-label"), chip.textContent, chip.querySelectorAll(".avatar").length, chip.lastElementChild!.tagName];
     };
-    await waitFor(() => expect(creator("sd-3f9a2c71b0e4")).toEqual(["Mira", 1]));
-    expect(creator(boardId)).toEqual(["CEO（你）", 1]);
+    await waitFor(() => expect(creator("sd-3f9a2c71b0e4")).toEqual(["BUTTON", "傳訊息給建立者", "Mira", 1, "svg"]));
+    expect(creator(boardId)).toEqual(["SPAN", null, "CEO（你）", 1, "SPAN"]);
+    fireEvent.click(within(row("sd-3f9a2c71b0e4")).getByTestId("shared-doc-creator"));
+    expect(window.location.hash).toBe("#office/chat/mira");
+    window.location.hash = "#shared-docs";
     expect(listMembers).toHaveBeenCalledTimes(1);
     expect(cellTexts(review)).toEqual([
       "#sd-3f9a2c",

@@ -47,8 +47,8 @@ export function ReplyCardWorkerTaskStory() {
           <div className="reply-card__summary">要照這個方向做嗎？</div>
           <div className="card-meta">
             <span className="card-meta__label">開卡人</span>
-            <button type="button" className="reply-card__opener">
-              <span className="reply-card__name">O-30</span>
+            <button type="button" className="card-meta__chip card-meta__chip--link">
+              <span className="card-meta__chip-name">O-30</span>
             </button>
             <div className="card-meta__row reply-card__worker-task">
               <span className="card-meta__label">目前任務</span>

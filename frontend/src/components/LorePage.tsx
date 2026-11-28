@@ -82,6 +82,8 @@ import {
   type LoreSectionKind,
 } from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
+import { MemberChatChip, MemberChip } from "./MemberChip";
+import { OWNER_ID } from "../lib/ownerUnread";
 import { HeadingBody } from "./ChatGroupHeading";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { DocumentHistoryEntry } from "./DocumentHistoryEntry";
@@ -2326,7 +2328,7 @@ function LoreRow({
 
       <div className="card-meta">
         <span className="card-meta__label">{t.lore.authorLabel}</span>
-        <LoreAuthorChip author={author} avatar={avatar} />
+        <LoreAuthorChip authorId={entry.authorId} author={author} avatar={avatar} />
         <span className="card-meta__label">{t.lore.effectiveLabel}</span>
         <span className="lore-row__effective-ts" data-testid="lore-effective">
           {loreEffectiveText(entry)}
@@ -2514,21 +2516,28 @@ function LoreEntryEditor({
 /** The 撰寫人 pill: who wrote the entry, never a way to reach them — the
  * message box under the card is that. */
 function LoreAuthorChip({
+  authorId,
   author,
   avatar,
 }: {
+  authorId: string;
   author: AuthorIdentity;
   avatar: { src?: string; kind: AvatarKind } | null;
 }): ReactNode {
+  const { t } = useI18n();
+  const shown = author.peerId !== "" && avatar ? avatar : null;
+  if (authorId === "" || authorId === OWNER_ID) {
+    return <MemberChip name={author.name} avatar={shown} testId="lore-author-row" nameTestId="lore-author" />;
+  }
   return (
-    <span className="lore-row__chip" data-testid="lore-author-row">
-      {author.peerId !== "" && avatar ? (
-        <Avatar size={18} kind={avatar.kind} src={avatar.src} />
-      ) : null}
-      <span className="lore-row__author" data-testid="lore-author">
-        {author.name}
-      </span>
-    </span>
+    <MemberChatChip
+      name={author.name}
+      avatar={shown}
+      label={t.lore.messageAuthor}
+      onOpen={() => navigateHash({ page: "office", chatId: authorId })}
+      testId="lore-author-row"
+      nameTestId="lore-author"
+    />
   );
 }
 

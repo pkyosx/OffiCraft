@@ -245,7 +245,7 @@ describe("TaskReplyCard", () => {
     render(
       <I18nProvider>
         <ReplyCardsProvider>
-          <TaskReplyCard replyCardId="rc-1a2b3c4d5e6f" members={[mira]} taskId="t-9" />
+          <TaskReplyCard replyCardId="rc-1a2b3c4d5e6f" members={[mira]} />
           <TaskReplyCard replyCardId="rc-2" members={[mira]} />
         </ReplyCardsProvider>
       </I18nProvider>
@@ -279,7 +279,7 @@ describe("TaskReplyCard", () => {
     expect(first.querySelector(".reply-card__task")).toBeNull();
 
     fireEvent.click(meta.querySelector('[data-testid="reply-card-opener"]')!);
-    expect(window.location.hash).toBe("#office/member/mira/from/tasks/t-9");
+    expect(window.location.hash).toBe("#office/chat/mira");
   });
 
   it("a WAITING-hinted card loads eagerly on mount (waiting 卡照常)", async () => {

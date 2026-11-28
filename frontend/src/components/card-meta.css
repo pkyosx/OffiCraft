@@ -25,3 +25,49 @@
 .card-meta__row {
   display: contents;
 }
+/* A value chip: a pill holding the value and, on a link, a trailing icon (聊天泡泡
+ * / 齒輪 / 外連). justify-self:start keeps it hugging its content. */
+.card-meta__chip {
+  justify-self: start;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  text-decoration: none;
+  color: var(--color-text);
+}
+.card-meta__chip svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+button.card-meta__chip--link,
+a.card-meta__chip--link {
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.card-meta__chip--link:hover {
+  background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+.card-meta__chip--link:hover :is(span, svg) {
+  color: var(--color-accent);
+}
+.card-meta__chip--link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
+.card-meta__chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

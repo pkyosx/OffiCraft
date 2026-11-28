@@ -974,7 +974,7 @@ describe("LorePage — 順序跟任務頁一致", () => {
 // ────────────────────────────────────────────────────────────────────────────
 // 卡片版面 (owner 2026-09-08).
 describe("LorePage — 卡片底下的撰寫人與生效期", () => {
-  it("shows 撰寫人 with the author pill and 生效期 with the time as two label/value rows, and the message box is the last thing on the card", async () => {
+  it("shows 撰寫人 with the author's chat chip and 生效期 with the time as two label/value rows, and the message box is the last thing on the card", async () => {
     stubList(
       page([
         mkEntry({ id: "L-7", authorId: "mira", title: "標題", body: "四個字的", effectiveTs: 1788400000 }),
@@ -995,6 +995,15 @@ describe("LorePage — 卡片底下的撰寫人與生效期", () => {
       formatAbsolute(1788400000, Date.now() / 1000),
     );
     expect(row.lastElementChild!.getAttribute("data-testid")).toBe("lore-message-box");
+    const author = meta.querySelector<HTMLElement>('[data-testid="lore-author-row"]')!;
+    expect([author.tagName, author.getAttribute("aria-label"), author.lastElementChild!.tagName]).toEqual([
+      "BUTTON",
+      "傳訊息給撰寫人",
+      "svg",
+    ]);
+    fireEvent.click(author);
+    expect(window.location.hash).toBe("#office/chat/mira");
+    expect(rowById(container, "L-7").dataset.folded).toBeUndefined();
   });
 
   it("a retired entry with its retire time shows 生效期 as start – end; one retired before that time was recorded, one bumped after it and a live entry show the start alone", async () => {

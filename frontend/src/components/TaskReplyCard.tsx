@@ -41,7 +41,7 @@ import {
   ReplyCardStatusIcon,
   ReplyCardWaitingBody,
 } from "./ReplyCardBody";
-import { ReplyCardOpenerChip } from "./ReplyCardOpenerChip";
+import { MemberChatChip } from "./MemberChip";
 import type { DocCommentRecipient } from "../lib/docComments";
 import { unlinkMentions } from "../lib/mentionLinks";
 import { ChevronRightIcon } from "./icons";
@@ -56,7 +56,6 @@ export function TaskReplyCard({
   commentRecipientFor,
   members = [],
   workers = [],
-  taskId,
 }: {
   replyCardId: string;
   /** The bound step's read-time `reply_card_status` hint. ANSWERED or EXPIRED
@@ -75,8 +74,6 @@ export function TaskReplyCard({
    * read by id. */
   members?: Member[];
   workers?: OutsourceWorkerView[];
-  /** The task this card sits in, for the asker's profile to lead back to. */
-  taskId?: string;
 }) {
   const { t, msg } = useI18n();
   const [, setRoute] = useHashRoute();
@@ -252,15 +249,6 @@ export function TaskReplyCard({
     });
   }
 
-  function openAsker() {
-    const back = taskId ? { backTo: "tasks" as const, backToId: taskId } : {};
-    setRoute(
-      askerMember?.kind === "staff"
-        ? { page: "office", detailId: askerId, ...back }
-        : { page: "office", workerId: askerId, ...back },
-    );
-  }
-
   // ── collapsed one-line summary (answered + not expanded) ───────────────────
   // Collapsed when the card is answered-ish and not expanded: either the card
   // is loaded and answered, or it mounted with an answered hint and was never
@@ -390,15 +378,18 @@ export function TaskReplyCard({
         {card && (
           <div className="card-meta">
             <span className="card-meta__label">{t.replies.openerLabel}</span>
-            <ReplyCardOpenerChip
-              onClick={openAsker}
+            <MemberChatChip
               name={askerMember?.name ?? askerWorker?.codename ?? unlistedNames.get(askerId) ?? askerId}
-              kind={askerWorker ? "outsource" : avatarKindForMember(askerMember ?? { id: askerId })}
-              src={
-                (askerMember?.kind === "outsource" ? undefined : askerMember?.avatarUrl) ??
-                askerWorker?.avatarUrl ??
-                unlistedAvatars.get(askerId)
-              }
+              avatar={{
+                kind: askerWorker ? "outsource" : avatarKindForMember(askerMember ?? { id: askerId }),
+                src:
+                  (askerMember?.kind === "outsource" ? undefined : askerMember?.avatarUrl) ??
+                  askerWorker?.avatarUrl ??
+                  unlistedAvatars.get(askerId),
+              }}
+              label={t.replies.messageOpener}
+              onOpen={() => setRoute({ page: "office", chatId: askerId })}
+              testId="reply-card-opener"
             />
             {handledTs !== null && (
               <ReplyCardHandledRow time={formatAbsolute(handledTs, Date.now() / 1000)} />
