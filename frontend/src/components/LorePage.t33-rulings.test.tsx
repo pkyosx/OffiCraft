@@ -161,10 +161,13 @@ describe("LorePage — 已離開的撰寫人只留名牌，沒有訊息框", () 
     await waitFor(() => expect(row.querySelector('[data-testid="lore-message-box"]')).toBeNull());
   });
 
-  it("under a departed staff writer the row keeps the plain name the per-id read serves, and the card has no message box", async () => {
+  it("under a departed staff writer the row keeps the plain name the per-id read serves, and the card has no message box; no writer at all reads 「-」", async () => {
     stubRoster([]);
-    stubList([mkEntry({ id: "L-11", authorId: DEPARTED_STAFF })]);
+    stubList([mkEntry({ id: "L-11", authorId: DEPARTED_STAFF }), mkEntry({ id: "L-14", authorId: "" })]);
     const { container } = await renderPage();
+    await waitFor(() =>
+      expect(rowById(container, "L-14").querySelector('[data-testid="lore-author-row"]')?.textContent).toBe("-"),
+    );
 
     const row = await waitFor(() => rowById(container, "L-11"));
     await waitFor(() =>

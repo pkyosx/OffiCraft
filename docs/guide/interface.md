@@ -549,7 +549,7 @@ Files in "Files" do not belong to any task, and every member can read and update
 
 ## Secrets
 
-- **Secret card** — The first line has the secret ID (click it to "Copy secret ID") and, at the right, the edit and delete icons. Below are the name in bold and the note (not shown if empty; a note longer than three lines is cut off, and clicking the note shows it in full or cuts it again), then the rows "Last accessed" (shows "Never used" in gray italics if the secret has never been retrieved) and "Updated".
+- **Secret card** — The first line has the secret ID (click it to "Copy secret ID") and, at the right, the edit and delete icons. Below are the name in bold and the note (not shown if empty; a note longer than three lines is cut off, and clicking the note shows it in full or cuts it again), then the rows "Last accessed" (shows "-" if the secret has never been retrieved) and "Updated". On every card, a row whose value is missing shows "-", for example a task's "Created by" on an old task.
 - **Add secret** — Three fields: name, value and note.
 
 **Field rules**

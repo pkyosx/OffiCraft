@@ -206,13 +206,11 @@ function SecretRow({
       <div className="card-meta">
         <div className="card-meta__row" data-testid="secret-last-accessed">
           <span className="card-meta__label">{d.colLastAccessed}</span>
-          {secret.lastAccessedTs == null ? (
-            <span className="secrets__never">{d.neverAccessed}</span>
-          ) : (
-            <span className="secrets__time">
-              {formatAbsolute(secret.lastAccessedTs, nowSecs)}
-            </span>
-          )}
+          <span className="secrets__time">
+            {secret.lastAccessedTs == null
+              ? t.common.emptyValue
+              : formatAbsolute(secret.lastAccessedTs, nowSecs)}
+          </span>
         </div>
         <div className="card-meta__row" data-testid="secret-updated">
           <span className="card-meta__label">{d.colUpdated}</span>

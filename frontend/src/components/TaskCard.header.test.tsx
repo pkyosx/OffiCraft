@@ -572,7 +572,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
   });
 
   describe("建立者 resolution + fallback", () => {
-    it('empty creator (old task) renders "—", not clickable', async () => {
+    it('empty creator (old task) renders "-", not clickable', async () => {
       __injectMockTask(mkTask({ title: "老任務", creatorId: "" }));
       const { findByTestId } = renderPage();
       expandCards(await findByTestId("task-card"));
@@ -580,7 +580,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
       expect(row.tagName).not.toBe("BUTTON");
       expect(
         row.querySelector('[data-testid="task-creator"]')?.textContent
-      ).toBe("—");
+      ).toBe("-");
     });
 
     it("a roster-member creator shows the name and opens their chat", async () => {

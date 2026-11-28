@@ -4,7 +4,7 @@
 //   ① 負責人 == 建立者 → the 建立者 row is gone. The rule compares executorId
 //     to creatorId — IDS, never display names (two members can share a name;
 //     a name match would hide a genuinely different creator). Empty is not an
-//     identity: creatorId "" still renders 「—」 even when executorId is ""
+//     identity: creatorId "" still renders 「-」 even when executorId is ""
 //     too.
 //   ② A long 任務類型 name shows in full — no truncation.
 //   ③ zh filterExecutorAll reads 「所有負責人」, not the ambiguous 「所有人」.
@@ -182,7 +182,7 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
     expect(labels).toEqual(["負責人", "類型", "建立者"]);
   });
 
-  it('keeps the 「—」 row when creatorId is "" (T-5012-shaped task) — empty is not an identity', async () => {
+  it('keeps the 「-」 row when creatorId is "" (T-5012-shaped task) — empty is not an identity', async () => {
     __injectMockTask(
       mkTask({ title: "沒有建立者", executorId: "mira", creatorId: "" })
     );
@@ -192,13 +192,13 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
 
     const row = card.querySelector('[data-testid="task-creator-row"]')!;
     expect(row).toBeTruthy();
-    // toBe on the bare word, never not.toContain(…): the row must SAY 「—」.
+    // toBe on the bare word, never not.toContain(…): the row must SAY 「-」.
     expect(
       row.querySelector('[data-testid="task-creator"]')?.textContent
-    ).toBe("—");
+    ).toBe("-");
   });
 
-  it('keeps the 「—」 row when BOTH creatorId and executorId are "" (unassigned 外包)', async () => {
+  it('keeps the 「-」 row when BOTH creatorId and executorId are "" (unassigned 外包)', async () => {
     // The collision the `!== ""` guard exists for: "" === "" is true, so a
     // naive id compare would eat this row.
     __injectMockTask(
@@ -220,7 +220,7 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
       card
         .querySelector('[data-testid="task-creator-row"]')
         ?.querySelector('[data-testid="task-creator"]')?.textContent
-    ).toBe("—");
+    ).toBe("-");
   });
 
   it("hides the row for an 外包 executor who is also the creator (id match across kinds)", async () => {

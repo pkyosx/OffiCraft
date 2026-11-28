@@ -182,7 +182,7 @@ describe("SecretsPage", () => {
     expect(valueAppearsAnywhere(container)).toBe(false);
     const created = container.querySelectorAll<HTMLElement>('[data-testid="secret-row"]')[1];
     expect(created.querySelector('[data-testid="secret-last-accessed"]')?.textContent).toBe(
-      zh.secrets.colLastAccessed + zh.secrets.neverAccessed,
+      "最後存取-",
     );
     expect(created.querySelector('[data-testid="secret-note"]')?.textContent).toContain(
       "read-only",

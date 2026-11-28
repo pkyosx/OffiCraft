@@ -8,7 +8,7 @@
 // The card: id badge left and the edit / delete icons right on the first line,
 // the name under it, the note, then 最後存取／最後更新 as label/value rows —
 // all inside the card with no sideways scroll, in zh and en. A secret never
-// read says so in grey italics.
+// read shows 「-」 as its 最後存取, in the same plain style as a time.
 import { test, expect } from "@playwright/experimental-ct-react";
 import { SecretNoteStory } from "./stories/SecretNoteStory";
 
@@ -78,7 +78,7 @@ for (const width of [390, 1440]) {
 
 for (const width of [320, 390, 1440]) {
   for (const language of ["zh", "en"] as const) {
-    test(`width ${width}, ${language}: every secret card keeps its id, icons, name and rows inside it, with no sideways scroll, and a never-read secret says so in grey italics`, async ({
+    test(`width ${width}, ${language}: every secret card keeps its id, icons, name and rows inside it, with no sideways scroll, and a never-read secret's 最後存取 is a plain 「-」`, async ({
       mount,
       page,
     }) => {
@@ -94,17 +94,12 @@ for (const width of [320, 390, 1440]) {
         };
         const se = document.scrollingElement!;
         const list = document.querySelector(".secrets") as HTMLElement | null;
-        const probe = document.createElement("span");
-        probe.style.color = "var(--color-text-muted)";
-        document.body.appendChild(probe);
-        const muted = getComputedStyle(probe).color;
-        probe.remove();
         return {
           pageOver: se.scrollWidth - se.clientWidth,
           listOver: list ? list.scrollWidth - list.clientWidth : -2,
-          muted,
           rows: [...document.querySelectorAll('[data-testid="secret-row"]')].map((row) => {
-            const never = row.querySelector(".secrets__never");
+            const accessed = row.querySelector('[data-testid="secret-last-accessed"] .secrets__time');
+            const updated = row.querySelector('[data-testid="secret-updated"] .secrets__time');
             return {
               id: row.getAttribute("data-secret-id") ?? "",
               row: r(row)!,
@@ -117,9 +112,14 @@ for (const width of [320, 390, 1440]) {
               name: r(row.querySelector('[data-testid="secret-name"]')),
               labels: [...row.querySelectorAll(".card-meta__label")].map((l) => r(l)!),
               values: [...row.querySelectorAll(".card-meta__label + *")].map((v) => r(v)!),
-              never: never
-                ? { style: getComputedStyle(never).fontStyle, color: getComputedStyle(never).color }
-                : null,
+              never:
+                accessed?.textContent === "-"
+                  ? {
+                      style: getComputedStyle(accessed).fontStyle,
+                      color: getComputedStyle(accessed).color,
+                      timeColor: getComputedStyle(updated!).color,
+                    }
+                  : null,
             };
           }),
         };
@@ -162,8 +162,8 @@ for (const width of [320, 390, 1440]) {
       const nevers = g.rows.filter((row) => row.never);
       expect.soft(nevers.length, `${tag} never-read secrets`).toBe(2);
       for (const row of nevers) {
-        expect.soft(row.never!.style, `${tag} ${row.id} 尚未使用 italic`).toBe("italic");
-        expect.soft(row.never!.color, `${tag} ${row.id} 尚未使用 grey`).toBe(g.muted);
+        expect.soft(row.never!.style, `${tag} ${row.id} 「-」 upright`).toBe("normal");
+        expect.soft(row.never!.color, `${tag} ${row.id} 「-」 in the time's colour`).toBe(row.never!.timeColor);
       }
     });
   }

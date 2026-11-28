@@ -13,6 +13,7 @@ export const en: Dict = {
   orgName: "AI Office",
   user: "CEO (You)",
   common: {
+    emptyValue: "-",
     apply: "Apply",
     cancel: "Cancel",
     filterButton: "Filters",
@@ -118,7 +119,6 @@ export const en: Dict = {
     scopeUnknown: "Unknown scope",
     openManualLabel: "Open task manual",
     copyEntryIdLabel: "Copy entry id",
-    authorUnknown: "—",
     authorLabel: "Author",
     effectiveLabel: "Effective",
     retireReasonLabel: "Retire reason",
@@ -255,7 +255,6 @@ export const en: Dict = {
     colNote: "Note",
     colUpdated: "Updated",
     colLastAccessed: "Last accessed",
-    neverAccessed: "Never used",
     copyIdLabel: "Copy secret ID",
     idCopied: "Copied",
     add: "Add secret",
@@ -333,7 +332,6 @@ export const en: Dict = {
     creatorLabel: "Creator",
     keyLabel: "Identity key",
     // A pre-column task has no creator → render "—", not clickable.
-    creatorUnknown: "—",
     typeSettingsLink: "Open task-type settings",
     messageAssignee: "Message the assignee",
     messageCreator: "Message the creator",

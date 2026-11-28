@@ -4,6 +4,8 @@ export const zh = {
   orgName: "AI 工作室",
   user: "CEO（你）",
   common: {
+    // 卡片 label:value 列沒有值時寫這個（owner：沒有值就顯示「-」）。
+    emptyValue: "-",
     apply: "套用",
     cancel: "取消",
     filterButton: "篩選",
@@ -119,7 +121,6 @@ export const zh = {
     scopeUnknown: "未知範圍",
     openManualLabel: "開啟任務手冊",
     copyEntryIdLabel: "複製條目編號",
-    authorUnknown: "—",
     authorLabel: "撰寫人",
     effectiveLabel: "生效期",
     retireReasonLabel: "失效理由",
@@ -266,7 +267,6 @@ export const zh = {
     colNote: "備註",
     colUpdated: "最後更新",
     colLastAccessed: "最後存取",
-    neverAccessed: "尚未使用",
     copyIdLabel: "複製密鑰 ID",
     idCopied: "已複製",
     add: "新增密鑰",
@@ -354,7 +354,6 @@ export const zh = {
     creatorLabel: "建立者",
     keyLabel: "識別鍵",
     // 舊任務無建立者資料 → 顯示「—」不可點
-    creatorUnknown: "—",
     // 任務類型列(齒輪)點了跳該類型的設定頁
     typeSettingsLink: "開啟任務類型設定",
     // 負責人／建立者列點了開對應聊天視窗、輸入框帶 [任務編號] 前綴

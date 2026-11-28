@@ -455,7 +455,7 @@ export function TaskCard({
   // clickable — there is no self-chat, and fabricating one would be a lie
   // (owner ruling).
   const creator = ((): { text: string; peerId: string } => {
-    if (task.creatorId === "") return { text: t.tasks.creatorUnknown, peerId: "" };
+    if (task.creatorId === "") return { text: t.common.emptyValue, peerId: "" };
     const m = members.find((x) => x.id === task.creatorId);
     if (m) return { text: m.name, peerId: task.creatorId };
     if (task.creatorId.startsWith("ow-")) {

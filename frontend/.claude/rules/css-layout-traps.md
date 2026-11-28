@@ -40,7 +40,7 @@ iOS Safari 在字小於 16px 的 input／textarea／select 聚焦時會放大整
 
 ## 卡片的 label/value 列
 
-任務卡、請示卡（請示頁、聊天室、任務步驟裡）、金鑰卡、檔案庫卡、傳承卡的 label/value 列都是 `card-meta.css` 的 `.card-meta`／`.card-meta__label`／`.card-meta__row`，各元件自己 import（styleOwnership 有登記）。owner 看過請示卡的「開卡人」比任務卡的列低、顏色不同、欄距不同：那是 `replies.css` 自己抄了一份（baseline、10px 欄距、沒有 opacity）。不要在各頁的 stylesheet 再寫一份格線或 label 樣式；值的樣式（chip、時間）才放在各頁。label 欄寬是那張卡最寬的 label（max-content），所以 label 字數不同的卡（例如有「處理時間」的請示卡）欄寬本來就不同。兩行的值（請示卡的目前任務）在那一列自己用 `align-self: baseline`。CT `card-meta-rows` 在 320／390／1440 中英拿任務卡的列當基準量另外四種卡：label 顏色、透明度、字級相同，label 在列的左緣，值在最寬 label 加同一個欄距之後，一行的值跟 label 垂直置中。
+任務卡、請示卡（請示頁、聊天室、任務步驟裡）、金鑰卡、檔案庫卡、傳承卡的 label/value 列都是 `card-meta.css` 的 `.card-meta`／`.card-meta__label`／`.card-meta__row`，各元件自己 import（styleOwnership 有登記）。owner 看過請示卡的「開卡人」比任務卡的列低、顏色不同、欄距不同：那是 `replies.css` 自己抄了一份（baseline、10px 欄距、沒有 opacity）。不要在各頁的 stylesheet 再寫一份格線或 label 樣式；值的樣式（chip、時間）才放在各頁。label 欄寬是那張卡最寬的 label（max-content），所以 label 字數不同的卡（例如有「處理時間」的請示卡）欄寬本來就不同。兩行的值（請示卡的目前任務）在那一列自己用 `align-self: baseline`。CT `card-meta-rows` 在 320／390／1440 中英拿任務卡的列當基準量另外四種卡：label 顏色、透明度、字級相同，label 在列的左緣，值在最寬 label 加同一個欄距之後，一行的值跟 label 垂直置中。沒有值的列寫 `t.common.emptyValue`（「-」，跟時間同一個樣式，不斜體、不灰）：金鑰卡沒讀過的最後存取、舊任務沒有建立者、沒有撰寫人的傳承（owner：沒有值就顯示「-」）。任務卡的到期日另有規則：可編輯時寫「未設定」可點、不可編輯時整列不畫；負責人寫「未指派」；傳承的失效理由沒有就不畫那一列——這三處不是「-」。
 
 ## lazy fetch
 

@@ -756,7 +756,7 @@ function LoreView({
 
   const resolveAuthor = useCallback(
     (id: string): AuthorIdentity => {
-      if (id === "") return { text: t.lore.authorUnknown, name: t.lore.authorUnknown, peerId: "" };
+      if (id === "") return { text: t.common.emptyValue, name: t.common.emptyValue, peerId: "" };
       const m = members.find((x) => x.id === id);
       if (m) return { text: m.name, name: m.name, peerId: id };
       if (id.startsWith("ow-")) {
@@ -776,7 +776,7 @@ function LoreView({
       const name = unlistedNames.get(id) ?? id;
       return { text: name, name, peerId: "" };
     },
-    [members, workers, unlistedNames, msg, t.lore.authorUnknown]
+    [members, workers, unlistedNames, msg, t.common.emptyValue]
   );
 
   /** Which scope this ONE entry rides, for the badge. An unresolved key falls
