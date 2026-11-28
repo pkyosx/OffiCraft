@@ -155,6 +155,7 @@ describe("SharedDocsPage", () => {
     const shotId = await createUploaded("image", "Shot", "shot.png", "png");
     const contractId = await createUploaded("file", "Contract", "contract.pdf", "pdf");
     const notesId = await createUploaded("file", "Notes", "notes.txt", "plain");
+    const listMembers = vi.spyOn(api, "listMembers");
     const { container } = renderPage();
     await waitRows(container, 6);
     const row = (id: string) => container.querySelector<HTMLElement>(`[data-doc-id="${id}"]`)!;
@@ -172,6 +173,13 @@ describe("SharedDocsPage", () => {
       "API 規格GitHub 上的 spec/openapi.json，改 wire 前先讀",
       "建立者Mira最後更新22 天前 · Mira",
     ]);
+    const creator = (id: string) => {
+      const chip = within(row(id)).getByTestId("shared-doc-creator");
+      return [chip.textContent, chip.querySelectorAll(".avatar").length];
+    };
+    await waitFor(() => expect(creator("sd-3f9a2c71b0e4")).toEqual(["Mira", 1]));
+    expect(creator(boardId)).toEqual(["CEO（你）", 1]);
+    expect(listMembers).toHaveBeenCalledTimes(1);
     expect(cellTexts(review)).toEqual([
       "#sd-3f9a2c",
       "Review RulePR 審查時逐項核對的規則與退件標準",
@@ -245,6 +253,7 @@ describe("SharedDocsPage", () => {
   });
 
   it("the name opens the content itself, a link in a new tab and a file or image in the preview over the list with the preview's own actions plus 編輯 on any text file, and 最後更新 opens the doc's version history over the list, a restore there showing on the row", async () => {
+    vi.spyOn(Date, "now").mockReturnValue((1763366700 + 3 * 86400 + 7200) * 1000);
     const contractId = await createUploaded("file", "Contract", "contract.pdf", "pdf");
     const shotId = await createUploaded("image", "Shot", "shot.png", "png");
     const configId = await createUploaded("file", "Config", "ci.yaml", "# keep\nkey:  v\n");
@@ -329,7 +338,7 @@ describe("SharedDocsPage", () => {
     const updated = within(row("sd-3f9a2c71b0e4")).getByTestId("shared-doc-updated");
     expect([updated.tagName, updated.getAttribute("aria-label"), updated.title]).toEqual([
       "BUTTON",
-      `${updated.textContent} · 查看版本紀錄`,
+      "3 天前 · Mira · 查看版本紀錄",
       "查看版本紀錄",
     ]);
     fireEvent.click(updated);

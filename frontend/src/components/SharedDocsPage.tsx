@@ -5,14 +5,13 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { useI18n } from "../i18n";
 import { api, viewerIsOwner } from "../api";
 import { authedAttachmentUrl } from "../api/http";
-import { useActorName } from "../hooks/useActorName";
-import { useMembers } from "../hooks/useMembers";
+import { useActors } from "../hooks/useActorName";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { useSharedDoc, useSharedDocAction, useSharedDocs } from "../hooks/useSharedDocs";
 import { copyText } from "../lib/clipboard";
 import { useHashRoute } from "../lib/hashRoute";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
-import type { SharedDocView } from "../types";
+import type { Member, SharedDocView } from "../types";
 import { Avatar } from "./Avatar";
 import { ConfirmModal } from "./ConfirmModal";
 import {
@@ -569,13 +568,15 @@ function RowActions({
   );
 }
 
-/** 建立者: who made the doc, as an avatar chip. */
-function CreatorChip({ id, name }: { id: string; name: string }) {
-  const { members } = useMembers({ light: true });
-  const member = members.find((m) => m.id === id);
+/** 建立者: who made the doc, as an avatar chip; the owner wears the profile pill's avatar. */
+function CreatorChip({ id, name, member }: { id: string; name: string; member: Member | undefined }) {
   return (
     <span className="lore-row__chip" data-testid="shared-doc-creator">
-      {member ? <Avatar size={18} kind={avatarKindForMember(member)} src={member.avatarUrl} /> : null}
+      {id === "owner" ? (
+        <Avatar size={18} kind="owner" />
+      ) : member ? (
+        <Avatar size={18} kind={avatarKindForMember(member)} src={member.avatarUrl} />
+      ) : null}
       <span className="shared-docs__chip-text">{name}</span>
     </span>
   );
@@ -583,7 +584,8 @@ function CreatorChip({ id, name }: { id: string; name: string }) {
 
 export function SharedDocsPage({ docId }: { docId?: string }) {
   const [, setRoute] = useHashRoute();
-  const actorName = useActorName();
+  const actors = useActors();
+  const actorName = actors.name;
   if (docId) {
     return (
       <SharedDocDetail
@@ -594,12 +596,18 @@ export function SharedDocsPage({ docId }: { docId?: string }) {
       />
     );
   }
-  return <SharedDocList actorName={actorName} />;
+  return <SharedDocList actorName={actorName} actorMember={actors.member} />;
 }
 
 type PickTarget = { mode: "create" } | { mode: "replace"; doc: SharedDocView };
 
-function SharedDocList({ actorName }: { actorName: (id: string) => string }) {
+function SharedDocList({
+  actorName,
+  actorMember,
+}: {
+  actorName: (id: string) => string;
+  actorMember: (id: string) => Member | undefined;
+}) {
   const { t, msg } = useI18n();
   const d = t.sharedDocs;
   const { docs, loading, loadError, reload } = useSharedDocs(d.loadFailed);
@@ -783,7 +791,7 @@ function SharedDocList({ actorName }: { actorName: (id: string) => string }) {
               <FileBlock doc={doc} onPreview={setPreview} />
               <div className="lore-row__meta">
                 <span className="lore-row__meta-label">{d.createdByLabel}</span>
-                <CreatorChip id={doc.createdBy} name={actorName(doc.createdBy)} />
+                <CreatorChip id={doc.createdBy} name={actorName(doc.createdBy)} member={actorMember(doc.createdBy)} />
                 <span className="lore-row__meta-label">{d.updatedLabel}</span>
                 <UpdatedButton
                   text={msg.sharedDocUpdatedAgo(actorName(doc.updatedBy), nowSecs - doc.updatedTs)}
