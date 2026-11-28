@@ -1067,9 +1067,11 @@ button.task-card__status-icon svg {
   flex: none;
   display: block;
 }
-/* not --color-step-progress: in office that is the 可結案 blue */
+/* Each status that has a workflow-step twin wears that step's colour (owner).
+   In office --color-step-progress is the same blue as --color-ready-for-done,
+   so 進行中 and 可結案 share a colour there. */
 button.task-card__status-icon--in_progress {
-  color: var(--color-accent);
+  color: var(--color-step-progress);
 }
 button.task-card__status-icon--not_started {
   color: var(--color-step-pending);
@@ -1090,7 +1092,7 @@ button.task-card__status-icon--terminated {
   color: var(--color-danger);
 }
 button.task-card__status-icon--duplicated {
-  color: var(--color-status-duplicated);
+  color: var(--color-step-superseded);
 }
 .task-card__status-pop {
   left: 0;
