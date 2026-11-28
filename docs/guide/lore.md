@@ -64,7 +64,7 @@ Each lore entry has one of three states:
 
 - **Active**: the normal state.
 - **Pinned**: listed first and read first. When a member boots, pinned entries come before all other entries, whether they belong to "Everyone" or to the member itself. Only you and the Assistant can pin entries.
-- **Retired**: members no longer read it. It can be set back to active.
+- **Retired**: members no longer read it, and its card shows when it was retired. It can be set back to active.
 
 **The lore members read has a character cap.** When the cap is exceeded, members do not read the older entries, and no error message is shown. When each member boots, the "Everyone" lore and the member's own lore are combined into one list: pinned entries first, then the rest from newest to oldest by effective date, with the two sources interleaved. Both share the same cap, counted from the top until the first entry that does not fit. The more or the longer the "Everyone" lore becomes, the fewer of each member's own older entries fit.
 

@@ -443,6 +443,41 @@ for (const width of [320, 390, 1440]) {
   }
 }
 
+for (const width of [320, 390, 1440]) {
+  for (const language of ["zh", "en"] as const) {
+    test(`a retired card shows 生效期 as start – end on one line beside its label, inside the card @${width}px ${language}`, async ({ mount, page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate((lang) => localStorage.setItem("oc.language", lang), language);
+      const cmp = await mount(<LoreRowHeadStory />);
+      await cmp.getByTestId("lore-directory-filter-toggle").click();
+      const idField = page.getByTestId("lore-directory-id");
+      await idField.fill("L-3");
+      await idField.press("Enter");
+      const effective = page.locator('[data-entry-id="L-3"] [data-testid="lore-effective"]');
+      await expect(effective).toContainText(" – ");
+      const g = await measure(page);
+      // Not assertNoHScroll: with the 失效 filter on, the 篩選 count badge hangs
+      // past .lore's right edge, which is the filter bar's, not this card's.
+      expect.soft(g.pageOver, `[${width}px] page horizontal scroll`).toBeLessThanOrEqual(1);
+      const row = g.rows.find((r) => r.id === "L-3");
+      expect(row, `[${width}px ${language}] L-3 row`).toBeTruthy();
+      const tag = `[${width}px ${language}] L-3`;
+      const loreRight = await page.locator(".lore").evaluate((el: HTMLElement) => el.getBoundingClientRect().left + el.clientWidth);
+      expect.soft(row!.row!.right, `${tag} card past the list`).toBeLessThanOrEqual(loreRight + 0.5);
+      for (const m of row!.metaItems) expect.soft(inside(m, row!.row!), `${tag} meta item outside the card`).toBe(true);
+      const [label, value] = [row!.metaItems[2], row!.metaItems[3]];
+      expect.soft(Math.abs((label.top + label.bottom) / 2 - (value.top + value.bottom) / 2), `${tag} 生效期 value beside its label`).toBeLessThanOrEqual(4);
+      expect.soft(value.left, `${tag} 生效期 value right of its label`).toBeGreaterThanOrEqual(label.right);
+      const text = await effective.evaluate((el: HTMLElement) => ({
+        lines: el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight),
+        clipped: el.scrollWidth - el.clientWidth,
+      }));
+      expect.soft(Math.round(text.lines), `${tag} 生效期 range lines`).toBe(1);
+      expect.soft(text.clipped, `${tag} 生效期 range runs past its column`).toBeLessThanOrEqual(0.5);
+    });
+  }
+}
+
 for (const width of [390, 1440]) {
   test(`the directory lists every target inside its row @${width}px`, async ({ mount, page }) => {
     await mountAt(mount, page, width, false, "");

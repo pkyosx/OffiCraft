@@ -143,6 +143,18 @@ const DIR_COLLAPSED_KEY = "oc_lore_dir_collapsed";
 
 /** The folded directory groups, kept in this browser as the list of folded
  * kinds; nothing saved yet means the first-visit default. */
+/** 生效期: the start, and for a retired entry whose retire time is known, the
+ * end as well. A retired entry bumped after it was retired starts after it
+ * ended, so it shows the start alone. */
+function loreEffectiveText(entry: LoreEntryView): string {
+  const now = Date.now() / 1000;
+  const start = formatAbsolute(entry.effectiveTs, now);
+  if (entry.state !== "retired" || entry.retiredTs === undefined || entry.retiredTs < entry.effectiveTs) {
+    return start;
+  }
+  return `${start} – ${formatAbsolute(entry.retiredTs, now)}`;
+}
+
 function readDirCollapsed(): ReadonlySet<DirGroupKind> {
   try {
     const raw = window.localStorage.getItem(DIR_COLLAPSED_KEY);
@@ -2310,7 +2322,7 @@ function LoreRow({
         <LoreAuthorChip author={author} avatar={avatar} />
         <span className="lore-row__meta-label">{t.lore.effectiveLabel}</span>
         <span className="lore-row__effective-ts" data-testid="lore-effective">
-          {formatAbsolute(entry.effectiveTs, Date.now() / 1000)}
+          {loreEffectiveText(entry)}
         </span>
         {/* No reason, no row: an empty one would teach that retirements come unexplained. */}
         {entry.retireReason !== "" && (

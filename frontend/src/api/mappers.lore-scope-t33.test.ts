@@ -228,3 +228,14 @@ describe("toLoreEntry dropped", () => {
     ).toEqual([true, false, undefined]);
   });
 });
+
+describe("toLoreEntry retiredTs", () => {
+  it("a number comes through as retiredTs; null and a row without the field carry none", () => {
+    expect(
+      [{ retired_ts: 1788700000 }, { retired_ts: null }, {}].map((extra) => {
+        const view = toLoreEntry(wireEntry("agent", "ow-7d8ad859dd9b", extra));
+        return "retiredTs" in view ? view.retiredTs : "absent";
+      }),
+    ).toEqual([1788700000, "absent", "absent"]);
+  });
+});

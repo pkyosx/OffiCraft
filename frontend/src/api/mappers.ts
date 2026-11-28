@@ -2439,6 +2439,7 @@ export function toLoreEntry(
     sourceTaskId: w.source_task_id,
     state: toLoreEntryState(w.state),
     retireReason: w.retire_reason,
+    ...(w.retired_ts == null ? {} : { retiredTs: w.retired_ts }),
     effectiveTs: w.effective_ts,
     createdTs: w.created_ts,
     updatedTs: w.updated_ts,

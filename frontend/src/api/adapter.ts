@@ -3603,6 +3603,9 @@ export interface LoreEntryView {
   sourceTaskId: string;
   state: LoreEntryState;
   retireReason: string;
+  /** When the entry became retired; absent while it is not retired and on
+   * entries retired before the server recorded it. */
+  retiredTs?: number;
   effectiveTs: number;
   createdTs: number;
   updatedTs: number;

@@ -4649,8 +4649,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Move one lore entry to active / pinned / retired. Pin and unpin are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. Retire and Activate are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. A PINNED entry is outside its author's reach as well: until an admin un-pins it, every state change a non-admin requests on it, the author's included, is a 403. The author can still move it to the top of its group with ``bump_lore_entry``. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.
-         * @description Move one lore entry to active / pinned / retired. Pin and unpin are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. Retire and Activate are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. A PINNED entry is outside its author's reach as well: until an admin un-pins it, every state change a non-admin requests on it, the author's included, is a 403. The author can still move it to the top of its group with ``bump_lore_entry``. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two.
+         * Move one lore entry to active / pinned / retired. Pin and unpin are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. Retire and Activate are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. A PINNED entry is outside its author's reach as well: until an admin un-pins it, every state change a non-admin requests on it, the author's included, is a 403. The author can still move it to the top of its group with ``bump_lore_entry``. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two. ``retired_ts`` is stamped when the entry becomes retired and cleared the same way; retiring an already retired entry keeps the first stamp, and entries retired before the field existed have none.
+         * @description Move one lore entry to active / pinned / retired. Pin and unpin are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. Retire and Activate are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. A PINNED entry is outside its author's reach as well: until an admin un-pins it, every state change a non-admin requests on it, the author's included, is a 403. The author can still move it to the top of its group with ``bump_lore_entry``. Retiring is not deleting: the entry keeps its id and can be moved back; ``retire_reason`` is stored only with retired and cleared by the other two. ``retired_ts`` is stamped when the entry becomes retired and cleared the same way; retiring an already retired entry keeps the first stamp, and entries retired before the field existed have none.
          */
         post: operations["handle_set_lore_entry_state_api_lore__entry_id__state_post"];
         delete?: never;
@@ -12977,6 +12977,11 @@ export interface components {
              * @description Why it was retired, or "". Meaningful only while ``state`` is ``retired``, and cleared when the entry is moved back.
              */
             retire_reason: string;
+            /**
+             * Retired Ts
+             * @description Epoch seconds the entry was moved into ``retired``. Absent while it is not retired and on entries retired before this field existed; moving the entry back clears it, and setting ``retired`` again on a retired entry keeps the first time. additive-optional.
+             */
+            retired_ts?: number | null;
             /**
              * Effective Ts
              * Format: double

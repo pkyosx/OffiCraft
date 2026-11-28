@@ -1362,6 +1362,7 @@ const MOCK_LORE_SEEDS: readonly LoreEntryView[] = [
     sourceTaskId: "",
     state: "retired",
     retireReason: "已經寫進 SOP，這一筆不再需要單獨佔一格。",
+    retiredTs: 1788700000,
     effectiveTs: 1788300000,
     createdTs: 1788300000,
     updatedTs: 1788700000,
@@ -6648,11 +6649,14 @@ const mockApiImpl = {
         "no such 傳承 entry"
       );
     }
+    const now = Date.now() / 1000;
+    if (state !== "retired") delete e.retiredTs;
+    else if (e.state !== "retired") e.retiredTs = now;
     e.state = state;
     // Cleared by the two live states, exactly as the server does: a live entry
     // must not keep showing the explanation for a retirement that was undone.
     e.retireReason = state === "retired" ? (retireReason ?? "") : "";
-    e.updatedTs = Date.now() / 1000;
+    e.updatedTs = now;
   },
 
   async bumpLoreEntry(entryId: string): Promise<void> {

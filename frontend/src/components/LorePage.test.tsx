@@ -996,6 +996,29 @@ describe("LorePage — 卡片底下的撰寫人與生效期", () => {
     expect(row.lastElementChild!.getAttribute("data-testid")).toBe("lore-message-box");
   });
 
+  it("a retired entry with its retire time shows 生效期 as start – end; one retired before that time was recorded, one bumped after it and a live entry show the start alone", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-28T12:00:00+08:00") });
+    try {
+      stubList(
+        page([
+          mkEntry({ id: "L-1", state: "retired", effectiveTs: 1793586600, retiredTs: 1795793400 }),
+          mkEntry({ id: "L-2", state: "retired", effectiveTs: 1793586600 }),
+          mkEntry({ id: "L-3", state: "retired", effectiveTs: 1795793400, retiredTs: 1793586600 }),
+          mkEntry({ id: "L-4", state: "active", effectiveTs: 1793586600, retiredTs: 1795793400 }),
+        ]),
+      );
+      const { container } = await renderOpen();
+      await waitFor(() => expect(renderedIds(container)).toHaveLength(4));
+      expect(
+        ["L-1", "L-2", "L-3", "L-4"].map(
+          (id) => rowById(container, id).querySelector('[data-testid="lore-effective"]')!.textContent,
+        ),
+      ).toEqual(["11/2 10:30 – 11/27 23:30", "11/2 10:30", "11/27 23:30", "11/2 10:30"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
 });
 
 describe("LorePage — 卡片收合", () => {
