@@ -594,11 +594,15 @@ Open it with the gear in the top bar. It opens over the current tab; click any t
 
 For the contents of each page and every setting, see [Settings](settings.md). For themes, see [Themes (look and wording)](theme.md).
 
+### The ⓘ after a title
+
+In Settings, the avatar menu and their dialogs, what a row or a setting is for sits behind the ⓘ after its title instead of in a gray line under it. On a computer, hover over the ⓘ (or move to it with Tab) to read it; on a phone, tap it. A tapped explanation stays open until you tap it again, tap anywhere else, press Esc or scroll; tapping an ⓘ inside a row does not open that row. Warnings stay on the page as before, for example "Notifications are not sent until this is set." under Notification email, or "Anything past this number is permanently deleted on the next backup." under Backups kept. In Global context each row shows "editable" (or "not editable") as a small tag beside its name.
+
 ## Avatar menu
 
 - **Profile** — Your name, which you can "Rename".
 - **Preferences** — "Theme" (opens the theme settings: choose a theme, "Switch by time of day", "Background animation", "Show seasonal theme"), "Language" (中文 / English), "Layout" ("Narrow" / "Wide"). Until a language is chosen the console is in English. The login page and the first-time setup page use the station's language once one is chosen, otherwise the language this browser last used; logging out keeps the language.
-- **Notification email** — The email address push notifications need. This address is given to the push services run by browser vendors; it does not stay only on your server.
+- **Notification email** — The email address push notifications need; until it is set, the row says that notifications are not sent. This address is given to the push services run by browser vendors (the ⓘ on the row says so too); it does not stay only on your server.
 - **Account security** — "Change password", "Two-factor authentication", "Passkeys". See "Account security and sign-in" on this page and [Protect your studio](security.md).
 - **Log out**
 

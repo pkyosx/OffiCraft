@@ -36,7 +36,7 @@ The two cards at the top, **User Language** and then **User additions**, can be 
 - **User Language** tells members which language to write to you in. Every member reads it when it starts, before User additions; its character limit is 37500. Until you edit it, it follows the display language: Chinese gives the Chinese default, English (or not set) gives the English default. Once you edit it, members read your text whatever the display language. If you sync it to default, or save text that matches either default, it follows the display language again.
 - **User additions** has no character limit; every member reads it when it starts.
 
-The other documents are locked while developer mode is off (turn it on in Settings › General › Developer mode). While locked, the document rows are not marked "editable"; you can open a document and read it in full, but there is no edit button. Once developer mode is on, every document can be edited.
+The other documents are locked while developer mode is off (turn it on in Settings › General › Developer mode). While locked, the document rows carry no "editable" tag; you can open a document and read it in full, but there is no edit button. Once developer mode is on, every document can be edited.
 
 The other documents come in three groups:
 
