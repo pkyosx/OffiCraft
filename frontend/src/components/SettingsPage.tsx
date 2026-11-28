@@ -927,6 +927,7 @@ export function SettingsPage({
   }
 
   if (view.kind === "boot") {
+    const bootRuntimeTag = params.settings?.developerMode ? t.settings.bootDocEditableTag : undefined;
     // 🔴 AN INDEX OF TWO, NOT TWO DOCUMENTS STACKED (T-bac4, owner 2026-08-15
     // on rc-08e1e073c293:「我覺得呈現方式不好，可以改成像任務手冊那樣嗎」, with
     // the 任務手冊 hub as the reference picture). Same `.set-entry` rows the
@@ -956,7 +957,6 @@ export function SettingsPage({
     // both documents' identity, so the very defect being fixed was reproduced
     // in the accessibility tree. The rows below take their accessible name from
     // their own visible title (bootClaudeName / bootCodexName), which is the
-    const bootRuntimeTag = params.settings?.developerMode ? t.settings.bootDocEditableTag : undefined;
     // runtime — do not replace that with a shared label.
     return (
       <div className="settings">
