@@ -226,7 +226,6 @@ test("with the artifacts panel open, nothing in its own task card paints above i
 }) => {
   await page.setViewportSize({ width: 390, height: 780 });
   const cmp = await mount(<ArtifactsStackingStory />);
-  await cmp.getByTestId("task-meta-more-toggle").click();
   // The card is EXPANDED first (the whole card is the toggle surface — there is
   // no chevron button; T-70fb). Collapsed, the description and workflow blocks
   // are not in the tree at all, so the probe would only ever see the head. The
@@ -241,7 +240,7 @@ test("with the artifacts panel open, nothing in its own task card paints above i
 
   // A probe that found nothing to compare would pass vacuously — and vacuous is
   // exactly what the previous round's cost table was. Measured with the panel
-  // opening under the 更多 section's 產物 row: 26 card descendants overlap
+  // opening under the expanded card's 產物 row: 26 card descendants overlap
   // it (it used to open higher, under the badge row). The floors are set
   // below those so a layout change does not red them, but well above zero so a
   // story that stops rendering the card, stops expanding it, or stops opening
@@ -282,7 +281,7 @@ test("narrow 390: with chrome outranking the popover, the preview overlay still 
 }) => {
   await page.setViewportSize({ width: 390, height: 780 });
   const cmp = await mount(<ArtifactsStackingStory />);
-  await cmp.getByTestId("task-meta-more-toggle").click();
+  await cmp.locator(".task-card__title").click();
   await page.addStyleTag({ content: CHROME_OUTRANKS });
   await openPreview(cmp, page);
 
@@ -309,7 +308,7 @@ test("the preview overlay participates in the root stacking context, not the pop
 }) => {
   await page.setViewportSize({ width: 390, height: 780 });
   const cmp = await mount(<ArtifactsStackingStory />);
-  await cmp.getByTestId("task-meta-more-toggle").click();
+  await cmp.locator(".task-card__title").click();
   await openPreview(cmp, page);
 
   const seen = (await page.evaluate(PROBE)) as Probe;
@@ -334,7 +333,7 @@ test("clicking the preview backdrop closes nothing — the popover survives (own
 }) => {
   await page.setViewportSize({ width: 390, height: 780 });
   const cmp = await mount(<ArtifactsStackingStory />);
-  await cmp.getByTestId("task-meta-more-toggle").click();
+  await cmp.locator(".task-card__title").click();
   await openPreview(cmp, page);
 
   // A point on the backdrop: beside the panel, well clear of it.
@@ -361,7 +360,7 @@ test("Esc closes the preview first and the popover second, still in that order",
 }) => {
   await page.setViewportSize({ width: 390, height: 780 });
   const cmp = await mount(<ArtifactsStackingStory />);
-  await cmp.getByTestId("task-meta-more-toggle").click();
+  await cmp.locator(".task-card__title").click();
   await openPreview(cmp, page);
 
   await page.keyboard.press("Escape");

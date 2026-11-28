@@ -1846,8 +1846,6 @@ var messageKeys = map[string]bool{
 	"tasks.messageCreator":                             true,
 	"tasks.messageError":                               true,
 	"tasks.messagePreviousAssignee":                    true,
-	"tasks.metaLess":                                   true,
-	"tasks.metaMore":                                   true,
 	"tasks.metaTypeLabel":                              true,
 	"tasks.openKeyLink":                                true,
 	"tasks.openTitle":                                  true,

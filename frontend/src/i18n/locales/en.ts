@@ -418,8 +418,6 @@ export const en: Dict = {
     send: "Send",
     messageError: "Failed to send the message. Please try again.",
     metaTypeLabel: "Type",
-    metaMore: "More",
-    metaLess: "Less",
     statusMenuLabel: "Status actions",
     priorityLabel: "Priority",
     dueLabel: "Due",
@@ -610,7 +608,7 @@ export const en: Dict = {
     expandReply: "Expand reply card",
     collapseReply: "Collapse reply card",
     // Artifact set (T-3dc5): the deliverables (file/image/link) pinned onto a
-    // task card. The card's 更多 section has an 「Artifacts」 row with the count;
+    // task card. The expanded card has an 「Artifacts」 row with the count;
     // clicking opens a popover with ONE gallery-style list, grouped
     // file → image → link. 0 ⇒ the row is hidden.
     artifacts: {

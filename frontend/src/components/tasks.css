@@ -309,9 +309,9 @@ button.task-card__id-badge--copy:hover {
   align-items: center;
   gap: 7px 12px;
 }
-/* 更多 section and the 產物 row are subgrids so their chips stay on the
-   shared label column; the 產物 row is its own box so the artifact popover can
-   anchor to it on phones. */
+/* The expanded-only 類型/產物/建立者 group and the 產物 row are subgrids so
+   their chips stay on the shared label column; the 產物 row is its own box so
+   the artifact popover can anchor to it on phones. */
 .task-card__more,
 .task-card__artifacts-row {
   grid-column: 1 / -1;
@@ -319,28 +319,6 @@ button.task-card__id-badge--copy:hover {
   grid-template-columns: subgrid;
   align-items: center;
   row-gap: 7px;
-}
-.task-card__more[hidden] {
-  display: none;
-}
-.task-card__more-toggle {
-  grid-column: 1 / -1;
-  justify-self: start;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  margin: 0;
-  padding: 2px 0;
-  border: none;
-  background: none;
-  font: inherit;
-  font-size: 12.5px;
-  color: var(--color-text-muted);
-  cursor: pointer;
-}
-.task-card__more-toggle:hover,
-.task-card__more-toggle:focus-visible {
-  color: var(--color-text);
 }
 .task-card__meta-label {
   font-size: 12.5px;

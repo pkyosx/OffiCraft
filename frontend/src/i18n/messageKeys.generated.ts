@@ -1845,8 +1845,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "tasks.messageCreator",
   "tasks.messageError",
   "tasks.messagePreviousAssignee",
-  "tasks.metaLess",
-  "tasks.metaMore",
   "tasks.metaTypeLabel",
   "tasks.openKeyLink",
   "tasks.openTitle",

@@ -189,7 +189,7 @@ describe("TaskCard whole-card toggle (mobile refactor)", () => {
     expect(card.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("meta chips (assignee chat / type settings) and the 更多 toggle never toggle the card", async () => {
+  it("meta chips (assignee chat / type settings) never toggle the card", async () => {
     __injectMockTaskType({ typeKey: "review-pr", displayName: "", purpose: "" });
     __injectMockTask(
       mkTask({ title: "連結不切換", typeKey: "review-pr", executorId: "mira" })
@@ -202,18 +202,10 @@ describe("TaskCard whole-card toggle (mobile refactor)", () => {
     expect(card.getAttribute("aria-expanded")).toBe("false");
     expect(window.location.hash).toContain("#office/chat/mira");
 
-    const more = await findByTestId("task-meta-more-toggle");
-    fireEvent.click(more);
-    expect(more.getAttribute("aria-expanded")).toBe("true");
-    expect(card.getAttribute("aria-expanded")).toBe("false");
-    fireEvent.click(more);
-    expect(more.getAttribute("aria-expanded")).toBe("false");
-    expect(card.getAttribute("aria-expanded")).toBe("false");
-
-    fireEvent.click(more);
+    fireEvent.click(card);
     window.location.hash = "";
     fireEvent.click(await findByTestId("task-type-link"));
-    expect(card.getAttribute("aria-expanded")).toBe("false");
+    expect(card.getAttribute("aria-expanded")).toBe("true");
     expect(window.location.hash).toBe("#settings/manuals/review-pr");
   });
 

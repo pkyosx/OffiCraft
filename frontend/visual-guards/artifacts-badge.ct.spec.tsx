@@ -1,5 +1,5 @@
 // T-3dc5 artifact set — real-browser layout guards the jsdom suite can't see:
-// the 產物 count chip in the card's 更多 section occupies a visible box, its popover opens
+// the 產物 count chip in the expanded card's meta rows occupies a visible box, its popover opens
 // with a laid-out list that stays inside the viewport, and the empty-set case
 // renders NO badge box at all (the design's load-bearing negative, proven in
 // real layout — not just DOM absence).
@@ -19,7 +19,7 @@ import { TaskArtifactsOverflowStory } from "./stories/TaskArtifactsOverflowStory
 test("desktop 1024: 產物 badge is visible and opens a laid-out popover listing every kind", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1024, height: 800 });
   const cmp = await mount(<TaskCardArtifactsStory />);
-  await cmp.getByTestId("task-meta-more-toggle").click();
+  await cmp.locator(".task-card__title").click();
 
   const badge = cmp.getByTestId("task-artifacts-badge");
   await expect(badge).toBeVisible();
@@ -55,7 +55,7 @@ test("desktop 1024: the three kinds keep their visual distinction inside the one
   // anchor chip that navigates, a file by a plain download chip.
   await page.setViewportSize({ width: 1024, height: 800 });
   const cmp = await mount(<TaskCardArtifactsStory />);
-  await cmp.getByTestId("task-meta-more-toggle").click();
+  await cmp.locator(".task-card__title").click();
   await cmp.getByTestId("task-artifacts-badge").click();
   await expect(cmp.locator(".task-artifacts")).toBeVisible();
 
@@ -98,7 +98,7 @@ test("desktop 1024: the three kinds keep their visual distinction inside the one
 test("narrow 390: popover stays within the phone viewport", async ({ mount, page }) => {
   await page.setViewportSize({ width: 390, height: 780 });
   const cmp = await mount(<TaskCardArtifactsStory />);
-  await cmp.getByTestId("task-meta-more-toggle").click();
+  await cmp.locator(".task-card__title").click();
   await cmp.getByTestId("task-artifacts-badge").click();
   const popover = cmp.locator(".task-artifacts");
   await expect(popover).toBeVisible();
@@ -131,7 +131,7 @@ test("narrow 390: the .md chip opens the preview overlay on click and on Enter",
 }) => {
   await page.setViewportSize({ width: 390, height: 780 });
   const cmp = await mount(<TaskCardArtifactsStory />);
-  await cmp.getByTestId("task-meta-more-toggle").click();
+  await cmp.locator(".task-card__title").click();
   await cmp.getByTestId("task-artifacts-badge").click();
   const popover = cmp.locator(".task-artifacts");
   await expect(popover).toBeVisible();
@@ -162,7 +162,7 @@ test("narrow 390: the .md chip opens the preview overlay on click and on Enter",
 test("narrow 375: opening the popover grows NO horizontal scroll anywhere (T-49fb)", async ({ mount, page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   const cmp = await mount(<TaskArtifactsOverflowStory />);
-  await cmp.getByTestId("task-meta-more-toggle").click();
+  await cmp.locator(".task-card__title").click();
 
   const overflow = () =>
     page.evaluate(() => {
@@ -228,7 +228,7 @@ test("narrow 375: opening the popover grows NO horizontal scroll anywhere (T-49f
 test("click outside closes the popover; clicks inside and on the badge do not (T-49fb)", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1024, height: 800 });
   const cmp = await mount(<TaskCardArtifactsStory />);
-  await cmp.getByTestId("task-meta-more-toggle").click();
+  await cmp.locator(".task-card__title").click();
   const badge = cmp.getByTestId("task-artifacts-badge");
   const popover = cmp.locator(".task-artifacts");
 
@@ -257,7 +257,7 @@ test("click outside closes the popover; clicks inside and on the badge do not (T
 test("Esc closes the popover (T-49fb)", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1024, height: 800 });
   const cmp = await mount(<TaskCardArtifactsStory />);
-  await cmp.getByTestId("task-meta-more-toggle").click();
+  await cmp.locator(".task-card__title").click();
   await cmp.getByTestId("task-artifacts-badge").click();
   await expect(cmp.locator(".task-artifacts")).toBeVisible();
   await page.keyboard.press("Escape");
@@ -272,7 +272,7 @@ test("opening the shared attachment popup does not dismiss the popover (T-49fb)"
   // portal reddens here instead of silently regressing.
   await page.setViewportSize({ width: 1024, height: 800 });
   const cmp = await mount(<TaskCardArtifactsStory />);
-  await cmp.getByTestId("task-meta-more-toggle").click();
+  await cmp.locator(".task-card__title").click();
   await cmp.getByTestId("task-artifacts-badge").click();
   const popover = cmp.locator(".task-artifacts");
   await expect(popover).toBeVisible();
@@ -301,7 +301,7 @@ test("opening the shared attachment popup does not dismiss the popover (T-49fb)"
 test("desktop 1024: a short and an overlong name give EQUAL chip widths and one action column", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1024, height: 800 });
   const cmp = await mount(<TaskCardRaggedArtifactsStory />);
-  await cmp.getByTestId("task-meta-more-toggle").click();
+  await cmp.locator(".task-card__title").click();
   await cmp.getByTestId("task-artifacts-badge").click();
   await expect(cmp.locator(".task-artifacts")).toBeVisible();
 
@@ -348,7 +348,7 @@ test("desktop 1024: every kind puts its action column on the same right edge", a
   // Pre-T-49fb this needed three tab clicks; the one list makes it one shot.
   await page.setViewportSize({ width: 1024, height: 800 });
   const cmp = await mount(<TaskCardRaggedArtifactsStory />);
-  await cmp.getByTestId("task-meta-more-toggle").click();
+  await cmp.locator(".task-card__title").click();
   await cmp.getByTestId("task-artifacts-badge").click();
   await expect(cmp.locator(".task-artifacts")).toBeVisible();
 
@@ -380,7 +380,7 @@ test("desktop 1024: every kind puts its action column on the same right edge", a
 test("empty set: NO 產物 badge renders (the load-bearing negative)", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1024, height: 800 });
   const cmp = await mount(<TaskCardNoArtifactsStory />);
-  await cmp.getByTestId("task-meta-more-toggle").click();
+  await cmp.locator(".task-card__title").click();
   await expect(cmp.getByTestId("task-artifacts-badge")).toHaveCount(0);
 });
 
@@ -401,7 +401,7 @@ for (const vp of [
   }) => {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     const cmp = await mount(<TaskCardSameNameArtifactsStory />);
-    await cmp.getByTestId("task-meta-more-toggle").click();
+    await cmp.locator(".task-card__title").click();
     await cmp.getByTestId("task-artifacts-badge").click();
     const popover = cmp.locator(".task-artifacts");
     await expect(popover).toBeVisible();

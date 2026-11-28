@@ -105,10 +105,7 @@ function renderCardWithRoster(task: TaskView, members: Member[]) {
   );
 }
 
-const openMore = (card: ParentNode) =>
-  fireEvent.click(
-    card.querySelector<HTMLElement>('[data-testid="task-meta-more-toggle"]')!
-  );
+const expandCard = (card: HTMLElement) => fireEvent.click(card);
 
 const byTitle = (cards: HTMLElement[], title: string) =>
   cards.find((c) =>
@@ -128,7 +125,7 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
     );
     const { findByTestId } = renderPage();
     const card = await findByTestId("task-card");
-    openMore(card);
+    expandCard(card);
 
     // POSITIVE CONTROL, and not optional. Every assertion in this test is a
     // negative ("the 建立者 row is absent"), and absence is exactly what a
@@ -169,7 +166,7 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
       mkTask({ title: "同名不同人", executorId: "mira", creatorId: "mira-2" }),
       roster
     );
-    fireEvent.click(getByTestId("task-meta-more-toggle"));
+    fireEvent.click(getByTestId("task-card"));
 
     // Positive control: the two rows really do render the SAME string, so the
     // trap this test sets is armed. If these ever differ, the test below stops
@@ -191,7 +188,7 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
     );
     const { findByTestId } = renderPage();
     const card = await findByTestId("task-card");
-    openMore(card);
+    expandCard(card);
 
     const row = card.querySelector('[data-testid="task-creator-row"]')!;
     expect(row).toBeTruthy();
@@ -214,7 +211,7 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
     );
     const { findByTestId } = renderPage();
     const card = await findByTestId("task-card");
-    openMore(card);
+    expandCard(card);
 
     expect(
       card.querySelector('[data-testid="task-executor"]')?.textContent
@@ -237,7 +234,7 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
     );
     const { findByTestId } = renderPage();
     const card = await findByTestId("task-card");
-    openMore(card);
+    expandCard(card);
     // Positive control first — the assignee row proves the card rendered.
     expect(card.querySelector('[data-testid="task-executor"]')).toBeTruthy();
     expect(card.querySelector('[data-testid="task-creator"]')).toBeNull();
@@ -254,7 +251,7 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
     );
     const { findByTestId } = renderPage();
     const card = await findByTestId("task-card");
-    openMore(card);
+    expandCard(card);
     expect(
       card.querySelector('[data-testid="task-creator"]')?.textContent
     ).toBe("Mira");
@@ -269,7 +266,7 @@ describe("T-17be ② 任務類型名稱完整顯示", () => {
     __injectMockTask(mkTask({ title: "長類型名", typeKey: long }));
     const { findByTestId } = renderPage();
     const card = await findByTestId("task-card");
-    openMore(card);
+    expandCard(card);
     const type = card.querySelector('[data-testid="task-type"]')!;
     expect(type.textContent).toBe(long);
     expect(type.textContent).not.toContain("…");

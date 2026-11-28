@@ -392,7 +392,7 @@ Before a member opens a task, it first checks which task manuals apply, then ope
 
 **Fields on the task card**
 
-The first line of the card holds the status icon, the task number, the priority and, during a reassignment, the "Reassigning" marker. Below the title, "Assignee" and "Due date" are always shown, plus "Handed over from" and "Identity key" when they are set. "Type", "Artifacts" and "Creator" are behind "More" under these rows; click "More" to show them and "Less" to hide them again. Each card starts with them hidden, and clicking "More" does not open the card.
+The first line of the card holds the status icon, the task number, the priority and, during a reassignment, the "Reassigning" marker. Below the title, "Assignee" and "Due date" are always shown, plus "Handed over from" and "Identity key" when they are set. When you open the card, "Type", "Artifacts" and "Creator" also appear, right under "Due date".
 
 - **Status icon** — The first thing on the card, drawn in the status colour: a dashed circle for Not started, a play sign in a circle for In progress, a speech bubble with "?" for Awaiting my reply, an hourglass for Waiting on external, a flag for Ready to close, a tick in a circle for Done, a cross in a circle for Terminated, and two overlapping squares for Duplicate. Hover over it to see the status name. Clicking (or tapping) it opens a menu headed by the status name: "Show the waiting reply card", "Show the waiting-external step" (when there is one), Mark duplicate, Terminate, Force close.
 - **Task number** — Click it to "Copy task number".
@@ -402,9 +402,9 @@ The first line of the card holds the status icon, the task number, the priority 
 - **Due date** — On the line below "Assignee". Shows the date, plus the time when one is set, followed by "· 5 days left" or "· Overdue 2 days". With less than a day left it switches to hours, and with less than an hour to minutes. Due soon is shown in orange-yellow, overdue in red. Closed tasks show only the date. When none is set, it shows "Not set".
 - **Handed over from** — The previous assignee before the task was reassigned; not shown if it has never been reassigned.
 - **Identity key** — A field the task manual designates to tell whether two tasks are about the same thing; clickable when it is a URL.
-- **Type** (under "More") — "Open task-type settings" links to this type's task manual. A task without a manual shows "Ad-hoc".
-- **Artifacts** (under "More") — How many artifacts the task has; click it to "View artifacts", where you can see versions and diffs. Not shown when there are none.
-- **Creator** (under "More") — The member who opened the task; not shown when it is the same as the assignee.
+- **Type** (open card only) — "Open task-type settings" links to this type's task manual. A task without a manual shows "Ad-hoc".
+- **Artifacts** (open card only) — How many artifacts the task has; click it to "View artifacts", where you can see versions and diffs. Not shown when there are none.
+- **Creator** (open card only) — The member who opened the task; not shown when it is the same as the assignee.
 - **Step done/total · Elapsed** — Progress and the time spent so far.
 - **Task description** — A framed block with its own title bar: an icon, "Task description" and an arrow. A long description shows its first few lines, fading out at the bottom, with "Show all" below it ("Show less" closes it again); a short description is shown whole, with no button.
 - **Workflow** — A framed block like "Task description", with the list of steps, each step's status, DoD, step notes ("Show note"), and dependencies. Its title bar shows "4 steps · 1/4 done". Clicking the title bar of either block collapses that block only, not the card; the collapsed workflow's title bar shows "1/4 done · In progress: <step name>".

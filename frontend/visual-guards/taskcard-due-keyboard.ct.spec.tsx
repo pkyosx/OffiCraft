@@ -255,7 +255,9 @@ for (const { width, language, label, dueTs } of DUE_ROW_CASES) {
     }) => {
       await page.setViewportSize({ width, height: 700 });
       const cmp = await mount(<TaskCardDueStory dueTs={dueTs} language={language} />);
-      await expect(cmp.getByTestId("task-meta-more-toggle")).toHaveText(language === "en" ? "More" : "更多");
+      await expect(cmp.getByTestId("task-due")).toBeVisible();
+      await expect(cmp.getByTestId("task-meta-more-toggle")).toHaveCount(0);
+      await expect(cmp.getByTestId("task-meta-more")).toHaveCount(0);
       const card = (await cmp.locator(".task-card").boundingBox())!;
       const content = (await cmp.locator(".task-card__meta").boundingBox())!;
       const chip = (await cmp.getByTestId("task-due").boundingBox())!;
@@ -282,7 +284,6 @@ for (const { width, language, label, dueTs } of DUE_ROW_CASES) {
           dueCell: box(meta.querySelector(".task-card__due")),
           dueDateText: firstLine(meta.querySelector("[data-testid='task-due']")!),
           remaining: box(meta.querySelector("[data-testid='task-due-remaining']")),
-          more: box(meta.querySelector("[data-testid='task-meta-more-toggle']")),
         };
       });
       const mid = (b: { top: number; bottom: number }) => (b.top + b.bottom) / 2;
@@ -291,8 +292,6 @@ for (const { width, language, label, dueTs } of DUE_ROW_CASES) {
       expect.soft(rows.remaining.left, "relative time stays in the value column").toBeGreaterThanOrEqual(rows.dueCell.left - 0.5);
       expect.soft(rows.remaining.left, "relative time clears the label column").toBeGreaterThan(rows.dueLabel.right);
       expect.soft(rows.dueCell.top, "到期日 row below 負責人").toBeGreaterThanOrEqual(rows.assigneeChip.bottom);
-      expect.soft(rows.more.top, "更多 below the 到期日 row").toBeGreaterThanOrEqual(rows.remaining.bottom);
-      expect.soft(rows.more.top, "更多 below the 到期日 row").toBeGreaterThanOrEqual(rows.dueCell.bottom);
 
       await cmp.getByTestId("task-due").click();
       const pop = (await cmp.getByTestId("task-due-pop").boundingBox())!;

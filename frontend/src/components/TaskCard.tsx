@@ -144,7 +144,6 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  ChevronUpIcon,
   CircleCheckIcon,
   CircleDashedIcon,
   CirclePlayIcon,
@@ -513,10 +512,8 @@ export function TaskCard({
   // jump promises visibility — a collapsed card would hide exactly what the
   // link came to show).
   const [expanded, setExpanded] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
   const [descOpen, setDescOpen] = useState(true);
   const [workflowOpen, setWorkflowOpen] = useState(true);
-  const moreId = useId();
   useEffect(() => {
     if (located) setExpanded(true);
   }, [located]);
@@ -1935,8 +1932,8 @@ export function TaskCard({
             up across rows and languages. Each row emits two grid children: the
             muted label span and the value chip, which carries the icon and the
             click. 負責人 / 到期日 (+ 前任 / 識別鍵 when set) are always shown;
-            類型 / 產物 / 建立者 sit behind the 更多 toggle, collapsed per card
-            in component state only. */}
+            類型 / 產物 / 建立者 join them, right under 到期日, only while the
+            card is expanded. */}
         <div className="task-card__meta">
           {/* 負責人 (聊天泡泡 in the chip when reachable) + 轉派 icon to its right
               (owner 2026-07-18): 轉派 is a hand-the-task-to-a-new-executor
@@ -2203,6 +2200,82 @@ export function TaskCard({
             </>
           )}
 
+          {expanded && (
+            <div className="task-card__more" data-testid="task-meta-more">
+              <span className="task-card__meta-label">{t.tasks.metaTypeLabel}</span>
+              {typeClickable ? (
+                <button
+                  type="button"
+                  className="task-card__chip task-card__chip--link"
+                  title={t.tasks.typeSettingsLink}
+                  data-testid="task-type-link"
+                  onClick={openTypeSettings}
+                >
+                  <GearIcon size={13} />
+                  <span className="task-card__type" data-testid="task-type">
+                    {typeLabel}
+                  </span>
+                </button>
+              ) : (
+                <span className="task-card__chip" data-testid="task-type-row">
+                  <span className="task-card__type" data-testid="task-type">
+                    {typeLabel}
+                  </span>
+                </span>
+              )}
+
+              {(view.artifactCount ?? 0) > 0 && (
+                <div className="task-card__artifacts-row">
+                  <span className="task-card__meta-label">
+                    {t.tasks.artifacts.label}
+                  </span>
+                  {/* A closed task's deliverable set is frozen (the server
+                      409s un-pin like add), so the 移除 affordance is dropped. */}
+                  <TaskArtifactsBadge
+                    task={view}
+                    commentRecipient={executorRecipient}
+                    onRemoveArtifact={
+                      TERMINAL.has(view.status) ? undefined : onRemoveArtifact
+                    }
+                  />
+                </div>
+              )}
+
+              {/* 建立者 — member/外包 可點(聊天泡泡); ""→— 與 未知值 純文字(無圖示).
+                  Hidden entirely when the creator IS the assignee (v6, owner
+                  2026-07-17): the row would restate the line directly above it. */}
+              {!creatorIsExecutor && (
+                <>
+                  <span className="task-card__meta-label">{t.tasks.creatorLabel}</span>
+                  {creator.peerId ? (
+                    <button
+                      type="button"
+                      className="task-card__chip task-card__chip--link"
+                      title={t.tasks.messageCreator}
+                      aria-label={t.tasks.messageCreator}
+                      data-testid="task-creator-link"
+                      onClick={() => openChat(creator.peerId)}
+                    >
+                      {creatorAvatar ? (
+                        <Avatar size={18} kind={creatorAvatar.kind} src={creatorAvatar.src} />
+                      ) : null}
+                      <span className="task-card__creator" data-testid="task-creator">
+                        {creator.text}
+                      </span>
+                      <ChatBubbleIcon size={13} />
+                    </button>
+                  ) : (
+                    <span className="task-card__chip" data-testid="task-creator-row">
+                      <span className="task-card__creator" data-testid="task-creator">
+                        {creator.text}
+                      </span>
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {/* 前任 (T-ba04 轉派交接) — the predecessor to hand over WITH; shown
               only while/after a reassign stamped one (reassignedFrom !== "").
               Always a chat-reachable chip (the id is addressable regardless of
@@ -2262,100 +2335,6 @@ export function TaskCard({
               )}
             </>
           )}
-
-          <div
-            id={moreId}
-            className="task-card__more"
-            data-testid="task-meta-more"
-            hidden={!moreOpen}
-          >
-            {moreOpen && (
-              <>
-                <span className="task-card__meta-label">{t.tasks.metaTypeLabel}</span>
-                {typeClickable ? (
-                  <button
-                    type="button"
-                    className="task-card__chip task-card__chip--link"
-                    title={t.tasks.typeSettingsLink}
-                    data-testid="task-type-link"
-                    onClick={openTypeSettings}
-                  >
-                    <GearIcon size={13} />
-                    <span className="task-card__type" data-testid="task-type">
-                      {typeLabel}
-                    </span>
-                  </button>
-                ) : (
-                  <span className="task-card__chip" data-testid="task-type-row">
-                    <span className="task-card__type" data-testid="task-type">
-                      {typeLabel}
-                    </span>
-                  </span>
-                )}
-
-                {(view.artifactCount ?? 0) > 0 && (
-                  <div className="task-card__artifacts-row">
-                    <span className="task-card__meta-label">
-                      {t.tasks.artifacts.label}
-                    </span>
-                    {/* A closed task's deliverable set is frozen (the server
-                        409s un-pin like add), so the 移除 affordance is dropped. */}
-                    <TaskArtifactsBadge
-                      task={view}
-                      commentRecipient={executorRecipient}
-                      onRemoveArtifact={
-                        TERMINAL.has(view.status) ? undefined : onRemoveArtifact
-                      }
-                    />
-                  </div>
-                )}
-
-                {/* 建立者 — member/外包 可點(聊天泡泡); ""→— 與 未知值 純文字(無圖示).
-                    Hidden entirely when the creator IS the assignee (v6, owner
-                    2026-07-17): the row would restate the line directly above it. */}
-                {!creatorIsExecutor && (
-                  <>
-                    <span className="task-card__meta-label">{t.tasks.creatorLabel}</span>
-                    {creator.peerId ? (
-                      <button
-                        type="button"
-                        className="task-card__chip task-card__chip--link"
-                        title={t.tasks.messageCreator}
-                        aria-label={t.tasks.messageCreator}
-                        data-testid="task-creator-link"
-                        onClick={() => openChat(creator.peerId)}
-                      >
-                        {creatorAvatar ? (
-                          <Avatar size={18} kind={creatorAvatar.kind} src={creatorAvatar.src} />
-                        ) : null}
-                        <span className="task-card__creator" data-testid="task-creator">
-                          {creator.text}
-                        </span>
-                        <ChatBubbleIcon size={13} />
-                      </button>
-                    ) : (
-                      <span className="task-card__chip" data-testid="task-creator-row">
-                        <span className="task-card__creator" data-testid="task-creator">
-                          {creator.text}
-                        </span>
-                      </span>
-                    )}
-                  </>
-                )}
-              </>
-            )}
-          </div>
-          <button
-            type="button"
-            className="task-card__more-toggle"
-            aria-expanded={moreOpen}
-            aria-controls={moreId}
-            data-testid="task-meta-more-toggle"
-            onClick={() => setMoreOpen((o) => !o)}
-          >
-            {moreOpen ? t.tasks.metaLess : t.tasks.metaMore}
-            {moreOpen ? <ChevronUpIcon size={14} /> : <ChevronDownIcon size={14} />}
-          </button>
         </div>
       </header>
 

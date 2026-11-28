@@ -1,9 +1,10 @@
 // CT story: one TaskCard per status inside the production list chain, so the
-// head line (狀態 icon · #ID · 優先權 · 轉派中) and the 更多 section are
-// measured at the card's real x-offset. The first card carries every optional
-// head item plus a type, artifacts and a distinct creator, so it is the widest
-// head and the fullest 更多 section.
-import { I18nProvider } from "../../src/i18n";
+// head line (狀態 icon · #ID · 優先權 · 轉派中) and the expanded card's
+// 類型／產物／建立者 rows are measured at the card's real x-offset. The first
+// card carries every optional head item plus a type, artifacts and a distinct
+// creator, so it is the widest head and the fullest set of expanded rows.
+import { useEffect } from "react";
+import { I18nProvider, useI18n } from "../../src/i18n";
 import { TaskCard } from "../../src/components/TaskCard";
 import { mkTask, serveArtifacts, MIRA, NOOP, WORKERS } from "./taskFixtures";
 
@@ -56,9 +57,18 @@ const TASKS = STATUSES.map((status, i) =>
   )
 );
 
-export function TaskCardHeadStory() {
+function LanguageSwitch({ language }: { language: "zh" | "en" }) {
+  const { language: current, setLanguage } = useI18n();
+  useEffect(() => {
+    if (language !== current) setLanguage(language);
+  }, [language, current, setLanguage]);
+  return null;
+}
+
+export function TaskCardHeadStory({ language = "zh" }: { language?: "zh" | "en" }) {
   return (
     <I18nProvider>
+      <LanguageSwitch language={language} />
       <div className="app">
         <main className="app__main">
           <div className="tasks">
