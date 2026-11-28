@@ -103,7 +103,9 @@ for (const width of [390, 1440]) {
 
     test("頭像選單: tapping a row's ⓘ shows its text inside the viewport and stays on the first level", async ({ mount, page }) => {
       await mount(<InfoHintStory mode="menu" />);
-      const icon = page.getByRole("img", { name: `關於 ${zh.profile.accountSecurity}` });
+      const row = page.getByRole("button", { name: zh.profile.accountSecurity });
+      await expect(row).toHaveAccessibleDescription(zh.profile.accountSecuritySub);
+      const icon = row.getByTestId("info-hint");
       await icon.click();
       await expectAnchored(page, icon);
       await expect(page.getByRole("tooltip")).toHaveText(zh.profile.accountSecuritySub);
