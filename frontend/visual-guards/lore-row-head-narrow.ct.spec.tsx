@@ -257,17 +257,15 @@ function assertHeadContained(width: number, row: RowGeom, language: "zh" | "en" 
   }
   expect.soft(row.toggle, `${tag} card is not the fold toggle`).toBe(true);
   expect.soft(row.actions, `${tag} actions missing`).not.toBeNull();
-  // Open: the borderless 編輯 icon, then the 收合 chevron; folded: the chevron.
+  // The borderless 編輯 icon, then the chevron, folded or open (like the task card's actions).
   expect
     .soft(row.actionButtons.map((b) => [b.text, b.cls, b.svg]), `${tag} actions`)
-    .toEqual(
+    .toEqual([
+      [names.edit, "lore-row__icon-btn", true],
       row.folded
-        ? [[names.expand, "lore-row__fold", true]]
-        : [
-            [names.edit, "lore-row__icon-btn", true],
-            [names.collapse, "lore-row__fold lore-row__fold--open", true],
-          ],
-    );
+        ? [names.expand, "lore-row__fold", true]
+        : [names.collapse, "lore-row__fold lore-row__fold--open", true],
+    ]);
   const firstBadge = row.badges[0];
   for (const b of row.actionButtons) {
     expect.soft(b.height, `${tag} "${b.text}" taller than the 狀態 icon`).toBeLessThanOrEqual((firstBadge ? firstBadge.box.bottom - firstBadge.box.top : 26) + 1);
@@ -614,8 +612,9 @@ for (const width of [390, 1440]) {
     for (const f of foldedRows) {
       expect.soft(f.dimmed, `[${width}px] ${f.id} folded card not 讀不到`).toBe(true);
       assertHeadContained(width, f);
-      if (f.row && f.actionButtons[0])
-        expect.soft(f.actionButtons[0].box.right, `[${width}px] ${f.id} chevron at the right edge`).toBeGreaterThan(f.row.right - 40);
+      const chevron = f.actionButtons.at(-1);
+      if (f.row && chevron)
+        expect.soft(chevron.box.right, `[${width}px] ${f.id} chevron at the right edge`).toBeGreaterThan(f.row.right - 40);
     }
     assertNoHScroll(width, before);
 

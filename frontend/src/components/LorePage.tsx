@@ -2257,19 +2257,20 @@ function LoreRow({
         </div>
 
         <div className="lore-row__actions">
-          {expanded && (
-            <button
-              type="button"
-              className="lore-row__icon-btn"
-              data-testid="lore-edit"
-              aria-label={t.lore.actionEdit}
-              title={t.lore.actionEdit}
-              disabled={editing}
-              onClick={() => setEditing(true)}
-            >
-              <PencilIcon size={15} />
-            </button>
-          )}
+          <button
+            type="button"
+            className="lore-row__icon-btn"
+            data-testid="lore-edit"
+            aria-label={t.lore.actionEdit}
+            title={t.lore.actionEdit}
+            disabled={expanded && editing}
+            onClick={() => {
+              if (!expanded) onToggle?.();
+              setEditing(true);
+            }}
+          >
+            <PencilIcon size={15} />
+          </button>
           {toggle ? (
             <span
               className={`lore-row__fold${expanded ? " lore-row__fold--open" : ""}`}

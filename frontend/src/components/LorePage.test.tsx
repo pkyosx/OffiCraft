@@ -181,7 +181,7 @@ describe("LorePage — 變灰", () => {
     ]);
   });
 
-  it("a dropped entry starts folded: the whole card with its body cut to two lines, 讀不到 after its tags, and no 編輯 or message box; a click or Enter opens it in place and a click on it folds it back", async () => {
+  it("a dropped entry starts folded: the whole card with its body cut to two lines, 讀不到 after its tags, 編輯 on its first line and no message box; a click or Enter opens it in place and a click on it folds it back", async () => {
     stubList(page(entries, { capChars: 10000, firstDroppedId: "mid" }));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(5));
@@ -209,7 +209,7 @@ describe("LorePage — 變灰", () => {
     expect(mid.querySelector('[data-testid="lore-dropped-tag"]')!.textContent).toBe("讀不到");
     const foldedBody = mid.querySelector('[data-testid="lore-body"]')!;
     expect([foldedBody.textContent, foldedBody.classList.contains("lore-row__body--clamped")]).toEqual(["短", true]);
-    expect(mid.querySelector('[data-testid="lore-edit"]')).toBeNull();
+    expect(mid.querySelector('.lore-row__actions [data-testid="lore-edit"]')!.getAttribute("aria-label")).toBe("編輯");
     expect(mid.querySelector('[data-testid="lore-message-box"]')).toBeNull();
     expect(mid.querySelector<HTMLElement>('[data-testid="lore-fold-mark"]')!.title).toBe("展開");
 
@@ -259,7 +259,7 @@ describe("LorePage — 變灰", () => {
     expect(rowById(container, "mid").querySelector('[data-testid="lore-fold-mark"]')).not.toBeNull();
   });
 
-  it("an opened dropped entry has no chevron while its editor is open or its message box holds text, and a click on it does not fold it, so neither can be folded away; one with no message box, or whose author leaves with text still in it, folds as usual", async () => {
+  it("編輯 on a folded dropped entry opens it straight into its editor; it has no chevron while its editor is open or its message box holds text, and a click on it does not fold it, so neither can be folded away; one with no message box, or whose author leaves with text still in it, folds as usual", async () => {
     const eventSinks: ((topic: string) => void)[] = [];
     vi.spyOn(api, "subscribeEvents").mockImplementation((sink) => {
       eventSinks.push(sink);
@@ -268,10 +268,11 @@ describe("LorePage — 變灰", () => {
     stubList(page(entries, { capChars: 10000, firstDroppedId: "mid" }));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(5));
-    fireEvent.click(rowById(container, "mid"));
     const collapseOf = () => rowById(container, "mid").querySelector('[data-testid="lore-fold-mark"]');
 
+    expect(rowById(container, "mid").dataset.folded).toBe("true");
     fireEvent.click(rowById(container, "mid").querySelector('[data-testid="lore-edit"]')!);
+    expect(rowById(container, "mid").dataset.folded).toBeUndefined();
     fireEvent.change(rowById(container, "mid").querySelector('[data-testid="lore-edit-body"]')!, {
       target: { value: "改到一半" },
     });
@@ -1022,7 +1023,7 @@ describe("LorePage — 卡片底下的撰寫人與生效期", () => {
 });
 
 describe("LorePage — 卡片收合", () => {
-  it("an entry the server reads opens with its whole body; a click anywhere on the card that is not a control or the end of a text selection, Enter or Space folds only that card, which keeps its head, title and rows with the body cut to two lines and no 編輯 or message box, and the same opens it again", async () => {
+  it("an entry the server reads opens with its whole body; a click anywhere on the card that is not a control or the end of a text selection, Enter or Space folds only that card, which keeps its head, title and rows with the body cut to two lines, 編輯 still on its first line and no message box, and the same opens it again", async () => {
     stubList(
       page([
         mkEntry({
@@ -1086,6 +1087,8 @@ describe("LorePage — 卡片收合", () => {
       true,
     ]);
     expect(document.activeElement).toBe(folded);
+    expect(folded.querySelector('.lore-row__actions [data-testid="lore-edit"]')).not.toBeNull();
+    expect(folded.querySelector('[data-testid="lore-message-box"]')).toBeNull();
     expect(renderedIds(container)).toEqual(["L-7", "L-8"]);
     expect(rowById(container, "L-8").dataset.folded).toBeUndefined();
     expect(rowById(container, "L-8").querySelector('[data-testid="lore-body"]')!.textContent).toBe("內容 L-8");
