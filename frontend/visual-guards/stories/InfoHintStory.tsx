@@ -1,5 +1,5 @@
 // CT story for the ⓘ that holds a title's explanation. "settings" is the real
-// SettingsPage in the app's ancestor chain (walked to 一般設定 or 全域情境 by the
+// SettingsPage in the app's ancestor chain (walked to 進階設定 or 全域情境 by the
 // guard); "menu" is the real profile dropdown right-anchored in the top bar;
 // "dialog" is an Esc layer holding an ⓘ, the shape every modal has; "wrap" is
 // one Latin and one CJK title at every box width where it wraps near the ⓘ.

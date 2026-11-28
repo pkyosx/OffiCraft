@@ -169,12 +169,19 @@ describe("SettingsPage · unified breadcrumb header (T-8f6e)", () => {
     expectHeader(utils, [s.title, s.manuals]);
   });
 
-  it("參數調整: 設定 › 參數調整 + title, no back button", async () => {
-    const utils = renderSettings();
-    fireEvent.click(utils.getByTestId("settings-params-entry"));
-    await utils.findByLabelText(s.sessionTtl);
-    expectHeader(utils, [s.title, s.params]);
-    expect(utils.getByRole("heading", { name: s.params })).toBeTruthy();
+  it("一般設定 and 進階設定: 設定 › <page> + title, no back button", async () => {
+    const general = renderSettings();
+    fireEvent.click(general.getByTestId("settings-params-entry"));
+    await general.findByLabelText(s.dueSoonLead);
+    expectHeader(general, ["設定", "一般設定"]);
+    expect(general.getByRole("heading", { name: "一般設定" })).toBeTruthy();
+    general.unmount();
+
+    const advanced = renderSettings();
+    fireEvent.click(advanced.getByTestId("settings-advanced-entry"));
+    await advanced.findByLabelText(s.sessionTtl);
+    expectHeader(advanced, ["設定", "進階設定"]);
+    expect(advanced.getByRole("heading", { name: "進階設定" })).toBeTruthy();
   });
 });
 
@@ -195,7 +202,7 @@ describe("SettingsPage · crumb jumps write the hash (lib/hashRoute)", () => {
 
   it("設定 crumb: back to the landing, hash → #settings", async () => {
     const utils = renderSettings();
-    fireEvent.click(utils.getByTestId("settings-params-entry"));
+    fireEvent.click(utils.getByTestId("settings-advanced-entry"));
     await utils.findByLabelText(s.sessionTtl);
 
     fireEvent.click(utils.getByRole("button", { name: s.title }));

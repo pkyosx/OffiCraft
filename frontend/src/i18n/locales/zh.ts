@@ -2431,6 +2431,7 @@ export const zh = {
     globalContext: "全域情境",
     roles: "角色",
     params: "一般設定",
+    advanced: "進階設定",
     // ── 主題管理 (T-16a1 P3b): moved here from the profile dropdown ──
     themeManage: "主題",
     themeTabAppearance: "外觀",

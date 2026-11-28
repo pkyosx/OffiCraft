@@ -51,7 +51,7 @@ async function openParamsPage() {
       <SettingsPage />
     </I18nProvider>
   );
-  fireEvent.click(utils.getByTestId("settings-params-entry"));
+  fireEvent.click(utils.getByTestId("settings-advanced-entry"));
   await utils.findByLabelText(s.backupRetain);
   return utils;
 }
@@ -76,7 +76,7 @@ async function retainCopyIn(
       <SettingsPage />
     </I18nProvider>
   );
-  fireEvent.click(utils.getByTestId("settings-params-entry"));
+  fireEvent.click(utils.getByTestId("settings-advanced-entry"));
   const row = (await utils.findByLabelText(dict.settings.backupRetain)).closest<HTMLElement>(
     ".param-row",
   )!;

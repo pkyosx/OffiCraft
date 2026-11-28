@@ -37,6 +37,7 @@ export const TERM_ALIASES: readonly (readonly TermName[])[] = [
   ["mp.resumeSummary.rosterDutyLabel"],
   [{ zh: "判準", en: "Insight", foundIn: "mp.insight" }],
   ["settings.params"],
+  ["settings.advanced"],
   ["settings.software"],
   ["profile.theme"],
   ["profile.preferences"],

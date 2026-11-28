@@ -70,9 +70,9 @@ for (const width of [390, 1440]) {
       await page.setViewportSize({ width, height: 844 });
     });
 
-    test("一般設定: a tap opens the bubble at the icon, the page does not overflow, a tap elsewhere closes it, no icon wraps alone, and no title runs into its control", async ({ mount, page }) => {
+    test("進階設定: a tap opens the bubble at the icon, the page does not overflow, a tap elsewhere closes it, no icon wraps alone, and no title runs into its control", async ({ mount, page }) => {
       await mount(<InfoHintStory mode="settings" />);
-      await page.getByTestId("settings-params-entry").click();
+      await page.getByTestId("settings-advanced-entry").click();
       const icon = page.getByRole("img", { name: `關於 ${s.agentTokenTtl}` });
       await expect(icon).toBeVisible();
       await expect(page.getByRole("img", { name: `關於 ${s.sessionTtl}` })).toHaveCount(0);

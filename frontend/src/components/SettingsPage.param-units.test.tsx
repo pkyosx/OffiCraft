@@ -64,25 +64,32 @@ function readUnitCells(utils: RenderResult): UnitCell[] {
   });
 }
 
-async function openParams(dict: typeof zh) {
+/** 一般設定與進階設定兩頁的參數列都算。 */
+async function readPageUnitCells(
+  entryTestId: string,
+  loadedLabel: string
+): Promise<UnitCell[]> {
   const utils = render(
     <I18nProvider>
       <SettingsPage />
     </I18nProvider>
   );
-  fireEvent.click(utils.getByTestId("settings-params-entry"));
-  await utils.findByLabelText(dict.settings.sessionTtl); // settings loaded
-  return utils;
+  fireEvent.click(utils.getByTestId(entryTestId));
+  await utils.findByLabelText(loadedLabel);
+  const cells = readUnitCells(utils);
+  utils.unmount();
+  return cells;
 }
 
 /** 語言偏好存在 localStorage，provider 掛載時讀它，所以這裡渲染的是**真的
  *  英文字典**，而不是拿 key 對 key 自我證明。 */
 async function openParamsIn(locale: "zh" | "en"): Promise<UnitCell[]> {
   window.localStorage.setItem("oc.language", locale);
-  const utils = await openParams(locale === "zh" ? zh : en);
-  const cells = readUnitCells(utils);
-  utils.unmount();
-  return cells;
+  const dict = locale === "zh" ? zh : en;
+  return [
+    ...(await readPageUnitCells("settings-params-entry", dict.settings.dueSoonLead)),
+    ...(await readPageUnitCells("settings-advanced-entry", dict.settings.sessionTtl)),
+  ];
 }
 
 beforeEach(() => {

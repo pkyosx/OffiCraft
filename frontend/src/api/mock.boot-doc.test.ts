@@ -503,6 +503,7 @@ describe("mockApi · User Language block", () => {
     "| Duty | 職責 |\n" +
     "| Insight | 判準 |\n" +
     "| General | 一般設定 |\n" +
+    "| Advanced | 進階設定 |\n" +
     "| System update & backup | 系統更新與備份 |\n" +
     "| Theme | 主題 |\n" +
     "| Preferences | 偏好設定 |\n" +

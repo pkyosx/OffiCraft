@@ -31,7 +31,7 @@ This page lists what each term in the console and the user guide means, and whic
 - **Stop / Accelerated stop / Force stop**: three stages of the same button. Stop asks the member to wrap up and then end; Accelerated stop gives the wrap-up a deadline; Force stop ends it immediately, and unsaved work is lost.
 - **Refocus**: asks an online member to write its progress into a handover, end its current session, and start a new session that continues from the handover.
 - **Handover**: the member ends its current session and a new session takes over. It happens when memory use reaches a threshold, on Refocus, when settings change, when the member asks for it itself, and when its login credential is about to expire. See [Architecture and how it works](architecture.md).
-- **First notice / Final call**: the two memory-use thresholds that trigger a handover. Claude members are measured by percentage, Codex members by the number of memory compactions. Under Settings › General.
+- **First notice / Final call**: the two memory-use thresholds that trigger a handover. Claude members are measured by percentage, Codex members by the number of memory compactions. Under Settings › Advanced.
 - **Memory used**: how much memory capacity the member's current session has used. Codex members also show the number of memory compactions.
 - **Runtime**: the section in the member details that shows the current status, sub-agents, and background waits. A sub-agent is an extra AI worker a member opens to split up work and handle part of it; a background wait means the member is waiting on a command or schedule running in the background.
 - **Last operation**: the result and reason of the latest wake or stop, in the member details. The reason a wake failed is recorded here.
@@ -113,9 +113,10 @@ This page lists what each term in the console and the user guide means, and whic
 - **Switch by time of day**: changes the theme automatically at the times you set, based on your device's local time. See [Themes (look and wording)](theme.md).
 - **Seasonal theme**: a theme applied automatically during holidays; some also switch to different versions by time of day. It can be turned off with "Show seasonal theme" in the theme settings.
 - **Background animation**: whether the theme background plays an animation. The options are Auto, Play, and Still, saved only on this device; with "Auto", phones and tablets show a still image. See [Themes (look and wording)](theme.md).
-- **General**: the system parameters in Settings (thresholds, size caps, intervals, number of backups kept, and so on). See [Settings](settings.md).
+- **General**: the Settings page for the suggested-reply lists and the due-soon lead time. See [Settings](settings.md).
+- **Advanced**: the other system parameters in Settings (thresholds, size caps, intervals, number of backups kept, developer mode, and so on). See [Settings](settings.md).
 - **System update & backup**: the Settings page for checking for updates, upgrading, automatic updates, the update check interval, backup health, and signing keys. See [Settings](settings.md).
-- **Developer mode**: the switch at the bottom of Settings › General, off by default. While it is off, every document in Global context except User Language and User additions is locked and nobody can change it. See [Settings](settings.md).
+- **Developer mode**: the switch at the bottom of Settings › Advanced, off by default. While it is off, every document in Global context except User Language and User additions is locked and nobody can change it. See [Settings](settings.md).
 - **Receive beta versions**: also includes pre-release versions when checking for updates.
 - **Backup health**: shows whether scheduled backups are working (Backups are healthy, Backups are failing, Cannot tell). See [Troubleshooting and FAQ](troubleshooting.md).
 

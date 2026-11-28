@@ -1273,6 +1273,7 @@ var messageKeys = map[string]bool{
 	"settings.addRoleError":                            true,
 	"settings.addRoleName":                             true,
 	"settings.addRoleSubmit":                           true,
+	"settings.advanced":                                true,
 	"settings.agentTokenTtl":                           true,
 	"settings.agentTokenTtlSub":                        true,
 	"settings.announceFeatures":                        true,

@@ -62,7 +62,7 @@ For a description of the settings screen, see "Account security and sign-in" in 
 
 ## Session length
 
-How long you stay signed in before you have to sign in again is set in **Settings › General › Session length**. You can choose 12 hours, 24 hours, 7 days, or 30 days; the default is 24 hours. A new setting takes effect from your next sign-in.
+How long you stay signed in before you have to sign in again is set in **Settings › Advanced › Session length**. You can choose 12 hours, 24 hours, 7 days, or 30 days; the default is 24 hours. A new setting takes effect from your next sign-in.
 
 If the console is reached from outside, or you sign in on devices other people can also use, a shorter setting is recommended.
 
@@ -90,7 +90,7 @@ If you suspect a sign-in or a share link has leaked:
 
 **Removing cannot be undone and takes effect immediately**: every sign-in and share link signed with the old key stops working, and people holding those links are not notified. Machines that have not yet switched to the new key are disconnected immediately. So before removing, make sure every machine has come online.
 
-For a description of the Signing keys card, see "System update & backup" in [Settings](settings.md). For how long members and machines each stay signed in, see "General" in [Settings](settings.md).
+For a description of the Signing keys card, see "System update & backup" in [Settings](settings.md). For how long members and machines each stay signed in, see "Advanced" in [Settings](settings.md).
 
 ---
 

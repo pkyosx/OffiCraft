@@ -2393,6 +2393,7 @@ export const en: Dict = {
     globalContext: "Global context",
     roles: "Roles",
     params: "General",
+    advanced: "Advanced",
     // ── theme management (T-16a1 P3b): moved here from the profile dropdown ──
     themeManage: "Theme",
     themeTabAppearance: "Appearance",

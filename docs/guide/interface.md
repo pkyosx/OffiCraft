@@ -20,7 +20,7 @@ From left to right:
 - **Studio name** — the pencil icon next to it lets you rename it.
 - **Reload** — reloads the whole page.
 - **Notification button ("Turn on notifications")** — a bell icon. A slash through the bell means push notifications are not yet turned on for this device; press it to turn them on. No slash means they are on; pressing it again turns them off ("Turn off notifications").
-- **Gear** — opens Settings: six sub-pages ("System update & backup", "Global context", "Roles", "Task manuals", "General", "Theme") and the "User guide".
+- **Gear** — opens Settings: the sub-pages ("System update & backup", "Global context", "Roles", "Task manuals", "General", "Advanced", "Theme") and the "User guide".
 - **Avatar** — opens the avatar menu: "Profile", "Preferences", "Notification email", "Account security" and "Log out".
 
 The current version number is not in the top bar; it is in "Settings › System update & backup".
@@ -135,7 +135,7 @@ Click the avatar on a member's row to open "Member details"; for an outsource me
 - **Machine** — the machine the member runs on; while it is moving, this shows "→ Moving to <machine name>", and the label disappears once the move is done.
 - **Runtime** — details on the main agent, sub-agents and background waits.
 - **Memory used** — how much of its memory the member is using now; for Codex members, the number of memory compactions is also shown.
-- **Refocus** — available only when the member is online. The member writes its progress into a handover, ends its current session, and starts a new session that continues from the handover. Its tasks are not affected. When a member's memory is nearly full, the system does the same thing automatically; the threshold is in Settings › General.
+- **Refocus** — available only when the member is online. The member writes its progress into a handover, ends its current session, and starts a new session that continues from the handover. Its tasks are not affected. When a member's memory is nearly full, the system does the same thing automatically; the threshold is in Settings › Advanced.
 - **Last operation** — the result of the most recent wake or stop, with "View log". Reasons a start failed (for example "<machine name> is not logged in to Claude") are also shown here.
 - **est. $** — accumulated estimated spend. You can "Reset" it; once reset, it cannot be recovered.
 - **Terminal · TMUX** — "Copy command", then paste it into your own terminal to attach to this member's session.
@@ -174,7 +174,7 @@ When the member is stopped, clicking "Wake" starts it directly with the settings
 "Stop → Accelerated stop → Force stop" is one button:
 
 - "Stop" asks the member to wrap up normally and then stop, with no time limit. After you click it, the member starts wrapping up and the button changes to "Accelerated stop".
-- "Accelerated stop" gives the wrap-up a fixed deadline and tells the member. The number of seconds is "Accelerated stop deadline" in Settings › General. When the member's memory used reaches "Claude first notice" (for Claude members, the memory-used percentage) or "Codex first notice" (for Codex members, the number of memory compactions), the system starts the wrap-up automatically, and the button also changes to "Accelerated stop".
+- "Accelerated stop" gives the wrap-up a fixed deadline and tells the member. The number of seconds is "Accelerated stop deadline" in Settings › Advanced. When the member's memory used reaches "Claude first notice" (for Claude members, the memory-used percentage) or "Codex first notice" (for Codex members, the number of memory compactions), the system starts the wrap-up automatically, and the button also changes to "Accelerated stop".
 - Once the wrap-up has a deadline, the button changes to "Force stop". When memory used reaches "Claude final call" or "Codex final round", the wrap-up already has a deadline, so the button changes straight to "Force stop". Clicking it asks you to confirm: "skipping the graceful shutdown. Any unsaved work in progress is lost."
 - Right after the button changes stage, it cannot be clicked for a short time, so a double click does not jump straight to the next stage.
 
@@ -506,7 +506,7 @@ Clicking an entry's type tag opens the "Change type" menu, which lists these fiv
 
 **How the character cap is counted**
 
-The system adds entries one by one to what the member reads, in the order "pinned first, then the rest by effective time, newest first", and stops at the first entry that does not fit. Older entries after that point are not read, and no error message is shown. For the default value and range of each cap, see "General" in [Settings](settings.md).
+The system adds entries one by one to what the member reads, in the order "pinned first, then the rest by effective time, newest first", and stops at the first entry that does not fit. Older entries after that point are not read, and no error message is shown. For the default value and range of each cap, see "Advanced" in [Settings](settings.md).
 
 **States and actions**
 
@@ -594,13 +594,14 @@ For installing machines and signing in to Claude and Codex, see [Install, upgrad
 
 ## Settings
 
-Open it with the gear in the top bar. It opens over the current tab; click any tab to go back to that tab. The home page has seven entries, and the home page itself has no path at the top. After you go into an entry, use the path at the top to go back up a level:
+Open it with the gear in the top bar. It opens over the current tab; click any tab to go back to that tab. The home page itself has no path at the top. After you go into an entry, use the path at the top to go back up a level:
 
 - **System update & backup** — Current version, "Check for updates", update settings ("Receive beta versions", "Automatic updates", "Update check interval"), "Backup health", "Signing keys".
-- **Global context** — Documents sent to members: "User Language" and "User additions" at the top, and the rest in three groups, BOOT, STOP and TASK EVENTS. While "Developer mode" (in General) is off, every document except "User Language" and "User additions" is locked.
+- **Global context** — Documents sent to members: "User Language" and "User additions" at the top, and the rest in three groups, BOOT, STOP and TASK EVENTS. While "Developer mode" (in Advanced) is off, every document except "User Language" and "User additions" is locked.
 - **Roles** — Each role's Duty and Insight.
 - **Task manuals** — The manual for each kind of task, split into built-in and custom.
-- **General** — Site-wide settings, ending with "Developer mode".
+- **General** — The suggested-reply lists and the due-soon lead time.
+- **Advanced** — Every other site-wide setting, ending with "Developer mode".
 - **Theme** — Choose a theme, "Switch by time of day", "Background animation", "Show seasonal theme", plus adding, importing, exporting, editing and deleting themes.
 - **User guide** — The guide pages you are reading now. It opens to a list of guide pages; click one to open it. The path at the top of the page is "Settings › User guide › the title of this page", and "User guide" goes back to the list.
 

@@ -517,6 +517,7 @@ type View =
   // 角色誌 is left with roles.
   | { kind: "globalContext" }
   | { kind: "params" }
+  | { kind: "advanced" }
   | { kind: "theme" }
   | { kind: "custom" }
   // 啟動步驟 is TWO documents. `boot` is the INDEX — two nav rows, one per
@@ -832,15 +833,20 @@ export function SettingsPage({
     );
   }
 
-  if (view.kind === "params") {
+  if (view.kind === "params" || view.kind === "advanced") {
+    const scope = view.kind === "params" ? "general" : "advanced";
     return (
       <ServerParams
+        scope={scope}
         settings={params.settings}
         error={params.error}
         saveError={params.saveError}
         onSave={params.save}
         onClearSaveError={params.clearSaveError}
-        crumbs={[crumbRoot, { label: t.settings.params }]}
+        crumbs={[
+          crumbRoot,
+          { label: scope === "general" ? t.settings.params : t.settings.advanced },
+        ]}
       />
     );
   }
@@ -1288,6 +1294,18 @@ export function SettingsPage({
           <span className="set-entry__name">{t.settings.params}</span>
           <ChevronRightIcon size={18} className="set-entry__chev" />
         </button>
+        <button
+          type="button"
+          className="set-entry"
+          data-testid="settings-advanced-entry"
+          onClick={() => setView({ kind: "advanced" })}
+        >
+          <span className="set-entry__icon set-entry__icon--neutral">
+            <GearIcon size={18} />
+          </span>
+          <span className="set-entry__name">{t.settings.advanced}</span>
+          <ChevronRightIcon size={18} className="set-entry__chev" />
+        </button>
         {/* 主題 — theme MANAGEMENT (T-16a1 P3b): add / edit colours (friendly,
          * grouped) / 用詞 overlay / import / export / delete. Moved here from the
          * profile dropdown, which keeps only the theme SELECTOR + language
@@ -1327,7 +1345,9 @@ export function SettingsPage({
 const TTL_CHOICES = [43200, 86400, 604800, 2592000] as const;
 
 /**
- * 參數調整 — every owner-tunable server knob, durable
+ * 參數調整 — the owner-tunable server knobs, shown as two pages: `general`
+ * carries only the suggested replies and the due-soon lead (owner's ruling), and
+ * `advanced` carries every other knob. Durable
  * and live immediately (PATCH echoes the effective values back). The knobs are
  * NOT enumerated in this comment: the rows below are the list, and a prose copy
  * of it goes stale the first time one is added, silently (T-122 added two).
@@ -1378,6 +1398,7 @@ function SuggestedRepliesRow({
 }
 
 function ServerParams({
+  scope,
   settings,
   error,
   saveError,
@@ -1385,6 +1406,7 @@ function ServerParams({
   onClearSaveError,
   crumbs,
 }: {
+  scope: "general" | "advanced";
   settings: ServerSettingsView | null;
   error: boolean;
   saveError: boolean;
@@ -1719,7 +1741,7 @@ function ServerParams({
     <div className="settings">
       <Breadcrumbs items={crumbs} />
       <h1 className="settings__title settings__title--doc">
-        {t.settings.params}
+        {scope === "general" ? t.settings.params : t.settings.advanced}
       </h1>
 
       {/* Honest load-failure notice — never a fabricated form over a dead fetch. */}
@@ -1727,485 +1749,493 @@ function ServerParams({
 
       {settings && (
         <div className="param-card">
-          <div className="param-row">
-            <div className="param-row__body">
-              <label className="param-row__name" htmlFor="param-ttl">
-                {t.settings.sessionTtl}
-              </label>
-            </div>
-            <select
-              id="param-ttl"
-              className="param-select"
-              aria-label={t.settings.sessionTtl}
-              value={settings.ownerTokenTtl}
-              onChange={(e) => {
-                setRangeError(false);
-                void onSave({ ownerTokenTtl: Number(e.target.value) });
-              }}
-            >
-              {TTL_CHOICES.map((secs) => (
-                <option key={secs} value={secs}>
-                  {ttlLabel[secs]}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="param-row">
-            <div className="param-row__body">
-              <label className="param-row__name" htmlFor="param-agent-ttl">
-                <TitleWithInfo title={t.settings.agentTokenTtl} hint={t.settings.agentTokenTtlSub} />
-              </label>
-            </div>
-            <select id="param-agent-ttl" className="param-select" aria-label={t.settings.agentTokenTtl}
-              value={settings.agentTokenTtl}
-              onChange={(e) => { setRangeError(false); void onSave({ agentTokenTtl: Number(e.target.value) }); }}>
-              {TTL_CHOICES.map((secs) => <option key={secs} value={secs}>{ttlLabel[secs]}</option>)}
-            </select>
-          </div>
-
-          <div className="param-row">
-            <div className="param-row__body">
-              <label className="param-row__name" htmlFor="param-notice">
-                <TitleWithInfo title={t.settings.notice} hint={t.settings.noticeSub} />
-              </label>
-            </div>
-            <div className="param-pct">
-              <input
-                id="param-notice"
-                className="param-input"
-                type="number"
-                min={1}
-                max={89}
-                aria-label={t.settings.notice}
-                value={noticeDraft ?? String(settings.noticePct)}
-                onChange={(e) => {
-                  setRangeError(false);
-                  onClearSaveError();
-                  setNoticeDraft(e.target.value);
-                }}
-                onBlur={commitNotice}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitNotice();
-                }}
-              />
-              <span className="param-pct__sign">%</span>
-            </div>
-          </div>
-
-          <div className="param-row">
-            <div className="param-row__body">
-              <label className="param-row__name" htmlFor="param-handover">
-                <TitleWithInfo title={t.settings.handover} hint={t.settings.handoverSub} />
-              </label>
-            </div>
-            <div className="param-pct">
-              <input
-                id="param-handover"
-                className="param-input"
-                type="number"
-                min={40}
-                max={90}
-                aria-label={t.settings.handover}
-                value={handoverDraft ?? String(settings.handoverPct)}
-                onChange={(e) => {
-                  setRangeError(false);
-                  onClearSaveError();
-                  setHandoverDraft(e.target.value);
-                }}
-                onBlur={commitHandover}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitHandover();
-                }}
-              />
-              <span className="param-pct__sign">%</span>
-            </div>
-          </div>
-
-          <div className="param-row">
-            <div className="param-row__body">
-              <label className="param-row__name" htmlFor="param-codex-notice">
-                <TitleWithInfo title={t.settings.codexNotice} hint={t.settings.codexNoticeSub} />
-              </label>
-            </div>
-            <div className="param-pct">
-              <input
-                id="param-codex-notice"
-                className="param-input"
-                type="number"
-                min={1}
-                max={10}
-                aria-label={t.settings.codexNotice}
-                value={codexNoticeDraft ?? String(settings.codexNoticeRound)}
-                onChange={(e) => { setRangeError(false); onClearSaveError(); setCodexNoticeDraft(e.target.value); }}
-                onBlur={commitCodexNotice}
-                onKeyDown={(e) => { if (e.key === "Enter") commitCodexNotice(); }}
-              />
-              <span className="param-pct__sign">{t.settings.rounds}</span>
-            </div>
-          </div>
-
-          <div className="param-row">
-            <div className="param-row__body">
-              <div className="param-row__name">
-                <TitleWithInfo title={t.settings.codexHandover} hint={t.settings.codexHandoverSub} />
-              </div>
-            </div>
-            <div className="param-pct">
-              <input
-                id="param-codex-handover"
-                className="param-input"
-                type="number"
-                min={1}
-                max={10}
-                aria-label={t.settings.codexHandover}
-                value={codexHandoverDraft ?? String(settings.codexCompactionThreshold)}
-                onChange={(e) => { setRangeError(false); onClearSaveError(); setCodexHandoverDraft(e.target.value); }}
-                onBlur={commitCodexHandover}
-                onKeyDown={(e) => { if (e.key === "Enter") commitCodexHandover(); }}
-              />
-              <span className="param-pct__sign">{t.settings.rounds}</span>
-            </div>
-          </div>
-
-          <div className="param-row">
-            <div className="param-row__body">
-              <div className="param-row__name">
-                <TitleWithInfo title={t.settings.acceleratedGrace} hint={t.settings.acceleratedGraceSub} />
-              </div>
-            </div>
-            <div className="param-pct">
-              <input id="param-accelerated-grace" className="param-input" type="number" min={10} max={3600}
-                aria-label={t.settings.acceleratedGrace}
-                value={acceleratedGraceDraft ?? String(settings.acceleratedGraceSecs)}
-                onChange={(e) => { setRangeError(false); onClearSaveError(); setAcceleratedGraceDraft(e.target.value); }}
-                onBlur={commitAcceleratedGrace} onKeyDown={(e) => { if (e.key === "Enter") commitAcceleratedGrace(); }} />
-              <span className="param-pct__sign">{t.settings.seconds}</span>
-            </div>
-          </div>
-
-          <div className="param-row">
-            <div className="param-row__body">
-              <div className="param-row__name">
-                <TitleWithInfo title={t.settings.reassignHandoverTimeout} hint={t.settings.reassignHandoverTimeoutSub} />
-              </div>
-              <div className="param-row__sub">{t.settings.reassignHandoverTimeoutWarning}</div>
-            </div>
-            <div className="param-pct">
-              <input id="param-reassign-handover-timeout" className="param-input" type="number" min={60} max={86400}
-                aria-label={t.settings.reassignHandoverTimeout}
-                value={reassignHandoverTimeoutDraft ?? String(settings.reassignHandoverTimeoutSecs)}
-                onChange={(e) => { setRangeError(false); onClearSaveError(); setReassignHandoverTimeoutDraft(e.target.value); }}
-                onBlur={commitReassignHandoverTimeout} onKeyDown={(e) => { if (e.key === "Enter") commitReassignHandoverTimeout(); }} />
-              <span className="param-pct__sign">{t.settings.seconds}</span>
-            </div>
-          </div>
-
-          <div className="param-row">
-            <div className="param-row__body">
-              <div className="param-row__name">
-                <TitleWithInfo title={t.settings.wardenCredentialLifetime} hint={t.settings.wardenCredentialLifetimeSub} />
-              </div>
-              <div className="param-row__sub">{t.settings.wardenCredentialLifetimeWarning}</div>
-            </div>
-            <div className="param-pct">
-              <input id="param-warden-cred-lifetime" className="param-input" type="number" min={86400} max={34560000}
-                aria-label={t.settings.wardenCredentialLifetime}
-                value={wardenCredLifetimeDraft ?? String(settings.wardenCredentialLifetimeSecs)}
-                onChange={(e) => { setRangeError(false); onClearSaveError(); setWardenCredLifetimeDraft(e.target.value); }}
-                onBlur={commitWardenCredLifetime} onKeyDown={(e) => { if (e.key === "Enter") commitWardenCredLifetime(); }} />
-              <span className="param-pct__sign">{t.settings.seconds}</span>
-            </div>
-          </div>
-
-          <div className="param-row">
-            <div className="param-row__body">
-              <div className="param-row__name">
-                <TitleWithInfo title={t.settings.runtimeLoginCheckInterval} hint={t.settings.runtimeLoginCheckIntervalSub} />
-              </div>
-            </div>
-            <div className="param-pct">
-              <input id="param-runtime-login-check-interval" className="param-input" type="number" min={30} max={3600}
-                aria-label={t.settings.runtimeLoginCheckInterval}
-                value={runtimeLoginCheckDraft ?? String(settings.runtimeLoginCheckIntervalSecs)}
-                onChange={(e) => { setRangeError(false); onClearSaveError(); setRuntimeLoginCheckDraft(e.target.value); }}
-                onBlur={commitRuntimeLoginCheck} onKeyDown={(e) => { if (e.key === "Enter") commitRuntimeLoginCheck(); }} />
-              <span className="param-pct__sign">{t.settings.seconds}</span>
-            </div>
-          </div>
-
-          <div className="param-row">
-            <div className="param-row__body">
-              <div className="param-row__name">
-                <TitleWithInfo title={t.settings.runtimeLoginRecheckInterval} hint={t.settings.runtimeLoginRecheckIntervalSub} />
-              </div>
-            </div>
-            <div className="param-pct">
-              <input id="param-runtime-login-recheck-interval" className="param-input" type="number" min={30} max={3600}
-                aria-label={t.settings.runtimeLoginRecheckInterval}
-                value={runtimeLoginRecheckDraft ?? String(settings.runtimeLoginRecheckIntervalSecs)}
-                onChange={(e) => { setRangeError(false); onClearSaveError(); setRuntimeLoginRecheckDraft(e.target.value); }}
-                onBlur={commitRuntimeLoginRecheck} onKeyDown={(e) => { if (e.key === "Enter") commitRuntimeLoginRecheck(); }} />
-              <span className="param-pct__sign">{t.settings.seconds}</span>
-            </div>
-          </div>
-
-          <div className="param-row">
-            <div className="param-row__body">
-              <div className="param-row__name">
-                <TitleWithInfo title={t.settings.diskUsageInterval} hint={t.settings.diskUsageIntervalSub} />
-              </div>
-            </div>
-            <div className="param-pct">
-              <input id="param-disk-usage-interval" className="param-input" type="number" min={600} max={86400}
-                aria-label={t.settings.diskUsageInterval}
-                value={diskUsageIntervalDraft ?? String(settings.diskUsageIntervalSecs)}
-                onChange={(e) => { setRangeError(false); onClearSaveError(); setDiskUsageIntervalDraft(e.target.value); }}
-                onBlur={commitDiskUsageInterval} onKeyDown={(e) => { if (e.key === "Enter") commitDiskUsageInterval(); }} />
-              <span className="param-pct__sign">{t.settings.seconds}</span>
-            </div>
-          </div>
-
-          <div className="param-row">
-            <div className="param-row__body">
-              <div className="param-row__name">
-                <TitleWithInfo title={t.settings.monitoringRefresh} hint={t.settings.monitoringRefreshSub} />
-              </div>
-            </div>
-            <div className="param-pct">
-              <input id="param-monitoring-refresh" className="param-input" type="number" min={1} max={60}
-                aria-label={t.settings.monitoringRefresh}
-                value={monitoringRefreshDraft ?? String(settings.monitoringRefreshSeconds)}
-                onChange={(e) => { setRangeError(false); onClearSaveError(); setMonitoringRefreshDraft(e.target.value); }}
-                onBlur={commitMonitoringRefresh} onKeyDown={(e) => { if (e.key === "Enter") commitMonitoringRefresh(); }} />
-              <span className="param-pct__sign">{t.settings.seconds}</span>
-            </div>
-          </div>
-
-          {DOC_CAP_ORDER.map((field) => {
-            const spec = DOC_CAP_FIELDS[field];
-            const label = t.settings[spec.labelKey];
-            return (
-              <div className="param-row" key={field}>
-                <div className="param-row__body">
-                  <div className="param-row__name">
-                    <TitleWithInfo title={label} hint={t.settings[spec.subKey]} />
-                  </div>
-                </div>
-                <div className="param-pct">
-                  <input id={spec.inputId} className="param-input" type="number" min={spec.min} max={250000}
-                    aria-label={label}
-                    value={docCapDrafts[field] ?? String(settings[field])}
-                    onChange={(e) => { setRangeError(false); onClearSaveError(); setDocCapDrafts((d) => ({ ...d, [field]: e.target.value })); }}
-                    onBlur={() => commitDocCap(field)} onKeyDown={(e) => { if (e.key === "Enter") commitDocCap(field); }} />
-                  <span className="param-pct__sign">{t.settings.chars}</span>
-                </div>
-              </div>
-            );
-          })}
-
-          <div className="param-row">
-            <div className="param-row__body">
-              <div className="param-row__name">
-                <TitleWithInfo title={t.settings.stepNoteCap} hint={t.settings.stepNoteCapSub} />
-              </div>
-            </div>
-            <div className="param-pct">
-              <input id="param-step-note-cap" className="param-input" type="number"
-                min={STEP_NOTE_CAP_CHARS_MIN} max={STEP_NOTE_CAP_CHARS_MAX}
-                aria-label={t.settings.stepNoteCap}
-                value={stepNoteCapDraft ?? String(settings.stepNoteCapChars)}
-                onChange={(e) => { setRangeError(false); onClearSaveError(); setStepNoteCapDraft(e.target.value); }}
-                onBlur={commitStepNoteCap} onKeyDown={(e) => { if (e.key === "Enter") commitStepNoteCap(); }} />
-              <span className="param-pct__sign">{t.settings.chars}</span>
-            </div>
-          </div>
-
-          <div className="param-row">
-            <div className="param-row__body">
-              <div className="param-row__name">
-                <TitleWithInfo title={t.settings.dueSoonLead} hint={t.settings.dueSoonLeadSub} />
-              </div>
-            </div>
-            <div className="param-pct" ref={dueSoonLeadPairRef}>
-              <input id="param-due-soon-lead" className="param-input" type="number"
-                min={DUE_SOON_LEAD_MINUTES_MIN}
-                max={DUE_SOON_LEAD_MINUTES_MAX / LEAD_UNIT_MINUTES[dueSoonLeadUnitDraft ?? shownDueSoonLead.unit]}
-                aria-label={t.settings.dueSoonLead}
-                value={dueSoonLeadDraft ?? String(shownDueSoonLead.amount)}
-                onChange={(e) => { setRangeError(false); onClearSaveError(); setDueSoonLeadDraft(e.target.value); }}
-                onBlur={commitDueSoonLead} onKeyDown={(e) => { if (e.key === "Enter") commitDueSoonLead(); }} />
-              <select id="param-due-soon-lead-unit" className="param-select param-select--unit"
-                aria-label={t.tasks.dueLeadUnitLabel}
-                value={dueSoonLeadUnitDraft ?? shownDueSoonLead.unit}
-                onChange={(e) => { setRangeError(false); onClearSaveError(); setDueSoonLeadUnitDraft(e.target.value as LeadUnit); }}
-                onBlur={commitDueSoonLead} onKeyDown={(e) => { if (e.key === "Enter") commitDueSoonLead(); }}>
-                {LEAD_UNITS.map((unit) => (
-                  <option key={unit} value={unit}>{dueLeadUnitText[unit]}</option>
-                ))}
-              </select>
-              <span className="param-pct__sign">{t.tasks.dueLeadBefore}</span>
-            </div>
-          </div>
-
-          {settings && (
+          {scope === "general" && (
             <>
-              <SecretDurationRow
-                id="param-secret-card-ttl"
-                label={t.settings.secretCardUnretrievedTtl}
-                sub={t.settings.secretCardUnretrievedTtlSub}
-                warning={t.settings.secretCardUnretrievedTtlWarning}
-                unitLabel={t.settings.secretCardDurationUnit}
-                unitText={durationUnitText}
-                secs={settings.secretCardUnretrievedTtlSecs}
-                onTouch={() => { setSecretRangeError(null); setRangeError(false); onClearSaveError(); }}
-                onCommit={(amount, unit) =>
-                  commitSecretDuration("ttl", durationSecsFromDraft(amount, unit,
-                    SECRET_CARD_UNRETRIEVED_TTL_SECS_MIN, SECRET_CARD_UNRETRIEVED_TTL_SECS_MAX))}
-              />
-              <SecretDurationRow
-                id="param-secret-card-retention"
-                label={t.settings.secretCardRetention}
-                sub={t.settings.secretCardRetentionSub}
-                warning={t.settings.secretCardRetentionWarning}
-                unitLabel={t.settings.secretCardDurationUnit}
-                unitText={durationUnitText}
-                secs={settings.secretCardRetrievedRetentionSecs}
-                onTouch={() => { setSecretRangeError(null); setRangeError(false); onClearSaveError(); }}
-                onCommit={(amount, unit) =>
-                  commitSecretDuration("retention", durationSecsFromDraft(amount, unit,
-                    SECRET_CARD_RETRIEVED_RETENTION_SECS_MIN, SECRET_CARD_RETRIEVED_RETENTION_SECS_MAX))}
-              />
+            {/* T-122: ONE list, ONE row, per message box. The owner ruled 「任務跟
+                請示卡要是不同的參數設定」 (c-85c28e708b81), and T-33 added the 傳承
+                box on the same ruling, so each row saves its OWN field and a save
+                never carries another one. */}
+            <SuggestedRepliesRow
+              label={t.settings.suggestedRepliesReplyCard}
+              idPrefix="param-suggested-reply-card"
+              value={settings.suggestedRepliesReplyCard}
+              onTouch={() => { setRangeError(false); onClearSaveError(); }}
+              onCommit={(next) => { void onSave({ suggestedRepliesReplyCard: next }); }}
+            />
+
+            <SuggestedRepliesRow
+              label={t.settings.suggestedRepliesTaskMessage}
+              idPrefix="param-suggested-task-message"
+              value={settings.suggestedRepliesTaskMessage}
+              onTouch={() => { setRangeError(false); onClearSaveError(); }}
+              onCommit={(next) => { void onSave({ suggestedRepliesTaskMessage: next }); }}
+            />
+
+            <SuggestedRepliesRow
+              label={t.settings.suggestedRepliesLoreMessage}
+              idPrefix="param-suggested-lore-message"
+              value={settings.suggestedRepliesLoreMessage}
+              onTouch={() => { setRangeError(false); onClearSaveError(); }}
+              onCommit={(next) => { void onSave({ suggestedRepliesLoreMessage: next }); }}
+            />
+            <SuggestedRepliesRow
+              label={t.settings.suggestedRepliesChat}
+              idPrefix="param-suggested-chat"
+              value={settings.suggestedRepliesChat}
+              onTouch={() => { setRangeError(false); onClearSaveError(); }}
+              onCommit={(next) => { void onSave({ suggestedRepliesChat: next }); }}
+            />
+
+            <div className="param-row">
+              <div className="param-row__body">
+                <div className="param-row__name">
+                  <TitleWithInfo title={t.settings.dueSoonLead} hint={t.settings.dueSoonLeadSub} />
+                </div>
+              </div>
+              <div className="param-pct" ref={dueSoonLeadPairRef}>
+                <input id="param-due-soon-lead" className="param-input" type="number"
+                  min={DUE_SOON_LEAD_MINUTES_MIN}
+                  max={DUE_SOON_LEAD_MINUTES_MAX / LEAD_UNIT_MINUTES[dueSoonLeadUnitDraft ?? shownDueSoonLead.unit]}
+                  aria-label={t.settings.dueSoonLead}
+                  value={dueSoonLeadDraft ?? String(shownDueSoonLead.amount)}
+                  onChange={(e) => { setRangeError(false); onClearSaveError(); setDueSoonLeadDraft(e.target.value); }}
+                  onBlur={commitDueSoonLead} onKeyDown={(e) => { if (e.key === "Enter") commitDueSoonLead(); }} />
+                <select id="param-due-soon-lead-unit" className="param-select param-select--unit"
+                  aria-label={t.tasks.dueLeadUnitLabel}
+                  value={dueSoonLeadUnitDraft ?? shownDueSoonLead.unit}
+                  onChange={(e) => { setRangeError(false); onClearSaveError(); setDueSoonLeadUnitDraft(e.target.value as LeadUnit); }}
+                  onBlur={commitDueSoonLead} onKeyDown={(e) => { if (e.key === "Enter") commitDueSoonLead(); }}>
+                  {LEAD_UNITS.map((unit) => (
+                    <option key={unit} value={unit}>{dueLeadUnitText[unit]}</option>
+                  ))}
+                </select>
+                <span className="param-pct__sign">{t.tasks.dueLeadBefore}</span>
+              </div>
+            </div>
             </>
           )}
 
-          <div className="param-row">
-            <div className="param-row__body">
-              <div className="param-row__name">
-                <TitleWithInfo title={t.settings.chatBudget} hint={t.settings.chatBudgetSub} />
+          {scope === "advanced" && (
+            <>
+            <div className="param-row">
+              <div className="param-row__body">
+                <label className="param-row__name" htmlFor="param-ttl">
+                  {t.settings.sessionTtl}
+                </label>
+              </div>
+              <select
+                id="param-ttl"
+                className="param-select"
+                aria-label={t.settings.sessionTtl}
+                value={settings.ownerTokenTtl}
+                onChange={(e) => {
+                  setRangeError(false);
+                  void onSave({ ownerTokenTtl: Number(e.target.value) });
+                }}
+              >
+                {TTL_CHOICES.map((secs) => (
+                  <option key={secs} value={secs}>
+                    {ttlLabel[secs]}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="param-row">
+              <div className="param-row__body">
+                <label className="param-row__name" htmlFor="param-agent-ttl">
+                  <TitleWithInfo title={t.settings.agentTokenTtl} hint={t.settings.agentTokenTtlSub} />
+                </label>
+              </div>
+              <select id="param-agent-ttl" className="param-select" aria-label={t.settings.agentTokenTtl}
+                value={settings.agentTokenTtl}
+                onChange={(e) => { setRangeError(false); void onSave({ agentTokenTtl: Number(e.target.value) }); }}>
+                {TTL_CHOICES.map((secs) => <option key={secs} value={secs}>{ttlLabel[secs]}</option>)}
+              </select>
+            </div>
+
+            <div className="param-row">
+              <div className="param-row__body">
+                <label className="param-row__name" htmlFor="param-notice">
+                  <TitleWithInfo title={t.settings.notice} hint={t.settings.noticeSub} />
+                </label>
+              </div>
+              <div className="param-pct">
+                <input
+                  id="param-notice"
+                  className="param-input"
+                  type="number"
+                  min={1}
+                  max={89}
+                  aria-label={t.settings.notice}
+                  value={noticeDraft ?? String(settings.noticePct)}
+                  onChange={(e) => {
+                    setRangeError(false);
+                    onClearSaveError();
+                    setNoticeDraft(e.target.value);
+                  }}
+                  onBlur={commitNotice}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commitNotice();
+                  }}
+                />
+                <span className="param-pct__sign">%</span>
               </div>
             </div>
-            <div className="param-pct">
-              <input id="param-chat-budget" className="param-input" type="number"
-                min={CHAT_BUDGET_CHARS_MIN} max={CHAT_BUDGET_CHARS_MAX}
-                aria-label={t.settings.chatBudget}
-                value={chatBudgetDraft ?? String(settings.chatBudgetChars)}
-                onChange={(e) => { setRangeError(false); onClearSaveError(); setChatBudgetDraft(e.target.value); }}
-                onBlur={commitChatBudget} onKeyDown={(e) => { if (e.key === "Enter") commitChatBudget(); }} />
-              <span className="param-pct__sign">{t.settings.chars}</span>
-            </div>
-          </div>
 
-          {/* T-33 傳承 caps — LAST of the character caps, immediately before the
-              backup row, and NOT up with the doc caps where they started.
-              🔴 SettingsPage.step-note-cap-t119.test.tsx asserts that the
-              step-note row is the IMMEDIATE next sibling of the last document
-              cap row, and its comment records why: the owner reviewed the
-              shipped page and asked for that position by name, so it is an
-              acceptance condition rather than styling. Four rows inserted above
-              it broke that adjacency, and the cheap fix — editing the assertion
-              — would have quietly spent a decision the owner had already made.
-              Sitting here, these four keep every character cap contiguous and
-              leave 備份保留份數 (whose unit is FILES, not characters) last. */}
-          {LORE_CAP_ORDER.map((field) => {
-            const spec = LORE_CAP_FIELDS[field];
-            const label = t.settings[spec.labelKey];
-            return (
-              <div className="param-row" key={field}>
-                <div className="param-row__body">
-                  <div className="param-row__name">
-                    <TitleWithInfo title={label} hint={t.settings[spec.subKey]} />
+            <div className="param-row">
+              <div className="param-row__body">
+                <label className="param-row__name" htmlFor="param-handover">
+                  <TitleWithInfo title={t.settings.handover} hint={t.settings.handoverSub} />
+                </label>
+              </div>
+              <div className="param-pct">
+                <input
+                  id="param-handover"
+                  className="param-input"
+                  type="number"
+                  min={40}
+                  max={90}
+                  aria-label={t.settings.handover}
+                  value={handoverDraft ?? String(settings.handoverPct)}
+                  onChange={(e) => {
+                    setRangeError(false);
+                    onClearSaveError();
+                    setHandoverDraft(e.target.value);
+                  }}
+                  onBlur={commitHandover}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commitHandover();
+                  }}
+                />
+                <span className="param-pct__sign">%</span>
+              </div>
+            </div>
+
+            <div className="param-row">
+              <div className="param-row__body">
+                <label className="param-row__name" htmlFor="param-codex-notice">
+                  <TitleWithInfo title={t.settings.codexNotice} hint={t.settings.codexNoticeSub} />
+                </label>
+              </div>
+              <div className="param-pct">
+                <input
+                  id="param-codex-notice"
+                  className="param-input"
+                  type="number"
+                  min={1}
+                  max={10}
+                  aria-label={t.settings.codexNotice}
+                  value={codexNoticeDraft ?? String(settings.codexNoticeRound)}
+                  onChange={(e) => { setRangeError(false); onClearSaveError(); setCodexNoticeDraft(e.target.value); }}
+                  onBlur={commitCodexNotice}
+                  onKeyDown={(e) => { if (e.key === "Enter") commitCodexNotice(); }}
+                />
+                <span className="param-pct__sign">{t.settings.rounds}</span>
+              </div>
+            </div>
+
+            <div className="param-row">
+              <div className="param-row__body">
+                <div className="param-row__name">
+                  <TitleWithInfo title={t.settings.codexHandover} hint={t.settings.codexHandoverSub} />
+                </div>
+              </div>
+              <div className="param-pct">
+                <input
+                  id="param-codex-handover"
+                  className="param-input"
+                  type="number"
+                  min={1}
+                  max={10}
+                  aria-label={t.settings.codexHandover}
+                  value={codexHandoverDraft ?? String(settings.codexCompactionThreshold)}
+                  onChange={(e) => { setRangeError(false); onClearSaveError(); setCodexHandoverDraft(e.target.value); }}
+                  onBlur={commitCodexHandover}
+                  onKeyDown={(e) => { if (e.key === "Enter") commitCodexHandover(); }}
+                />
+                <span className="param-pct__sign">{t.settings.rounds}</span>
+              </div>
+            </div>
+
+            <div className="param-row">
+              <div className="param-row__body">
+                <div className="param-row__name">
+                  <TitleWithInfo title={t.settings.acceleratedGrace} hint={t.settings.acceleratedGraceSub} />
+                </div>
+              </div>
+              <div className="param-pct">
+                <input id="param-accelerated-grace" className="param-input" type="number" min={10} max={3600}
+                  aria-label={t.settings.acceleratedGrace}
+                  value={acceleratedGraceDraft ?? String(settings.acceleratedGraceSecs)}
+                  onChange={(e) => { setRangeError(false); onClearSaveError(); setAcceleratedGraceDraft(e.target.value); }}
+                  onBlur={commitAcceleratedGrace} onKeyDown={(e) => { if (e.key === "Enter") commitAcceleratedGrace(); }} />
+                <span className="param-pct__sign">{t.settings.seconds}</span>
+              </div>
+            </div>
+
+            <div className="param-row">
+              <div className="param-row__body">
+                <div className="param-row__name">
+                  <TitleWithInfo title={t.settings.reassignHandoverTimeout} hint={t.settings.reassignHandoverTimeoutSub} />
+                </div>
+                <div className="param-row__sub">{t.settings.reassignHandoverTimeoutWarning}</div>
+              </div>
+              <div className="param-pct">
+                <input id="param-reassign-handover-timeout" className="param-input" type="number" min={60} max={86400}
+                  aria-label={t.settings.reassignHandoverTimeout}
+                  value={reassignHandoverTimeoutDraft ?? String(settings.reassignHandoverTimeoutSecs)}
+                  onChange={(e) => { setRangeError(false); onClearSaveError(); setReassignHandoverTimeoutDraft(e.target.value); }}
+                  onBlur={commitReassignHandoverTimeout} onKeyDown={(e) => { if (e.key === "Enter") commitReassignHandoverTimeout(); }} />
+                <span className="param-pct__sign">{t.settings.seconds}</span>
+              </div>
+            </div>
+
+            <div className="param-row">
+              <div className="param-row__body">
+                <div className="param-row__name">
+                  <TitleWithInfo title={t.settings.wardenCredentialLifetime} hint={t.settings.wardenCredentialLifetimeSub} />
+                </div>
+                <div className="param-row__sub">{t.settings.wardenCredentialLifetimeWarning}</div>
+              </div>
+              <div className="param-pct">
+                <input id="param-warden-cred-lifetime" className="param-input" type="number" min={86400} max={34560000}
+                  aria-label={t.settings.wardenCredentialLifetime}
+                  value={wardenCredLifetimeDraft ?? String(settings.wardenCredentialLifetimeSecs)}
+                  onChange={(e) => { setRangeError(false); onClearSaveError(); setWardenCredLifetimeDraft(e.target.value); }}
+                  onBlur={commitWardenCredLifetime} onKeyDown={(e) => { if (e.key === "Enter") commitWardenCredLifetime(); }} />
+                <span className="param-pct__sign">{t.settings.seconds}</span>
+              </div>
+            </div>
+
+            <div className="param-row">
+              <div className="param-row__body">
+                <div className="param-row__name">
+                  <TitleWithInfo title={t.settings.runtimeLoginCheckInterval} hint={t.settings.runtimeLoginCheckIntervalSub} />
+                </div>
+              </div>
+              <div className="param-pct">
+                <input id="param-runtime-login-check-interval" className="param-input" type="number" min={30} max={3600}
+                  aria-label={t.settings.runtimeLoginCheckInterval}
+                  value={runtimeLoginCheckDraft ?? String(settings.runtimeLoginCheckIntervalSecs)}
+                  onChange={(e) => { setRangeError(false); onClearSaveError(); setRuntimeLoginCheckDraft(e.target.value); }}
+                  onBlur={commitRuntimeLoginCheck} onKeyDown={(e) => { if (e.key === "Enter") commitRuntimeLoginCheck(); }} />
+                <span className="param-pct__sign">{t.settings.seconds}</span>
+              </div>
+            </div>
+
+            <div className="param-row">
+              <div className="param-row__body">
+                <div className="param-row__name">
+                  <TitleWithInfo title={t.settings.runtimeLoginRecheckInterval} hint={t.settings.runtimeLoginRecheckIntervalSub} />
+                </div>
+              </div>
+              <div className="param-pct">
+                <input id="param-runtime-login-recheck-interval" className="param-input" type="number" min={30} max={3600}
+                  aria-label={t.settings.runtimeLoginRecheckInterval}
+                  value={runtimeLoginRecheckDraft ?? String(settings.runtimeLoginRecheckIntervalSecs)}
+                  onChange={(e) => { setRangeError(false); onClearSaveError(); setRuntimeLoginRecheckDraft(e.target.value); }}
+                  onBlur={commitRuntimeLoginRecheck} onKeyDown={(e) => { if (e.key === "Enter") commitRuntimeLoginRecheck(); }} />
+                <span className="param-pct__sign">{t.settings.seconds}</span>
+              </div>
+            </div>
+
+            <div className="param-row">
+              <div className="param-row__body">
+                <div className="param-row__name">
+                  <TitleWithInfo title={t.settings.diskUsageInterval} hint={t.settings.diskUsageIntervalSub} />
+                </div>
+              </div>
+              <div className="param-pct">
+                <input id="param-disk-usage-interval" className="param-input" type="number" min={600} max={86400}
+                  aria-label={t.settings.diskUsageInterval}
+                  value={diskUsageIntervalDraft ?? String(settings.diskUsageIntervalSecs)}
+                  onChange={(e) => { setRangeError(false); onClearSaveError(); setDiskUsageIntervalDraft(e.target.value); }}
+                  onBlur={commitDiskUsageInterval} onKeyDown={(e) => { if (e.key === "Enter") commitDiskUsageInterval(); }} />
+                <span className="param-pct__sign">{t.settings.seconds}</span>
+              </div>
+            </div>
+
+            <div className="param-row">
+              <div className="param-row__body">
+                <div className="param-row__name">
+                  <TitleWithInfo title={t.settings.monitoringRefresh} hint={t.settings.monitoringRefreshSub} />
+                </div>
+              </div>
+              <div className="param-pct">
+                <input id="param-monitoring-refresh" className="param-input" type="number" min={1} max={60}
+                  aria-label={t.settings.monitoringRefresh}
+                  value={monitoringRefreshDraft ?? String(settings.monitoringRefreshSeconds)}
+                  onChange={(e) => { setRangeError(false); onClearSaveError(); setMonitoringRefreshDraft(e.target.value); }}
+                  onBlur={commitMonitoringRefresh} onKeyDown={(e) => { if (e.key === "Enter") commitMonitoringRefresh(); }} />
+                <span className="param-pct__sign">{t.settings.seconds}</span>
+              </div>
+            </div>
+
+            {DOC_CAP_ORDER.map((field) => {
+              const spec = DOC_CAP_FIELDS[field];
+              const label = t.settings[spec.labelKey];
+              return (
+                <div className="param-row" key={field}>
+                  <div className="param-row__body">
+                    <div className="param-row__name">
+                      <TitleWithInfo title={label} hint={t.settings[spec.subKey]} />
+                    </div>
                   </div>
-                  {spec.warnKey && <div className="param-row__sub">{t.settings[spec.warnKey]}</div>}
+                  <div className="param-pct">
+                    <input id={spec.inputId} className="param-input" type="number" min={spec.min} max={250000}
+                      aria-label={label}
+                      value={docCapDrafts[field] ?? String(settings[field])}
+                      onChange={(e) => { setRangeError(false); onClearSaveError(); setDocCapDrafts((d) => ({ ...d, [field]: e.target.value })); }}
+                      onBlur={() => commitDocCap(field)} onKeyDown={(e) => { if (e.key === "Enter") commitDocCap(field); }} />
+                    <span className="param-pct__sign">{t.settings.chars}</span>
+                  </div>
                 </div>
-                <div className="param-pct">
-                  <input id={spec.inputId} className="param-input" type="number"
-                    min={spec.min} max={spec.max}
-                    aria-label={label}
-                    value={loreCapDrafts[field] ?? String(settings[field])}
-                    onChange={(e) => { setRangeError(false); onClearSaveError(); setLoreCapDrafts((d) => ({ ...d, [field]: e.target.value })); }}
-                    onBlur={() => commitLoreCap(field)} onKeyDown={(e) => { if (e.key === "Enter") commitLoreCap(field); }} />
-                  <span className="param-pct__sign">{t.settings.chars}</span>
+              );
+            })}
+
+            <div className="param-row">
+              <div className="param-row__body">
+                <div className="param-row__name">
+                  <TitleWithInfo title={t.settings.stepNoteCap} hint={t.settings.stepNoteCapSub} />
                 </div>
               </div>
-            );
-          })}
-
-          <div className="param-row">
-            <div className="param-row__body">
-              <div className="param-row__name">
-                <TitleWithInfo title={t.settings.backupRetain} hint={t.settings.backupRetainSub} />
+              <div className="param-pct">
+                <input id="param-step-note-cap" className="param-input" type="number"
+                  min={STEP_NOTE_CAP_CHARS_MIN} max={STEP_NOTE_CAP_CHARS_MAX}
+                  aria-label={t.settings.stepNoteCap}
+                  value={stepNoteCapDraft ?? String(settings.stepNoteCapChars)}
+                  onChange={(e) => { setRangeError(false); onClearSaveError(); setStepNoteCapDraft(e.target.value); }}
+                  onBlur={commitStepNoteCap} onKeyDown={(e) => { if (e.key === "Enter") commitStepNoteCap(); }} />
+                <span className="param-pct__sign">{t.settings.chars}</span>
               </div>
-              <div className="param-row__sub">{t.settings.backupRetainWarning}</div>
             </div>
-            <div className="param-pct">
-              <input id="param-backup-retain" className="param-input" type="number"
-                min={BACKUP_RETAIN_MIN} max={BACKUP_RETAIN_MAX}
-                aria-label={t.settings.backupRetain}
-                value={backupRetainDraft ?? String(settings.backupRetain)}
-                onChange={(e) => { setRangeError(false); onClearSaveError(); setBackupRetainDraft(e.target.value); }}
-                onBlur={commitBackupRetain} onKeyDown={(e) => { if (e.key === "Enter") commitBackupRetain(); }} />
-              <span className="param-pct__sign">{t.settings.backupRetainUnit}</span>
+
+            {settings && (
+              <>
+                <SecretDurationRow
+                  id="param-secret-card-ttl"
+                  label={t.settings.secretCardUnretrievedTtl}
+                  sub={t.settings.secretCardUnretrievedTtlSub}
+                  warning={t.settings.secretCardUnretrievedTtlWarning}
+                  unitLabel={t.settings.secretCardDurationUnit}
+                  unitText={durationUnitText}
+                  secs={settings.secretCardUnretrievedTtlSecs}
+                  onTouch={() => { setSecretRangeError(null); setRangeError(false); onClearSaveError(); }}
+                  onCommit={(amount, unit) =>
+                    commitSecretDuration("ttl", durationSecsFromDraft(amount, unit,
+                      SECRET_CARD_UNRETRIEVED_TTL_SECS_MIN, SECRET_CARD_UNRETRIEVED_TTL_SECS_MAX))}
+                />
+                <SecretDurationRow
+                  id="param-secret-card-retention"
+                  label={t.settings.secretCardRetention}
+                  sub={t.settings.secretCardRetentionSub}
+                  warning={t.settings.secretCardRetentionWarning}
+                  unitLabel={t.settings.secretCardDurationUnit}
+                  unitText={durationUnitText}
+                  secs={settings.secretCardRetrievedRetentionSecs}
+                  onTouch={() => { setSecretRangeError(null); setRangeError(false); onClearSaveError(); }}
+                  onCommit={(amount, unit) =>
+                    commitSecretDuration("retention", durationSecsFromDraft(amount, unit,
+                      SECRET_CARD_RETRIEVED_RETENTION_SECS_MIN, SECRET_CARD_RETRIEVED_RETENTION_SECS_MAX))}
+                />
+              </>
+            )}
+
+            <div className="param-row">
+              <div className="param-row__body">
+                <div className="param-row__name">
+                  <TitleWithInfo title={t.settings.chatBudget} hint={t.settings.chatBudgetSub} />
+                </div>
+              </div>
+              <div className="param-pct">
+                <input id="param-chat-budget" className="param-input" type="number"
+                  min={CHAT_BUDGET_CHARS_MIN} max={CHAT_BUDGET_CHARS_MAX}
+                  aria-label={t.settings.chatBudget}
+                  value={chatBudgetDraft ?? String(settings.chatBudgetChars)}
+                  onChange={(e) => { setRangeError(false); onClearSaveError(); setChatBudgetDraft(e.target.value); }}
+                  onBlur={commitChatBudget} onKeyDown={(e) => { if (e.key === "Enter") commitChatBudget(); }} />
+                <span className="param-pct__sign">{t.settings.chars}</span>
+              </div>
             </div>
-          </div>
 
-          {/* T-122: ONE list, ONE row, per message box. The owner ruled 「任務跟
-              請示卡要是不同的參數設定」 (c-85c28e708b81), and T-33 added the 傳承
-              box on the same ruling, so each row saves its OWN field and a save
-              never carries another one. */}
-          <SuggestedRepliesRow
-            label={t.settings.suggestedRepliesReplyCard}
-            idPrefix="param-suggested-reply-card"
-            value={settings.suggestedRepliesReplyCard}
-            onTouch={() => { setRangeError(false); onClearSaveError(); }}
-            onCommit={(next) => { void onSave({ suggestedRepliesReplyCard: next }); }}
-          />
+            {/* T-33 傳承 caps — LAST of the character caps, immediately before the
+                backup row, and NOT up with the doc caps where they started.
+                🔴 SettingsPage.step-note-cap-t119.test.tsx asserts that the
+                step-note row is the IMMEDIATE next sibling of the last document
+                cap row, and its comment records why: the owner reviewed the
+                shipped page and asked for that position by name, so it is an
+                acceptance condition rather than styling. Four rows inserted above
+                it broke that adjacency, and the cheap fix — editing the assertion
+                — would have quietly spent a decision the owner had already made.
+                Sitting here, these four keep every character cap contiguous and
+                leave 備份保留份數 (whose unit is FILES, not characters) last. */}
+            {LORE_CAP_ORDER.map((field) => {
+              const spec = LORE_CAP_FIELDS[field];
+              const label = t.settings[spec.labelKey];
+              return (
+                <div className="param-row" key={field}>
+                  <div className="param-row__body">
+                    <div className="param-row__name">
+                      <TitleWithInfo title={label} hint={t.settings[spec.subKey]} />
+                    </div>
+                    {spec.warnKey && <div className="param-row__sub">{t.settings[spec.warnKey]}</div>}
+                  </div>
+                  <div className="param-pct">
+                    <input id={spec.inputId} className="param-input" type="number"
+                      min={spec.min} max={spec.max}
+                      aria-label={label}
+                      value={loreCapDrafts[field] ?? String(settings[field])}
+                      onChange={(e) => { setRangeError(false); onClearSaveError(); setLoreCapDrafts((d) => ({ ...d, [field]: e.target.value })); }}
+                      onBlur={() => commitLoreCap(field)} onKeyDown={(e) => { if (e.key === "Enter") commitLoreCap(field); }} />
+                    <span className="param-pct__sign">{t.settings.chars}</span>
+                  </div>
+                </div>
+              );
+            })}
 
-          <SuggestedRepliesRow
-            label={t.settings.suggestedRepliesTaskMessage}
-            idPrefix="param-suggested-task-message"
-            value={settings.suggestedRepliesTaskMessage}
-            onTouch={() => { setRangeError(false); onClearSaveError(); }}
-            onCommit={(next) => { void onSave({ suggestedRepliesTaskMessage: next }); }}
-          />
-
-          <SuggestedRepliesRow
-            label={t.settings.suggestedRepliesLoreMessage}
-            idPrefix="param-suggested-lore-message"
-            value={settings.suggestedRepliesLoreMessage}
-            onTouch={() => { setRangeError(false); onClearSaveError(); }}
-            onCommit={(next) => { void onSave({ suggestedRepliesLoreMessage: next }); }}
-          />
-          <SuggestedRepliesRow
-            label={t.settings.suggestedRepliesChat}
-            idPrefix="param-suggested-chat"
-            value={settings.suggestedRepliesChat}
-            onTouch={() => { setRangeError(false); onClearSaveError(); }}
-            onCommit={(next) => { void onSave({ suggestedRepliesChat: next }); }}
-          />
-
-          <div className="param-row">
-            <div className="param-row__body">
-              <span className="param-row__name">
-                <TitleWithInfo title={t.settings.developerMode} hint={t.settings.developerModeSub} />
-              </span>
+            <div className="param-row">
+              <div className="param-row__body">
+                <div className="param-row__name">
+                  <TitleWithInfo title={t.settings.backupRetain} hint={t.settings.backupRetainSub} />
+                </div>
+                <div className="param-row__sub">{t.settings.backupRetainWarning}</div>
+              </div>
+              <div className="param-pct">
+                <input id="param-backup-retain" className="param-input" type="number"
+                  min={BACKUP_RETAIN_MIN} max={BACKUP_RETAIN_MAX}
+                  aria-label={t.settings.backupRetain}
+                  value={backupRetainDraft ?? String(settings.backupRetain)}
+                  onChange={(e) => { setRangeError(false); onClearSaveError(); setBackupRetainDraft(e.target.value); }}
+                  onBlur={commitBackupRetain} onKeyDown={(e) => { if (e.key === "Enter") commitBackupRetain(); }} />
+                <span className="param-pct__sign">{t.settings.backupRetainUnit}</span>
+              </div>
             </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={settings.developerMode}
-              aria-label={t.settings.developerMode}
-              className={`set-toggle${settings.developerMode ? " set-toggle--on" : ""}`}
-              onClick={() => {
-                setRangeError(false);
-                onClearSaveError();
-                void onSave({ developerMode: !settings.developerMode });
-              }}
-              data-testid="settings-developer-mode"
-            >
-              <span className="set-toggle__knob" />
-            </button>
-          </div>
+
+            <div className="param-row">
+              <div className="param-row__body">
+                <span className="param-row__name">
+                  <TitleWithInfo title={t.settings.developerMode} hint={t.settings.developerModeSub} />
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={settings.developerMode}
+                aria-label={t.settings.developerMode}
+                className={`set-toggle${settings.developerMode ? " set-toggle--on" : ""}`}
+                onClick={() => {
+                  setRangeError(false);
+                  onClearSaveError();
+                  void onSave({ developerMode: !settings.developerMode });
+                }}
+                data-testid="settings-developer-mode"
+              >
+                <span className="set-toggle__knob" />
+              </button>
+            </div>
+            </>
+          )}
 
           {secretRangeError && (
             <div className="set-error param-error" data-testid="secret-card-range-error">
