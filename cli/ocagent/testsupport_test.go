@@ -71,6 +71,32 @@ func writeClaudeJSON(t *testing.T, body string) string {
 	return home
 }
 
+func sessionOwnerRow(account, org string) string {
+	return `{"type":"session-owner","accountUuid":"` + account + `","organizationUuid":"` + org +
+		`","sessionId":"11111111-1111-4111-8111-111111111111"}` + "\n"
+}
+
+func writeTranscriptRows(t *testing.T, rows ...string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "transcript.jsonl")
+	if err := os.WriteFile(path, []byte(strings.Join(rows, "")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func appendTranscriptRows(t *testing.T, path string, rows ...string) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(strings.Join(rows, "")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // frozenIngestProperties loads one request schema's declared properties from
 // spec/openapi.json as name → declared JSON type ("" when the property declares
 // none), and refuses a schema that is not closed.

@@ -38,25 +38,25 @@
     {
       "id": "ocagent-model-call-failure",
       "source": "cli/ocagent/modelcallreport.go",
-      "callsite": "postModelCall(client, cfg, newModelCallBody(cfg, env, report), errOut)",
+      "callsite": "postModelCall(client, cfg, newModelCallBody(env, in.TranscriptPath, report), errOut)",
       "kind": "json",
       "method": "post",
       "path": "/api/monitoring/telemetry",
       "request_schema": "#/components/schemas/AgentTelemetryIngestDTO",
       "wire_test": "cli/ocagent/modelcallreport_wire_test.go",
-      "wire_needle": "drive(\"failure\", fixtureHookStart, stopFailureInput(\"rate_limit\", fixturePath(t, \"sample-rate-limit.jsonl\")))",
+      "wire_needle": "drive(\"failure\", fixtureHookStart, stopFailureInput(\"rate_limit\", ownedFixture(t, \"sample-rate-limit.jsonl\")))",
       "wire_case": "failure"
     },
     {
       "id": "ocagent-model-call-stop-success",
       "source": "cli/ocagent/modelcallreport.go",
-      "callsite": "if postModelCall(client, cfg, newModelCallBody(cfg, env, modelCallReport{LastSuccessTs: &success}), errOut) {",
+      "callsite": "if postModelCall(client, cfg, newModelCallBody(env, transcriptPath, modelCallReport{LastSuccessTs: &success}), errOut) {",
       "kind": "json",
       "method": "post",
       "path": "/api/monitoring/telemetry",
       "request_schema": "#/components/schemas/AgentTelemetryIngestDTO",
       "wire_test": "cli/ocagent/modelcallreport_wire_test.go",
-      "wire_needle": "drive(\"stop-success\", 1790850900.5, stopInput)",
+      "wire_needle": "drive(\"stop-success\", 1790850900.5, stopInput(ownedFixture(t, \"sample-rate-limit.jsonl\")))",
       "wire_case": "stop-success"
     },
     {
@@ -69,7 +69,7 @@
     {
       "id": "ocagent-model-call-stop-hop",
       "source": "cli/ocagent/modelcallreport.go",
-      "callsite": "reportStopSuccess(client, cfg, env, now, errOut)",
+      "callsite": "reportStopSuccess(client, cfg, env, now, in.TranscriptPath, errOut)",
       "kind": "seam",
       "seam_reason": "hop: a Stop hook reaches ocagent-model-call-stop-success when the station has no accepted success from the last throttle window, or a failure is newer than the one it has; otherwise it sends nothing."
     },

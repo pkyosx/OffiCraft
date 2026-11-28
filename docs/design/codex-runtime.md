@@ -449,6 +449,10 @@ The rule, implemented in `server/ocserverd/account_display.go`:
   into "some older runtime". Every shipped reporter already sends `runtime` alongside
   `account` (`cli/ocagent/contextreport.go`, `cli/ocwarden/codex_session.go`), so this
   costs nothing in practice and self-heals on the next report;
+- a report that names a different account key drops the stored `account_label` even when
+  it carries no label of its own: the Claude reporter takes the key from the session's
+  transcript and sends the label only while the machine's login names that same account,
+  so a kept label could put another account's email on this key;
 - the read side (`telemetryAccount`, used by the monitoring session/machine folds and by
   `foldActorRuntime` for the outsource-worker DTO) admits the key only when the stamp
   matches the actor's runtime. It never falls back to the entry's ordinary `runtime`

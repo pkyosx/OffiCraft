@@ -40,8 +40,8 @@ func TestModelCallReportUplinkBodies(t *testing.T) {
 		return tel
 	}
 
-	failure := drive("failure", fixtureHookStart, stopFailureInput("rate_limit", fixturePath(t, "sample-rate-limit.jsonl")))
-	stopSuccess := drive("stop-success", 1790850900.5, stopInput)
+	failure := drive("failure", fixtureHookStart, stopFailureInput("rate_limit", ownedFixture(t, "sample-rate-limit.jsonl")))
+	stopSuccess := drive("stop-success", 1790850900.5, stopInput(ownedFixture(t, "sample-rate-limit.jsonl")))
 
 	wantFailure := `{"runtime":"claude","account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
 		`"machine":"lab-1","model_call":{"last_failure":{"ts":1790850886.3,"kind":"rate_limit",` +

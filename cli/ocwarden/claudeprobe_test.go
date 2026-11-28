@@ -304,7 +304,7 @@ func TestClaudeProberVersionBehindAShim(t *testing.T) {
 		shim := stageBinary(t, filepath.Join(root, "bin", "claude"), "#!/bin/sh\nexec asdf exec claude \"$@\"\n")
 		fixed := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
 		clock := fixed
-		version := "2.1.287 (Claude Code)"
+		version := "2.1.317 (Claude Code)"
 		var runs int
 		env := envMap(map[string]string{"OC_CLAUDE_BIN": shim})
 		prober := &claudeProber{
@@ -324,17 +324,17 @@ func TestClaudeProberVersionBehindAShim(t *testing.T) {
 		}
 
 		before := capabilities()
-		version = "2.1.286 (Claude Code)"
+		version = "2.1.316 (Claude Code)"
 		clock = fixed.Add(claudeProbeTTL - time.Second)
 		cached := capabilities()
 		clock = fixed.Add(claudeProbeTTL)
 		after := capabilities()
 
-		wantBefore := map[string]any{"installed": true, "version": "2.1.287", "below_notify_minimum": false}
+		wantBefore := map[string]any{"installed": true, "version": "2.1.317", "below_notify_minimum": false}
 		if !reflect.DeepEqual(before, wantBefore) || !reflect.DeepEqual(cached, wantBefore) {
 			t.Errorf("claude capability inside the TTL = %v then %v, want %v both times", before, cached, wantBefore)
 		}
-		if want := map[string]any{"installed": true, "version": "2.1.286", "below_notify_minimum": true}; !reflect.DeepEqual(after, want) {
+		if want := map[string]any{"installed": true, "version": "2.1.316", "below_notify_minimum": true}; !reflect.DeepEqual(after, want) {
 			t.Errorf("claude capability past the TTL = %v, want %v", after, want)
 		}
 		if runs != 2 {

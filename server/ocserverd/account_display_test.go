@@ -109,6 +109,16 @@ func TestApplyAccountReport(t *testing.T) {
 			want: map[string]any{"account": "new", accountRuntimeKey: "codex"},
 		},
 		{
+			name:  "a new account reported without a label drops the previous account's label",
+			entry: map[string]any{"account": "old", accountRuntimeKey: "claude", "account_label": "old@example.com"}, acct: "new", run: ptr("claude"),
+			want: map[string]any{"account": "new", accountRuntimeKey: "claude"},
+		},
+		{
+			name:  "the same account reported without a label keeps its label",
+			entry: map[string]any{"account": "acct-1", accountRuntimeKey: "claude", "account_label": "acct@example.com"}, acct: "acct-1", run: ptr("claude"),
+			want: map[string]any{"account": "acct-1", accountRuntimeKey: "claude", "account_label": "acct@example.com"},
+		},
+		{
 			name:  "account without runtime clears the whole pairing",
 			entry: map[string]any{"account": "old", accountRuntimeKey: "claude", "account_label": "old@example.com"}, acct: "new", label: "new@example.com",
 			want: map[string]any{},

@@ -62,7 +62,10 @@ func clearAccountPairing(entry map[string]any) {
 //  2. an account reported WITHOUT a runtime is unprovable: not stored, and it
 //     clears the standing pairing (leaving it let a later heartbeat be served
 //     an older runtime's key);
-//  3. only an account WITH a runtime writes a new pairing.
+//  3. only an account WITH a runtime writes a new pairing, and a new account
+//     drops the previous account's label: a Claude reporter sends the account
+//     without a label when the machine's login names another account, and a
+//     kept label would put that other account's email on this one.
 //
 // Every shipped reporter sends `runtime` with `account` (cli/ocagent
 // contextreport.go, cli/ocwarden codex_session.go), so rule 2 costs nothing.
@@ -83,6 +86,9 @@ func applyAccountReport(entry map[string]any, rawAccount, rawLabel any, runtime 
 		return
 	}
 	if account != "" {
+		if stored, _ := entry["account"].(string); stored != account {
+			delete(entry, "account_label")
+		}
 		entry["account"] = account
 		entry[accountRuntimeKey] = NormalizeRuntime(*runtime)
 	}

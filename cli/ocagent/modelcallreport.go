@@ -104,7 +104,7 @@ func cmdModelCallReport(client httpClient, cfg Config, env func(string) string, 
 	switch in.HookEventName {
 	case "Stop":
 		writeModelCallTime(modelCallSuccessPath(cfg), now)
-		reportStopSuccess(client, cfg, env, now, errOut)
+		reportStopSuccess(client, cfg, env, now, in.TranscriptPath, errOut)
 	case "StopFailure":
 		reportModelCallFailure(client, cfg, env, now, in, errOut)
 	}
@@ -130,10 +130,10 @@ func reportModelCallFailure(client httpClient, cfg Config, env func(string) stri
 	if success, ok := readModelCallTime(modelCallSuccessPath(cfg)); ok {
 		report.LastSuccessTs = &success
 	}
-	postModelCall(client, cfg, newModelCallBody(cfg, env, report), errOut)
+	postModelCall(client, cfg, newModelCallBody(env, in.TranscriptPath, report), errOut)
 }
 
-func reportStopSuccess(client httpClient, cfg Config, env func(string) string, success float64, errOut io.Writer) {
+func reportStopSuccess(client httpClient, cfg Config, env func(string) string, success float64, transcriptPath string, errOut io.Writer) {
 	sent, _ := readModelCallTime(modelCallSuccessSentPath(cfg))
 	failure, _ := readModelCallTime(modelCallFailurePath(cfg))
 	if success-sent < reportThrottleSecs && failure <= sent {
@@ -143,20 +143,13 @@ func reportStopSuccess(client httpClient, cfg Config, env func(string) string, s
 	if cfg.Token == "" || cfg.MemberID == "" {
 		return
 	}
-	if postModelCall(client, cfg, newModelCallBody(cfg, env, modelCallReport{LastSuccessTs: &success}), errOut) {
+	if postModelCall(client, cfg, newModelCallBody(env, transcriptPath, modelCallReport{LastSuccessTs: &success}), errOut) {
 		recordSuccessSent(cfg, success)
 	}
 }
 
-// The account is the one context-report last attributed this session's windows
-// to, not the login file: right after a re-login the session may still be
-// calling on the previous account, and the station re-tags the member's windows
-// with whatever account this report names.
-func newModelCallBody(cfg Config, env func(string) string, report modelCallReport) modelCallBody {
-	account, ok := recordedClaudeAccount(claudeAccountPath(cfg))
-	if !ok {
-		account = claudeAccount{ID: readClaudeAccount(env), Label: readClaudeAccountLabel(env)}
-	}
+func newModelCallBody(env func(string) string, transcriptPath string, report modelCallReport) modelCallBody {
+	account := sessionClaudeAccount(transcriptPath, env)
 	return modelCallBody{
 		Runtime:      "claude",
 		Account:      account.ID,

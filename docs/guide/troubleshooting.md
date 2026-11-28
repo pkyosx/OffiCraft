@@ -114,7 +114,7 @@ The Codex model family set for the member cannot be found in that machine's Code
 
 ### Last operation says notify_claude_too_old
 
-The Claude Code version on that machine is too old to load the OffiCraft notification module, so the warden did not start the member. A machine whose version is too old is marked "too old" in the Claude column under Monitor › Machines, and "Upgrade Claude Code" in that column's version-number menu upgrades it. After upgrading, the member has to be woken again.
+The Claude Code version on that machine is older than 2.1.317, the oldest that both loads the OffiCraft notification module and records which account each session uses, so the warden did not start the member. A machine whose version is too old is marked "too old" in the Claude column under Monitor › Machines, and "Upgrade Claude Code" in that column's version-number menu upgrades it. After upgrading, the member has to be woken again.
 
 ### Last operation says notify_mod_not_loaded or wake_timeout
 

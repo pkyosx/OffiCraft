@@ -11,15 +11,16 @@ import (
 	"time"
 )
 
-// todayTranscript writes a one-row Claude Code transcript dated today, so the
-// token source the reporter reads is live rather than filtered out by date.
+// todayTranscript writes a Claude Code transcript with its session-owner record
+// and one assistant row dated today, so the token source the reporter reads is
+// live rather than filtered out by date.
 func todayTranscript(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "transcript.jsonl")
 	row := `{"type":"assistant","timestamp":"` + time.Now().UTC().Format("2006-01-02") +
 		`T10:00:00Z","message":{"usage":{"input_tokens":7,"output_tokens":3,` +
 		`"cache_creation_input_tokens":5,"cache_read_input_tokens":11}}}`
-	if err := os.WriteFile(path, []byte(row+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(sessionOwnerRow("au-1", "org-1")+row+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -36,6 +37,7 @@ func TestContextReportUplinkBodies(t *testing.T) {
 		`"accountUuid":"au-1","emailAddress":"kyle@x.io",`+
 		`"organizationName":"OffiCraft","organizationUuid":"org-1"}}`)
 	transcript := todayTranscript(t)
+	ownerOnly := `{"transcript_path":"` + writeTranscriptRows(t, sessionOwnerRow("au-1", "org-1")) + `"}`
 
 	const identityOnly = `{"runtime":"claude","account":"au-1/org-1",` +
 		`"account_label":"kyle@x.io(OffiCraft)","machine":"lab-1"}`
@@ -66,13 +68,13 @@ func TestContextReportUplinkBodies(t *testing.T) {
 		},
 		{
 			name:          "nothing measured yet",
-			payload:       `{}`,
+			payload:       ownerOnly,
 			wantPaths:     []string{"/api/monitoring/telemetry"},
 			wantTelemetry: identityOnly,
 		},
 		{
 			name:      "a recorded success time rides the telemetry body",
-			payload:   `{}`,
+			payload:   ownerOnly,
 			success:   985.5,
 			wantPaths: []string{"/api/monitoring/telemetry"},
 			wantTelemetry: `{"runtime":"claude","account":"au-1/org-1",` +
@@ -80,8 +82,9 @@ func TestContextReportUplinkBodies(t *testing.T) {
 				`"model_call":{"last_success_ts":985.5}}`,
 		},
 		{
-			name:          "unmeasurable values are omitted, never reported as zero",
-			payload:       `{"context_window":{"used_percentage":"41.5"},"cost":{"total_cost_usd":"free"}}`,
+			name: "unmeasurable values are omitted, never reported as zero",
+			payload: `{"context_window":{"used_percentage":"41.5"},"cost":{"total_cost_usd":"free"},` +
+				`"transcript_path":"` + writeTranscriptRows(t, sessionOwnerRow("au-1", "org-1")) + `"}`,
 			wantPaths:     []string{"/api/monitoring/telemetry"},
 			wantTelemetry: identityOnly,
 		},

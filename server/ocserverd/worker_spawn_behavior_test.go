@@ -1499,7 +1499,7 @@ func TestReconcileWorkerLiveness_UnderAWardenRefusalOfTheStart(t *testing.T) {
 		"came online within the start window — check that claude runs and is logged in on that " +
 		"machine (warden log: ocwarden.out.log)"
 	const noCredential = "claude_not_logged_in: `claude auth status` reports logged out on this host."
-	const tooOld = "notify_claude_too_old: Claude Code on this machine is 2.1.200, below 2.1.287" +
+	const tooOld = "notify_claude_too_old: Claude Code on this machine is 2.1.200, below 2.1.317" +
 		", so Claude members cannot come online. Upgrade this machine's Claude Code under Monitor › Machines."
 	for _, c := range []struct {
 		name, refusal, want string

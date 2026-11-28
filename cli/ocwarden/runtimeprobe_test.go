@@ -56,10 +56,10 @@ func TestCollectRuntimeCapabilities(t *testing.T) {
 		{
 			name:   "under a claude exactly at the notification mod's minimum, below_notify_minimum is false",
 			env:    map[string]string{"HOME": root, "OC_CLAUDE_BIN": claudeBin},
-			claude: map[string]any{"version": "2.1.287"},
+			claude: map[string]any{"version": "2.1.317"},
 			login:  loginState{Claude: &yes},
 			want: map[string]any{
-				"claude": map[string]any{"installed": true, "version": "2.1.287", "logged_in": true, "below_notify_minimum": false},
+				"claude": map[string]any{"installed": true, "version": "2.1.317", "logged_in": true, "below_notify_minimum": false},
 				"codex":  map[string]any{"installed": false},
 			},
 		},

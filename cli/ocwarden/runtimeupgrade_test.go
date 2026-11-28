@@ -641,10 +641,11 @@ func TestStartUpgradeProcessRefusesARealBinaryInATestBinary(t *testing.T) {
 }
 
 // The three notices below are `claude update`'s output under Homebrew as
-// measured on a real machine (2.1.288 from claude-code@latest; 2.1.285 and
-// 2.1.280 from claude-code); it exits 0 in all three without upgrading.
+// measured on a real machine (claude-code@latest, then claude-code twice; the
+// latest cask's version is moved past notifyModMinClaudeVersion); it exits 0
+// in all three without upgrading.
 const (
-	brewLatestUpToDate = "Current version: 2.1.288\nChecking for updates to latest version...\n\n" +
+	brewLatestUpToDate = "Current version: 2.1.320\nChecking for updates to latest version...\n\n" +
 		"Claude is managed by Homebrew.\nClaude is up to date!\n"
 	brewStableUpToDate = "Current version: 2.1.285\nChecking for updates to stable version...\n\n" +
 		"Claude is managed by Homebrew.\nClaude is up to date!\n\n" +
@@ -656,7 +657,7 @@ const (
 		"Tip: For more frequent updates, use the claude-code@latest cask:\n" +
 		"  brew uninstall --cask claude-code && brew install --cask claude-code@latest\n"
 
-	brewLaggingReason = "this machine's Claude Code is managed by Homebrew's regular cask, whose newest version is only 2.1.285, below the 2.1.287 needed to receive notifications; " +
+	brewLaggingReason = "this machine's Claude Code is managed by Homebrew's regular cask, whose newest version is only 2.1.285, below the 2.1.317 Claude members need; " +
 		"on this machine switch to the latest cask: `brew uninstall --cask claude-code && brew install --cask claude-code@latest`"
 	brewFallbackReason = "this machine's Claude Code is managed by Homebrew, so the control panel cannot upgrade it directly; upgrade it with Homebrew on this machine"
 )
@@ -666,15 +667,15 @@ func TestUpgradeRelayUnderHomebrew(t *testing.T) {
 		name, version, out, rc, want string
 	}{
 		{"an up-to-date latest cask at or above the notify minimum says it is Homebrew's newest",
-			"2.1.288", brewLatestUpToDate, "0", "this machine's Claude Code is managed by Homebrew and is already the newest version on Homebrew (2.1.288)"},
+			"2.1.320", brewLatestUpToDate, "0", "this machine's Claude Code is managed by Homebrew and is already the newest version on Homebrew (2.1.320)"},
 		{"an up-to-date stable cask below the notify minimum says to switch to the latest cask, echoing the tip",
 			"2.1.285", brewStableUpToDate, "0", brewLaggingReason},
 		{"a stable cask whose available update is still below the notify minimum says to switch to the latest cask",
 			"2.1.280", brewStableBehind, "0", brewLaggingReason},
 		{"an available update at or above the notify minimum names the brew upgrade command and the target, under color codes, CRLF and ->",
-			"2.1.280", "\x1b[1mClaude is managed by Homebrew.\x1b[0m\r\nUpdate available: 2.1.280 -> 2.1.290\r\n" +
+			"2.1.280", "\x1b[1mClaude is managed by Homebrew.\x1b[0m\r\nUpdate available: 2.1.280 -> 2.1.320\r\n" +
 				"To update, run:\r\n  \x1b[36mbrew upgrade claude-code@latest\x1b[0m\r\n", "0",
-			"this machine's Claude Code is managed by Homebrew, so the control panel cannot upgrade it directly; on this machine run `brew upgrade claude-code@latest` (it can upgrade to 2.1.290)"},
+			"this machine's Claude Code is managed by Homebrew, so the control panel cannot upgrade it directly; on this machine run `brew upgrade claude-code@latest` (it can upgrade to 2.1.320)"},
 		{"Homebrew output of no known shape falls back to the generic Homebrew reason",
 			"2.1.280", "Claude is managed by Homebrew.\nSomething new happened.\n", "0", brewFallbackReason},
 		{"output that does not mention Homebrew keeps the generic unchanged reason",
