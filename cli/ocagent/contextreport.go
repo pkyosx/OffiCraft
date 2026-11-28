@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -83,9 +84,6 @@ func cmdContextReport(client httpClient, cfg Config, env func(string) string, no
 	_ = warnMissingBase(cfg, "context-report", errOut)
 
 	if cfg.Token != "" && cfg.MemberID != "" {
-		// Before the throttle: windows that first appear on a throttled tick must
-		// still be paired with the login of that moment, not of the next sent one.
-		account := measuredClaudeAccount(claudeAccountPath(cfg), rateLimitsFingerprint(payload), env)
 		stamp := reportStampPath(cfg)
 		backoffFile := reportBackoffPath(cfg)
 		backoff := readReportBackoff(backoffFile)
@@ -97,6 +95,7 @@ func cmdContextReport(client httpClient, cfg Config, env func(string) string, no
 			// Sent even when no usage was measured: runtime/account/machine must still
 			// reach monitoring, or it keeps showing a stale account for a live session.
 			rl, cost, tokens := buildTelemetry(payload)
+			account := sessionClaudeAccount(transcriptPathOf(payload), env)
 			body := telemetryBody{
 				Runtime:      "claude",
 				RateLimits:   rl,
@@ -480,98 +479,109 @@ func machineID(env func(string) string) string {
 }
 
 type claudeAccount struct {
-	ID         string `json:"account"`
-	Label      string `json:"account_label"`
-	RateLimits string `json:"rate_limits"`
-	Login      string `json:"login"`
+	ID    string
+	Label string
 }
 
-func claudeAccountPath(cfg Config) string {
-	return filepath.Join(filepath.Dir(reportStampPath(cfg)), "claude_account.json")
-}
-
-// statusLine rate_limits are the headers of this session's LAST API response,
-// kept in memory, while the login file is machine-wide. A session keeps calling
-// on the credentials it already holds for a while after a re-login and moves to
-// the new ones at a time nothing tells us. So while the windows still share a
-// reset time with the record, they stay on the recorded account.
-//
-// ⚠️ Only a report that agrees with the login file may write the record. Two
-// accounts can open a window in the same 10-minute slot and report an
-// identical resets_at; writing the new account's windows under the old one
-// would make every later report share a reset time with the record, and the
-// session would stay on the old account (usage and spend) indefinitely.
-func measuredClaudeAccount(path, rateLimits string, env func(string) string) claudeAccount {
-	current := claudeAccount{ID: readClaudeAccount(env), Label: readClaudeAccountLabel(env), RateLimits: rateLimits}
-	if recorded, ok := recordedClaudeAccount(path); ok && current.ID != recorded.ID && shareResetTime(recorded.RateLimits, rateLimits) {
-		return claudeAccount{ID: recorded.ID, Label: recorded.Label, RateLimits: rateLimits}
+// The login file is machine-wide: after a re-login it names the new account
+// while running sessions keep calling on the one they hold, so it never decides
+// the account (a wrong account is worse than none). It only supplies the label,
+// and only while it names the same account as the session.
+func sessionClaudeAccount(transcriptPath string, env func(string) string) claudeAccount {
+	id := transcriptSessionOwner(transcriptPath)
+	if id == "" {
+		return claudeAccount{}
 	}
-	if current.ID != "" {
-		current.Login = current.ID
-		if raw, err := json.Marshal(current); err == nil && os.MkdirAll(filepath.Dir(path), 0o755) == nil {
-			_ = os.WriteFile(path, raw, 0o644)
-		}
+	account := claudeAccount{ID: id}
+	if readClaudeAccount(env) == id {
+		account.Label = readClaudeAccountLabel(env)
 	}
-	return current
+	return account
 }
 
-// A record whose account is not the login it was written under (or that
-// predates the login field) may hold another account's windows, so it is not
-// evidence of anything.
-func recordedClaudeAccount(path string) (claudeAccount, bool) {
-	raw, err := os.ReadFile(path)
+func transcriptPathOf(payload string) string {
+	obj, _ := safeJSON(payload).(map[string]any)
+	path, _ := obj["transcript_path"].(string)
+	return path
+}
+
+const sessionOwnerScanChunk = 64 << 10
+
+var sessionOwnerMarker = []byte(`"session-owner"`)
+
+// transcriptSessionOwner answers the account key of the LAST session-owner
+// record, the same accountUuid/organizationUuid shape readClaudeAccount builds.
+// Claude Code repeats the record in each metadata block it appends, so it sits
+// near the end and the file is scanned backwards in chunks. A line still being
+// written is not valid JSON yet and is skipped.
+func transcriptSessionOwner(path string) string {
+	if path == "" {
+		return ""
+	}
+	f, err := os.Open(path)
 	if err != nil {
-		return claudeAccount{}, false
+		return ""
 	}
-	var recorded claudeAccount
-	if json.Unmarshal(raw, &recorded) != nil || recorded.ID == "" || recorded.Login != recorded.ID {
-		return claudeAccount{}, false
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return ""
 	}
-	return recorded, true
-}
-
-func shareResetTime(fingerprintA, fingerprintB string) bool {
-	resetsAt := func(fingerprint string) map[string]float64 {
-		var windows map[string]struct {
-			ResetsAt *float64 `json:"resets_at"`
+	var fragment []byte
+	for end := info.Size(); ; {
+		start := max(end-sessionOwnerScanChunk, 0)
+		buf := make([]byte, int(end-start), int(end-start)+len(fragment))
+		if _, err := f.ReadAt(buf, start); err != nil && err != io.EOF {
+			return ""
 		}
-		_ = json.Unmarshal([]byte(fingerprint), &windows)
-		out := map[string]float64{}
-		for key, window := range windows {
-			if window.ResetsAt != nil {
-				out[key] = *window.ResetsAt
+		buf = append(buf, fragment...)
+		for {
+			i := bytes.LastIndexByte(buf, '\n')
+			if i < 0 && start > 0 {
+				break
 			}
+			if id, found := sessionOwnerKey(buf[i+1:]); found {
+				return id
+			}
+			if i < 0 {
+				return ""
+			}
+			buf = buf[:i]
 		}
-		return out
+		fragment = buf
+		end = start
 	}
-	b := resetsAt(fingerprintB)
-	for key, resetAt := range resetsAt(fingerprintA) {
-		if other, ok := b[key]; ok && other == resetAt {
-			return true
-		}
-	}
-	return false
 }
 
-func rateLimitsFingerprint(payload string) string {
-	obj, ok := safeJSON(payload).(map[string]any)
-	if !ok {
-		return ""
+// found is true for any complete session-owner record: when the newest one
+// names no account the answer is unknown, never an older record's account.
+func sessionOwnerKey(line []byte) (key string, found bool) {
+	if !bytes.Contains(line, sessionOwnerMarker) {
+		return "", false
 	}
-	rl, ok := obj["rate_limits"].(map[string]any)
-	if !ok || len(rl) == 0 {
-		return ""
+	var record struct {
+		Type             string `json:"type"`
+		AccountUUID      any    `json:"accountUuid"`
+		OrganizationUUID any    `json:"organizationUuid"`
 	}
-	raw, err := json.Marshal(rl)
-	if err != nil {
-		return ""
+	if json.Unmarshal(line, &record) != nil || record.Type != "session-owner" {
+		return "", false
 	}
-	return string(raw)
+	account, _ := record.AccountUUID.(string)
+	account = strings.TrimSpace(account)
+	if account == "" {
+		return "", true
+	}
+	if org, _ := record.OrganizationUUID.(string); strings.TrimSpace(org) != "" {
+		return account + "/" + strings.TrimSpace(org), true
+	}
+	return account, true
 }
 
-// The monitoring attribution key must stay stable across machines and
-// credential storage, so subscriptionType is deliberately not part of it. Real
-// installs split fields across the two .claude.json files, so each resolves
+// Must build the same key shape as sessionOwnerKey: the label is attached only
+// when the two are equal. subscriptionType is deliberately not part of it, so
+// the key stays stable across machines and credential storage. Real installs
+// split fields across the two .claude.json files, so each resolves
 // independently.
 func readClaudeAccount(env func(string) string) string {
 	home := env("HOME")

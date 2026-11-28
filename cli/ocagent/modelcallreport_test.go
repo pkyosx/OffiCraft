@@ -58,14 +58,29 @@ func stubModelCallSleep(t *testing.T, onSleep func(n int)) *[]time.Duration {
 	return &slept
 }
 
-const stopInput = `{"session_id":"11111111-1111-4111-8111-111111111111","transcript_path":"/nowhere.jsonl",` +
-	`"cwd":"/Users/example","prompt_id":"p-1","permission_mode":"default","hook_event_name":"Stop",` +
-	`"stop_hook_active":false,"last_assistant_message":"OK","background_tasks":[],"session_crons":[]}`
+func stopInput(transcript string) string {
+	return `{"session_id":"11111111-1111-4111-8111-111111111111","transcript_path":"` + transcript + `",` +
+		`"cwd":"/Users/example","prompt_id":"p-1","permission_mode":"default","hook_event_name":"Stop",` +
+		`"stop_hook_active":false,"last_assistant_message":"OK","background_tasks":[],"session_crons":[]}`
+}
+
+// ownedFixture is a sample transcript preceded by the session-owner record
+// Claude Code writes near the top of every session.
+func ownedFixture(t *testing.T, name string) string {
+	t.Helper()
+	raw, err := os.ReadFile(fixturePath(t, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return writeTranscriptRows(t, sessionOwnerRow("au-1", "org-1"), string(raw))
+}
 
 func TestCmdModelCallReport(t *testing.T) {
 	accountHome := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-1","emailAddress":"kyle@x.io",`+
 		`"organizationName":"OffiCraft","organizationUuid":"org-1"}}`)
 	env := testEnv(map[string]string{"HOME": accountHome, "OC_HOST": "lab-1"})
+	ownedStop := stopInput(writeTranscriptRows(t, sessionOwnerRow("au-1", "org-1")))
+	rateLimitTranscript := ownedFixture(t, "sample-rate-limit.jsonl")
 	newCfg := func(t *testing.T, base string) Config {
 		return Config{BaseConfigured: true, Base: base, Token: "t", MemberID: "Kyle", AgentsRoot: t.TempDir()}
 	}
@@ -108,7 +123,7 @@ func TestCmdModelCallReport(t *testing.T) {
 				}
 				var errOut bytes.Buffer
 
-				rc := cmdModelCallReport(srv.Client(), cfg, env, 1000.5, strings.NewReader(stopInput), &errOut)
+				rc := cmdModelCallReport(srv.Client(), cfg, env, 1000.5, strings.NewReader(ownedStop), &errOut)
 
 				if rc != 0 {
 					t.Errorf("rc = %d, want 0", rc)
@@ -151,7 +166,7 @@ func TestCmdModelCallReport(t *testing.T) {
 				writeModelCallTime(memberFile(cfg, "model_call.success_sent"), 950)
 				var errOut bytes.Buffer
 
-				rc := cmdModelCallReport(tc.client, cfg, env, 1000.5, strings.NewReader(stopInput), &errOut)
+				rc := cmdModelCallReport(tc.client, cfg, env, 1000.5, strings.NewReader(ownedStop), &errOut)
 
 				if rc != 0 {
 					t.Errorf("rc = %d, want 0", rc)
@@ -177,7 +192,7 @@ func TestCmdModelCallReport(t *testing.T) {
 		var errOut bytes.Buffer
 
 		rc := cmdModelCallReport(srv.Client(), cfg, env, fixtureHookStart,
-			strings.NewReader(stopFailureInput("rate_limit", fixturePath(t, "sample-rate-limit.jsonl"))), &errOut)
+			strings.NewReader(stopFailureInput("rate_limit", rateLimitTranscript)), &errOut)
 
 		if rc != 0 {
 			t.Errorf("rc = %d, want 0", rc)
@@ -226,7 +241,7 @@ func TestCmdModelCallReport(t *testing.T) {
 				var errOut bytes.Buffer
 
 				cmdModelCallReport(srv.Client(), cfg, env, fixtureHookStart+60,
-					strings.NewReader(stopFailureInput(tc.code, fixturePath(t, "sample-rate-limit.jsonl"))), &errOut)
+					strings.NewReader(stopFailureInput(tc.code, rateLimitTranscript)), &errOut)
 
 				want := `{"runtime":"claude","account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
 					`"machine":"lab-1","model_call":{"last_failure":{"ts":1790850946.3,"kind":"` + tc.wantKind +
@@ -245,7 +260,8 @@ func TestCmdModelCallReport(t *testing.T) {
 		const hookStart = fixtureHookStart + 60
 		writeTranscript := func(t *testing.T, rows ...[]byte) string {
 			path := filepath.Join(t.TempDir(), "transcript.jsonl")
-			if err := os.WriteFile(path, bytes.Join(rows, nil), 0o644); err != nil {
+			owned := append([][]byte{[]byte(sessionOwnerRow("au-1", "org-1"))}, rows...)
+			if err := os.WriteFile(path, bytes.Join(owned, nil), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			return path
@@ -269,6 +285,7 @@ func TestCmdModelCallReport(t *testing.T) {
 			name       string
 			transcript func(t *testing.T) string
 			lateRow    []byte
+			noOwner    bool
 			wantResets string
 			wantSlept  []time.Duration
 		}{
@@ -286,6 +303,7 @@ func TestCmdModelCallReport(t *testing.T) {
 			{
 				name:       "its own row never lands: no reset time after the wait",
 				transcript: func(t *testing.T) string { return filepath.Join(t.TempDir(), "missing.jsonl") },
+				noOwner:    true,
 				wantResets: "null", wantSlept: thirtyWaits,
 			},
 			{
@@ -337,7 +355,11 @@ func TestCmdModelCallReport(t *testing.T) {
 				rc := cmdModelCallReport(srv.Client(), cfg, env, hookStart,
 					strings.NewReader(stopFailureInput("rate_limit", transcript)), &errOut)
 
-				want := `{"runtime":"claude","account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
+				account := `"account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",`
+				if tc.noOwner {
+					account = ""
+				}
+				want := `{"runtime":"claude",` + account +
 					`"machine":"lab-1","model_call":{"last_failure":{"ts":1790850946.3,"kind":"rate_limit",` +
 					`"code":"rate_limit","resets_at":` + tc.wantResets + `}}}`
 				if rc != 0 || len(*posts) != 1 || (*posts)[0].body != want {
@@ -353,50 +375,50 @@ func TestCmdModelCallReport(t *testing.T) {
 		}
 	})
 
-	t.Run("a report after a re-login names the account the session's windows were measured on", func(t *testing.T) {
+	t.Run("a report after a re-login names the account the session's transcript names", func(t *testing.T) {
 		srv, posts := contextServer(t)
 		cfg := newCfg(t, srv.URL)
-		var out, errOut bytes.Buffer
-		cmdContextReport(&fakeHTTP{status: 200, body: "{}"}, cfg, env, 1000,
-			strings.NewReader(`{"rate_limits":{"seven_day":{"used_percentage":99,"resets_at":1794769200}}}`), &out, &errOut)
+		transcript := writeTranscriptRows(t, sessionOwnerRow("au-1", "org-1"))
 		reloggedEnv := testEnv(map[string]string{
 			"HOME":    writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-2","organizationUuid":"org-2"}}`),
 			"OC_HOST": "lab-1",
 		})
+		var errOut bytes.Buffer
 
 		cmdModelCallReport(srv.Client(), cfg, reloggedEnv, 1100,
-			strings.NewReader(stopFailureInput("server_error", fixturePath(t, "sample-other-errors.jsonl"))), &errOut)
+			strings.NewReader(stopFailureInput("server_error", transcript)), &errOut)
 
-		want := `{"runtime":"claude","account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
+		want := `{"runtime":"claude","account":"au-1/org-1",` +
 			`"machine":"lab-1","model_call":{"last_failure":{"ts":1100,"kind":"server","code":"server_error","resets_at":null}}}`
 		if len(*posts) != 1 || (*posts)[0].body != want {
 			t.Errorf("sent %+v, want one body %s", *posts, want)
 		}
 
-		recordWithoutLogin := `{"account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
-			`"rate_limits":"{\"seven_day\":{\"resets_at\":1794769200,\"used_percentage\":99}}"}`
-		if err := os.WriteFile(claudeAccountPath(cfg), []byte(recordWithoutLogin), 0o644); err != nil {
+		leftoverRecord := `{"account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
+			`"rate_limits":"{\"seven_day\":{\"resets_at\":1794769200,\"used_percentage\":99}}","login":"au-1/org-1"}`
+		if err := os.WriteFile(memberFile(cfg, "claude_account.json"), []byte(leftoverRecord), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		appendTranscriptRows(t, transcript, sessionOwnerRow("au-2", "org-2"))
 		cmdModelCallReport(srv.Client(), cfg, reloggedEnv, 1200,
-			strings.NewReader(stopFailureInput("server_error", fixturePath(t, "sample-other-errors.jsonl"))), &errOut)
+			strings.NewReader(stopFailureInput("server_error", transcript)), &errOut)
 
-		wantFromLogin := `{"runtime":"claude","account":"au-2/org-2","machine":"lab-1",` +
+		wantMoved := `{"runtime":"claude","account":"au-2/org-2","machine":"lab-1",` +
 			`"model_call":{"last_failure":{"ts":1200,"kind":"server","code":"server_error","resets_at":null}}}`
-		if len(*posts) != 2 || (*posts)[1].body != wantFromLogin {
-			t.Errorf("with a record that predates the login field sent %+v, want second body %s", *posts, wantFromLogin)
+		if len(*posts) != 2 || (*posts)[1].body != wantMoved {
+			t.Errorf("once the transcript names the new account sent %+v, want second body %s", *posts, wantMoved)
 		}
 	})
 
-	t.Run("an unreadable account is omitted, never sent blank", func(t *testing.T) {
+	t.Run("a transcript with no owner record sends no account, never a blank one", func(t *testing.T) {
 		srv, posts := contextServer(t)
 		cfg := newCfg(t, srv.URL)
 		var errOut bytes.Buffer
 
-		cmdModelCallReport(srv.Client(), cfg, testEnv(map[string]string{"HOME": t.TempDir()}), 1000,
+		cmdModelCallReport(srv.Client(), cfg, env, 1000,
 			strings.NewReader(stopFailureInput("server_error", fixturePath(t, "sample-other-errors.jsonl"))), &errOut)
 
-		want := `{"runtime":"claude","machine":"m-server-self","model_call":{"last_failure":` +
+		want := `{"runtime":"claude","machine":"lab-1","model_call":{"last_failure":` +
 			`{"ts":1000,"kind":"server","code":"server_error","resets_at":null}}}`
 		if len(*posts) != 1 || (*posts)[0].body != want {
 			t.Errorf("sent %+v, want one body %s", *posts, want)
