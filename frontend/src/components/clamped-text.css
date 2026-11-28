@@ -53,3 +53,11 @@
   outline-offset: 2px;
   border-radius: 4px;
 }
+.clamped-text__body--toggle {
+  cursor: pointer;
+  border-radius: 4px;
+}
+.clamped-text__body--toggle:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}

@@ -60,7 +60,7 @@ describe("SecretsPage", () => {
       "GitHub deploy token",
     );
     expect(row.querySelector('[data-testid="secret-note"]')?.textContent).toBe(
-      zh.secrets.colNote + "Only for pushing release tags.",
+      "Only for pushing release tags.",
     );
     expect(row.querySelector('[data-testid="secret-last-accessed"]')?.textContent).toBe(
       zh.secrets.colLastAccessed + formatAbsolute(1760000600, now),
@@ -80,7 +80,7 @@ describe("SecretsPage", () => {
     expect(container.querySelector("h2")).toBeNull();
   });
 
-  it("a note taller than three lines is clamped with a 展開全文 toggle that opens and closes it on that card only, and a note that fits gets neither", async () => {
+  it("a note taller than three lines is clamped and the note itself opens and closes it on that card only, by click, Enter or Space; a note that fits is plain text", async () => {
     const longNote = "Rotate quarterly. ".repeat(20).trim();
     await api.createSecret({ name: "Staging DB", value: FAKE_VALUE, note: longNote });
     // jsdom lays nothing out: a clamped note body reports one height unit per
@@ -98,28 +98,38 @@ describe("SecretsPage", () => {
     const [short, long] = Array.from(container.querySelectorAll<HTMLElement>('[data-testid="secret-row"]'));
 
     const shortBody = short.querySelector<HTMLElement>('[data-testid="secret-note-text-body"]')!;
-    expect(short.querySelector('[data-testid="secret-note-text-toggle"]')).toBeNull();
+    expect(shortBody.getAttribute("role")).toBeNull();
+    expect(shortBody.hasAttribute("tabindex")).toBe(false);
     expect(shortBody.classList.contains("clamped-text__body--faded")).toBe(false);
 
     const body = long.querySelector<HTMLElement>('[data-testid="secret-note-text-body"]')!;
-    const toggle = long.querySelector<HTMLElement>('[data-testid="secret-note-text-toggle"]')!;
+    expect(container.querySelector('[data-testid="secret-note-text-toggle"]')).toBeNull();
     expect(body.textContent).toBe(longNote);
-    expect(toggle.textContent).toBe(zh.common.textShowAll);
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect([body.getAttribute("role"), body.getAttribute("tabindex"), body.getAttribute("aria-expanded"), body.title]).toEqual([
+      "button",
+      "0",
+      "false",
+      zh.common.textShowAll,
+    ]);
     expect(body.classList.contains("clamped-text__body--clamped")).toBe(true);
     expect(body.classList.contains("clamped-text__body--faded")).toBe(true);
 
-    fireEvent.click(toggle);
-    expect(toggle.textContent).toBe(zh.common.textShowLess);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(body);
+    expect([body.getAttribute("aria-expanded"), body.title]).toEqual(["true", zh.common.textShowLess]);
     expect(body.classList.contains("clamped-text__body--clamped")).toBe(false);
     expect(body.classList.contains("clamped-text__body--faded")).toBe(false);
+    expect(shortBody.classList.contains("clamped-text__body--clamped")).toBe(true);
     expect(screen.queryByTestId("secret-edit-form")).toBeNull();
     expect(screen.queryByTestId("secrets-delete-confirm")).toBeNull();
 
-    fireEvent.click(toggle);
-    expect(toggle.textContent).toBe(zh.common.textShowAll);
+    fireEvent.click(body);
+    expect(body.getAttribute("aria-expanded")).toBe("false");
     expect(body.classList.contains("clamped-text__body--faded")).toBe(true);
+
+    fireEvent.keyDown(body, { key: "Enter" });
+    expect(body.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.keyDown(body, { key: " " });
+    expect(body.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("clicking the id copies it and confirms only after the copy succeeded", async () => {

@@ -1,6 +1,7 @@
 // CT story: the REAL SecretsPage against the mock adapter, inside
 // `.app > .app__main` as in App.tsx, with one more secret whose note runs well
-// past three lines at any width. The seed's own note is one short line.
+// past three lines at any width and one with no note; neither has been read.
+// The seed's own note is one short line.
 import { useEffect, useState } from "react";
 import { I18nProvider } from "../../src/i18n";
 import { SecretsPage } from "../../src/components/SecretsPage";
@@ -18,6 +19,7 @@ export function SecretNoteStory() {
       const { mockApi, __resetMock } = await import("../../src/api/mock");
       __resetMock();
       await mockApi.createSecret({ name: "Staging DB", value: "fake", note: LONG_NOTE });
+      await mockApi.createSecret({ name: "SETH_M5_SSH_PASSPHRASE_FOR_THE_STAGING_BASTION_HOST", value: "fake", note: "" });
       setReady(true);
     })();
   }, []);

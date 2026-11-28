@@ -17,7 +17,6 @@ import {
   TrashIcon,
 } from "./icons";
 import "./lore.css";
-import "./theme-settings.css";
 import "./secrets.css";
 import { SecretValueInput } from "./SecretValueInput";
 
@@ -175,12 +174,12 @@ function SecretRow({
 
   return (
     <article
-      className="secrets__row"
+      className="lore-row secrets__row"
       data-testid="secret-row"
       data-secret-id={secret.id}
     >
-      <div className="secrets__row-head">
-        <div className="secrets__row-title">
+      <div className="lore-row__head">
+        <div className="lore-row__badges">
           <button
             type="button"
             className="lore-row__id-badge"
@@ -189,7 +188,7 @@ function SecretRow({
             title={msg.secretCopyId(secret.id)}
             onClick={copyId}
           >
-            {copied ? <CheckIcon size={13} /> : <KeyIcon size={13} />}
+            {copied ? <CheckIcon size={13} /> : <KeyIcon size={13} />}#
             {secret.id}
             {copied && (
               <span
@@ -201,14 +200,11 @@ function SecretRow({
               </span>
             )}
           </button>
-          <span className="secrets__name" data-testid="secret-name">
-            {secret.name}
-          </span>
         </div>
-        <span className="secrets__row-actions">
+        <span className="lore-row__actions">
           <button
             type="button"
-            className="ts-icon-btn"
+            className="lore-row__icon-btn"
             data-testid="secret-edit"
             aria-label={`${d.edit} ${secret.name}`}
             title={d.edit}
@@ -218,7 +214,7 @@ function SecretRow({
           </button>
           <button
             type="button"
-            className="ts-icon-btn ts-icon-btn--danger"
+            className="lore-row__icon-btn lore-row__icon-btn--danger"
             data-testid="secret-delete"
             aria-label={`${d.delete} ${secret.name}`}
             title={d.delete}
@@ -228,28 +224,29 @@ function SecretRow({
           </button>
         </span>
       </div>
+      <h3 className="lore-row__title" data-testid="secret-name">
+        {secret.name}
+      </h3>
       {secret.note && (
-        <div
-          className="secrets__row-line secrets__row-line--block"
-          data-testid="secret-note"
-        >
-          <span className="secrets__label">{d.colNote}</span>
-          <ClampedText text={secret.note} testId="secret-note-text" />
+        <div className="secrets__note" data-testid="secret-note">
+          <ClampedText text={secret.note} testId="secret-note-text" bodyToggle />
         </div>
       )}
-      <div className="secrets__row-line" data-testid="secret-last-accessed">
-        <span className="secrets__label">{d.colLastAccessed}</span>
-        <span className="secrets__row-value">
-          {secret.lastAccessedTs == null
-            ? d.neverAccessed
-            : formatAbsolute(secret.lastAccessedTs, nowSecs)}
-        </span>
-      </div>
-      <div className="secrets__row-line" data-testid="secret-updated">
-        <span className="secrets__label">{d.colUpdated}</span>
-        <span className="secrets__row-value">
-          {formatAbsolute(secret.updatedTs, nowSecs)}
-        </span>
+      <div className="lore-row__meta">
+        <div className="secrets__meta-row" data-testid="secret-last-accessed">
+          <span className="lore-row__meta-label">{d.colLastAccessed}</span>
+          {secret.lastAccessedTs == null ? (
+            <span className="secrets__never">{d.neverAccessed}</span>
+          ) : (
+            <span className="secrets__time">
+              {formatAbsolute(secret.lastAccessedTs, nowSecs)}
+            </span>
+          )}
+        </div>
+        <div className="secrets__meta-row" data-testid="secret-updated">
+          <span className="lore-row__meta-label">{d.colUpdated}</span>
+          <span className="secrets__time">{formatAbsolute(secret.updatedTs, nowSecs)}</span>
+        </div>
       </div>
     </article>
   );

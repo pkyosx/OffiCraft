@@ -10,16 +10,22 @@
  * other. What was copied, and from where:
  *
  *   .lore-badge              ← tasks.css .task-badge
- *   .lore-row__status(-chip) ← .task-card__status (the task card's status chip it
- *                              copied is now an icon; this copy keeps the chip)
+ *   .lore-row__status        ← .task-card__status
+ *   .lore-row__status-icon   ← .task-card__status-icon
+ *   .lore-row__status-chip   ← the task card's former status chip (type and
+ *                              scope tags still wear it)
+ *   .lore-row__icon-btn      ← .task-card__reassign (borderless icon action)
  *   .lore-row__menu-pop      ← .task-card__menu-pop
  *   .lore-row__menu-item     ← .task-card__menu-item (+ --active = accent/700)
  *   .lore-row__meta / __meta-label
  *                            ← .task-card__meta / __meta-label
- *   .lore-row__chip          ← .task-card__chip
+ *   .lore-row__chip(--link)  ← .task-card__chip(--link)
+ *   .lore-row__title         ← .task-card__title
  *   .lore-dir-card           ← .task-card
  *   .lore-dir-card__usage / __bar / __bar-fill / __usage-text
  *                            ← .task-card__progress / -bar / -fill / -text
+ *
+ * The 金鑰 and 檔案庫 cards wear these same .lore-row* classes.
  *
  * The one exception is the message box: owner wants it to BE the 任務卡's box,
  * so both cards share card-composer.css rather than a copy. The directory's
@@ -597,10 +603,15 @@ button.lore-section__name--link:hover {
 
 .lore-row__title {
   margin: 0;
-  font-size: 14.5px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   line-height: 1.4;
-  color: var(--color-text);
+  color: var(--color-text-strong);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lore-row--retired .lore-row__title {
+  color: var(--color-text-muted);
 }
 
 .lore-row__body {
@@ -826,6 +837,46 @@ button.lore-badge--lore-type {
 button.lore-badge--lore-type:hover:not(:disabled) {
   background: color-mix(in srgb, currentColor 22%, transparent);
 }
+button.lore-row__status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: 0 0 0 -4px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+button.lore-row__status-icon:hover:not(:disabled),
+button.lore-row__status-icon[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
+}
+button.lore-row__status-icon:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+button.lore-row__status-icon svg {
+  flex: none;
+  display: block;
+}
+button.lore-row__status-icon--pinned {
+  color: var(--color-accent);
+}
+button.lore-row__status-icon--active {
+  color: var(--color-success);
+}
+button.lore-row__status-icon--retired {
+  color: var(--color-text-muted);
+}
+button.lore-row__status-icon--staged {
+  outline: 1px dashed var(--color-warn-fg);
+  outline-offset: -1px;
+}
 /* 「點了在徽章左緣下方開小選單」 — anchored to the badge's LEFT edge. */
 .lore-row__status-pop {
   left: 0;
@@ -903,6 +954,50 @@ button.lore-badge--lore-type:hover:not(:disabled) {
 .lore-row__chip svg {
   flex: none;
   color: var(--color-text-muted);
+}
+button.lore-row__chip--link {
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.lore-row__chip--link:hover {
+  background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+.lore-row__chip--link:hover svg {
+  color: var(--color-accent);
+}
+
+.lore-row__icon-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.lore-row__icon-btn:hover:not(:disabled):not([aria-disabled="true"]),
+.lore-row__icon-btn:focus-visible {
+  background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  color: var(--color-accent);
+}
+.lore-row__icon-btn--danger:hover:not(:disabled):not([aria-disabled="true"]) {
+  border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+  color: var(--color-danger);
+}
+.lore-row__icon-btn:disabled,
+.lore-row__icon-btn[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.lore-row__icon-btn svg {
+  display: block;
 }
 .lore-row__author {
   min-width: 0;
