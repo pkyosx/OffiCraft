@@ -162,6 +162,7 @@ import {
 } from "./icons";
 import { CopyIdChip, idChipText } from "./IdChips";
 import "./inline-edit.css";
+import "./card-head.css";
 import "./card-meta.css";
 import "./replies.css";
 import "./card-composer.css";
@@ -1523,7 +1524,7 @@ export function TaskCard({
             <div className="task-card__status" ref={statusRef}>
               <button
                 type="button"
-                className={`task-card__status-icon task-card__status-icon--${task.status}`}
+                className={`card-head__status-icon task-card__status-icon--${task.status}`}
                 title={statusName}
                 aria-label={statusName}
                 aria-haspopup="menu"
@@ -1901,7 +1902,7 @@ export function TaskCard({
             {!closed && (
               <button
                 type="button"
-                className="task-card__reassign"
+                className="card-head__icon-btn"
                 title={t.tasks.reassign}
                 aria-label={t.tasks.reassign}
                 data-testid="task-reassign"

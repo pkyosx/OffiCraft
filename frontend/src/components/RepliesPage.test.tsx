@@ -1906,7 +1906,7 @@ describe("RepliesPage", () => {
     renderPage();
     await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1"]));
     const card = document.querySelector<HTMLElement>('[data-reply-card-id="rc-1"]')!;
-    const copy = card.querySelector<HTMLButtonElement>(".reply-card__actions .chat__msg-copy")!;
+    const copy = card.querySelector<HTMLButtonElement>(".reply-card__copy button")!;
     expect(copy.getAttribute("aria-label")).toBe("複製整張卡片內容");
 
     await act(async () => {
@@ -2160,7 +2160,7 @@ describe("RepliesPage", () => {
     expect(queryByTestId("chat-select-bar")).toBeNull();
     expect(card.getAttribute("aria-expanded")).toBe("false");
     expect(other.inert).toBeFalsy();
-    expect(document.activeElement).toBe(card.querySelector(".chat__msg-copy"));
+    expect(document.activeElement).toBe(card.querySelector(".reply-card__copy button"));
 
     await hold(summary, 520);
     choose("選取文字");

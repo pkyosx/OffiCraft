@@ -261,7 +261,7 @@ function assertHeadContained(width: number, row: RowGeom, language: "zh" | "en" 
   expect
     .soft(row.actionButtons.map((b) => [b.text, b.cls, b.svg]), `${tag} actions`)
     .toEqual([
-      [names.edit, "lore-row__icon-btn", true],
+      [names.edit, "card-head__icon-btn", true],
       row.folded
         ? [names.expand, "lore-row__fold", true]
         : [names.collapse, "lore-row__fold lore-row__fold--open", true],

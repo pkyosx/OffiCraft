@@ -78,6 +78,8 @@ const OWNED_SHEETS = [
   "page-toolbar.css",
   // The copy id chip on every card's first line.
   "id-chip.css",
+  // The status icon and icon buttons on every card's first line.
+  "card-head.css",
 ] as const;
 
 /** Sheets whose BEM block is not just the filename. `member-detail.css` owns the

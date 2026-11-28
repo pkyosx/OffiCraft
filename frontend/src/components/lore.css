@@ -11,10 +11,8 @@
  *
  *   .lore-badge              ← tasks.css .task-badge
  *   .lore-row__status        ← .task-card__status
- *   .lore-row__status-icon   ← .task-card__status-icon
  *   .lore-row__status-chip   ← the task card's former status chip (type and
  *                              scope tags still wear it)
- *   .lore-row__icon-btn      ← .task-card__reassign (borderless icon action)
  *   .lore-row__menu-pop      ← .task-card__menu-pop
  *   .lore-row__menu-item     ← .task-card__menu-item (+ --active = accent/700)
  *   .lore-row__title         ← .task-card__title
@@ -27,7 +25,8 @@
  * ⚠️ The owner has since ruled the other way for patterns every card repeats
  * (c-c6bd1f555f89: one shared piece, so no change lands in one place only).
  * Those are no longer copied: the label/value rows and their chips
- * (card-meta.css), the copy id chip (id-chip.css). The copies listed above
+ * (card-meta.css), the copy id chip (id-chip.css), the first-line status icon
+ * and icon buttons (card-head.css). The copies listed above
  * are what is left to fold in.
  *
  * The one exception is the message box: owner wants it to BE the 任務卡's box,
@@ -757,33 +756,6 @@ button.lore-badge--lore-type {
 button.lore-badge--lore-type:hover:not(:disabled) {
   background: color-mix(in srgb, currentColor 22%, transparent);
 }
-button.lore-row__status-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  margin: 0 0 0 -4px;
-  padding: 0;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: background 0.15s;
-}
-button.lore-row__status-icon:hover:not(:disabled),
-button.lore-row__status-icon[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
-}
-button.lore-row__status-icon:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-button.lore-row__status-icon svg {
-  flex: none;
-  display: block;
-}
 button.lore-row__status-icon--pinned {
   color: var(--color-accent);
 }
@@ -839,38 +811,6 @@ button.lore-row__status-icon--staged {
 }
 
 
-.lore-row__icon-btn {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  margin: 0;
-  border: 1px solid transparent;
-  border-radius: var(--radius-pill);
-  background: none;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
-}
-.lore-row__icon-btn:hover:not(:disabled):not([aria-disabled="true"]),
-.lore-row__icon-btn:focus-visible {
-  background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
-  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
-  color: var(--color-accent);
-}
-.lore-row__icon-btn--danger:hover:not(:disabled):not([aria-disabled="true"]) {
-  border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
-  color: var(--color-danger);
-}
-.lore-row__icon-btn:disabled,
-.lore-row__icon-btn[aria-disabled="true"] {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.lore-row__icon-btn svg {
-  display: block;
-}
 
 /* ── 編輯 icon and the chevron on the head's first line ── */
 .lore-row__actions {

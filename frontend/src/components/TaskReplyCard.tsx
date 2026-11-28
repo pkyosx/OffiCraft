@@ -47,6 +47,7 @@ import { unlinkMentions } from "../lib/mentionLinks";
 import { ChevronRightIcon } from "./icons";
 import { JumpToMessageIcon } from "./replyCardActionIcons";
 import "./replies.css";
+import "./card-head.css";
 import "./card-meta.css";
 
 export function TaskReplyCard({
@@ -347,12 +348,12 @@ export function TaskReplyCard({
               {card && (
                 <button
                   type="button"
-                  className="reply-card__icon-btn"
+                  className="card-head__icon-btn"
                   aria-label={t.replies.jumpToChat}
                   title={t.replies.jumpToChat}
                   onClick={jumpToChat}
                 >
-                  <JumpToMessageIcon size={13} />
+                  <JumpToMessageIcon size={14} />
                 </button>
               )}
             </div>

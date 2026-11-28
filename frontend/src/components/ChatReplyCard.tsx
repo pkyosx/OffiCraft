@@ -53,6 +53,7 @@ import { ConfirmModal } from "./ConfirmModal";
 import { ChevronRightIcon } from "./icons";
 import { ExpireActionIcon } from "./replyCardActionIcons";
 import "./replies.css";
+import "./card-head.css";
 import "./card-meta.css";
 
 export function ChatReplyCard({
@@ -454,13 +455,13 @@ export function ChatReplyCard({
                 {card?.status === "waiting" && (
                   <button
                     type="button"
-                    className="reply-card__icon-btn"
+                    className="card-head__icon-btn"
                     data-testid="chat-reply-card-expire"
                     aria-label={t.replies.expire}
                     title={t.replies.expire}
                     onClick={() => setExpireConfirmOpen(true)}
                   >
-                    <ExpireActionIcon size={13} />
+                    <ExpireActionIcon size={14} />
                   </button>
                 )}
               </div>

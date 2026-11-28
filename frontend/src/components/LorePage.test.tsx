@@ -3108,7 +3108,7 @@ function expectHeadActions(row: HTMLElement) {
       b.getAttribute("aria-hidden"),
     ]),
   ).toEqual([
-    ["BUTTON", "lore-edit", "lore-row__icon-btn", "", "編輯", null],
+    ["BUTTON", "lore-edit", "card-head__icon-btn", "", "編輯", null],
     ["SPAN", "lore-fold-mark", "lore-row__fold lore-row__fold--open", "", null, "true"],
   ]);
   expect(Array.from(actions.children).map((b) => b.querySelector("svg") !== null)).toEqual([true, true]);

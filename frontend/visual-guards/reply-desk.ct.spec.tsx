@@ -281,7 +281,7 @@ async function noPageOverflow(page: Page) {
   expect(m.scroll, "the page does not scroll sideways").toBeLessThanOrEqual(m.client);
 }
 
-test("width 1440: 跳到原訊息, 稍後再看, 標為過期 and 複製整張卡片內容 sit together on one line in the head, 32px apart centre to centre (22px buttons, 10px apart), each icon inside its own button, clear of each other and of the waited stamp, and the task box with its task-number chip stays inside its card", async ({
+test("width 1440: 跳到原訊息, 稍後再看, 標為過期 and 複製整張卡片內容 sit together on one line in the head, 34px apart centre to centre (24px buttons, the task card's size, 10px apart), each icon inside its own button, clear of each other and of the waited stamp, and the task box with its task-number chip stays inside its card", async ({
   mount,
   page,
 }) => {
@@ -310,12 +310,12 @@ test("width 1440: 跳到原訊息, 稍後再看, 標為過期 and 複製整張�
     const mids = boxes.map((b) => (b.top + b.bottom) / 2);
     expect(Math.max(...mids) - Math.min(...mids), `${names.join(", ")} share one line`).toBeLessThanOrEqual(1);
     for (const [i, b] of boxes.entries()) {
-      expect(b.right - b.left, `${names[i]} 22px wide`).toBeCloseTo(22, 0);
-      expect(b.bottom - b.top, `${names[i]} 22px tall`).toBeCloseTo(22, 0);
+      expect(b.right - b.left, `${names[i]} 24px wide, the task card's icon button`).toBeCloseTo(24, 0);
+      expect(b.bottom - b.top, `${names[i]} 24px tall`).toBeCloseTo(24, 0);
       if (i === 0) continue;
       const prev = boxes[i - 1];
       expect(b.left - prev.right, `${names[i]} 10px from the button before it`).toBeCloseTo(10, 0);
-      expect((b.left + b.right) / 2 - (prev.left + prev.right) / 2, `${names[i]} 32px from the button before it, centre to centre`).toBeCloseTo(32, 0);
+      expect((b.left + b.right) / 2 - (prev.left + prev.right) / 2, `${names[i]} 34px from the button before it, centre to centre`).toBeCloseTo(34, 0);
     }
     if ((await card.getByTestId("reply-task-ref").count()) > 0) await expectTaskRow(card, cardBox);
   }
@@ -632,11 +632,11 @@ test("width 1440, mouse: 複製 in each card's head writes the whole question an
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await mountDesk(mount, page, 1440, 900);
   const card = cardOf(page, "rc-desk-q");
-  const copy = card.locator(".reply-card__actions .chat__msg-copy");
+  const copy = card.locator(".reply-card__copy button");
   await expect(copy).toHaveAttribute("aria-label", "複製整張卡片內容");
   for (const other of await page.getByTestId("waiting-card").all()) {
     const head = await box(other.locator(".reply-card__head"));
-    const c = await box(other.locator(".chat__msg-copy"));
+    const c = await box(other.locator(".reply-card__copy button"));
     const jump = await box(other.getByRole("button", { name: "跳到原訊息", exact: true }));
     expect(inside(c, head), "複製 inside the head").toBe(true);
     expect(Math.abs((c.top + c.bottom) / 2 - (jump.top + jump.bottom) / 2), "複製 on the buttons' line").toBeLessThanOrEqual(1);
@@ -689,7 +689,7 @@ test("width 1440, mouse: 複製 on a card whose read fails says 複製失敗 in 
   await page.evaluate(() => navigator.clipboard.writeText("before"));
   await mountDesk(mount, page, 1440, 900, { cardReadFails: true });
   const card = cardOf(page, "rc-desk-q");
-  await card.locator(".chat__msg-copy").click();
+  await card.locator(".reply-card__copy button").click();
   const failed = card.locator(".chat__msg-copy-status--failed");
   await expect(failed).toHaveText("複製失敗");
   await expect(failed).toBeVisible();
@@ -926,7 +926,7 @@ for (const [width, height] of [
         await expect(card, `${how} left the card open`).toHaveAttribute("aria-expanded", "false");
         await expect(cardOf(page, "rc-desk-1")).toHaveJSProperty("inert", false);
         await expect(cardOf(page, "rc-desk-1"), `${how} also opened the card under it`).toHaveAttribute("aria-expanded", "false");
-        if (how !== "a tap outside") await expect(card.locator(".chat__msg-copy")).toBeFocused();
+        if (how !== "a tap outside") await expect(card.locator(".reply-card__copy button")).toBeFocused();
       }
 
       await touch(page, await centreOf(card.locator(".reply-card__summary")), { holdMs: 80 });

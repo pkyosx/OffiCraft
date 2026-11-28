@@ -1346,7 +1346,7 @@
   :is(
     .reply-card__answer-side,
     .reply-card__task,
-    .reply-card__icon-btn,
+    button.card-head__icon-btn,
     .reply-card__head, .card-meta,
     .reply-card__divider,
     .reply-card__hint,

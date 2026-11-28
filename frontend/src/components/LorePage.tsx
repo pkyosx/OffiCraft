@@ -111,6 +111,7 @@ import {
 } from "./icons";
 import { CopyIdChip } from "./IdChips";
 import "./lore.css";
+import "./card-head.css";
 import "./card-meta.css";
 // The message box wears the 任務卡 box's classes: .chat__input / .chat__attach
 // and ComposerAttachmentPreview's .chat__preview-* from office.css, the row and
@@ -2026,7 +2027,7 @@ function LoreRow({
           <div className="lore-row__status" ref={statusRef}>
             <button
               type="button"
-              className={`lore-row__status-icon lore-row__status-icon--${entry.state}${
+              className={`card-head__status-icon lore-row__status-icon--${entry.state}${
                 stagedFrom?.state !== undefined ? " lore-row__status-icon--staged" : ""
               }`}
               title={stateLabel}
@@ -2259,7 +2260,7 @@ function LoreRow({
         <div className="lore-row__actions">
           <button
             type="button"
-            className="lore-row__icon-btn"
+            className="card-head__icon-btn"
             data-testid="lore-edit"
             aria-label={t.lore.actionEdit}
             title={t.lore.actionEdit}
@@ -2269,7 +2270,7 @@ function LoreRow({
               setEditing(true);
             }}
           >
-            <PencilIcon size={15} />
+            <PencilIcon size={14} />
           </button>
           {toggle ? (
             <span

@@ -5,6 +5,7 @@ import { copyPendingText, copyText } from "../lib/clipboard";
 import { unlinkMentions } from "../lib/mentionLinks";
 import { AlertTriangleIcon, CheckIcon, CopyIcon } from "./icons";
 import "./office.css";
+import "./card-head.css";
 
 const FEEDBACK_MS = 1600;
 
@@ -71,28 +72,32 @@ export function ChatMessageCopyButton({
   state,
   onCopy,
   idleLabel,
+  onCard = false,
 }: {
   state: CopyState;
   onCopy: () => void;
   /** Names what this button copies, in place of 複製訊息. */
   idleLabel?: string;
+  /** On a card's first line it is one of the card's icon buttons. */
+  onCard?: boolean;
 }) {
   const copyLabel = useCopyLabel(state);
   const label = state === "idle" && idleLabel ? idleLabel : copyLabel;
+  const iconSize = onCard ? 14 : 13;
   return (
     <button
       type="button"
-      className="chat__msg-copy"
+      className={onCard ? "card-head__icon-btn" : "chat__msg-copy"}
       aria-label={label}
       title={label}
       onClick={onCopy}
     >
       {state === "copied" ? (
-        <CheckIcon size={13} />
+        <CheckIcon size={iconSize} />
       ) : state === "failed" ? (
-        <AlertTriangleIcon size={13} />
+        <AlertTriangleIcon size={iconSize} />
       ) : (
-        <CopyIcon size={13} />
+        <CopyIcon size={iconSize} />
       )}
     </button>
   );

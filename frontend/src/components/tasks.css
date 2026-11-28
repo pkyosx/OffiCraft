@@ -303,33 +303,6 @@
   align-items: center;
   gap: 6px;
 }
-/* 轉派 icon button: a bare muted glyph (SwapIcon — a two-way swap arrow)
-   that lights accent on hover/focus, the same colour language
-   as the link chips beside it. flex:none keeps its size while the name column
-   shrinks. */
-.task-card__reassign {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  margin: 0;
-  border: 1px solid transparent;
-  border-radius: var(--radius-pill);
-  background: none;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
-}
-.task-card__reassign:hover,
-.task-card__reassign:focus-visible {
-  background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
-  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
-  color: var(--color-accent);
-}
-.task-card__reassign svg {
-  display: block;
-}
 
 /* ── status / priority badges (eight states + four priorities) ── */
 .task-badge {
@@ -925,29 +898,6 @@ button.task-card__prio-chip:hover {
   position: relative;
   flex: none;
   display: inline-flex;
-}
-button.task-card__status-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  margin: 0 0 0 -4px;
-  padding: 0;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: background 0.15s;
-}
-button.task-card__status-icon:hover,
-button.task-card__status-icon[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
-}
-button.task-card__status-icon svg {
-  flex: none;
-  display: block;
 }
 /* Each status that has a workflow-step twin wears that step's colour (owner). */
 button.task-card__status-icon--in_progress {

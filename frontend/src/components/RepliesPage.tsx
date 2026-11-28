@@ -157,6 +157,7 @@ import "./office.css"; // chat composer classes the ReplyComposer reuses, AND
 // current-task line is drawn with (T-196) — removing this import as an
 // unused-looking tidy-up unstyles that line, and no vitest test can see it.
 import "./replies.css";
+import "./card-head.css";
 import "./card-meta.css";
 
 const HANDLED_WINDOW_SECONDS = 24 * 3600;
@@ -927,7 +928,7 @@ export function RepliesPage({
       if (focusCardOnExitRef.current) {
         focusCardOnExitRef.current = false;
         cardElementOf(selectingId)
-          ?.querySelector<HTMLElement>(".chat__msg-copy")
+          ?.querySelector<HTMLElement>(".reply-card__copy button")
           ?.focus({ preventScroll: true });
       }
     };
@@ -1442,28 +1443,29 @@ export function RepliesPage({
           <div className="reply-card__actions">
             <button
               type="button"
-              className="reply-card__icon-btn"
+              className="card-head__icon-btn"
               aria-label={t.replies.jumpToChat}
               title={t.replies.jumpToChat}
               onClick={() => void jumpToChat(row)}
             >
-              <JumpToMessageIcon size={13} />
+              <JumpToMessageIcon size={14} />
             </button>
             {actions}
             {expirable && (
               <button
                 type="button"
-                className="reply-card__icon-btn"
+                className="card-head__icon-btn"
                 data-testid="expire-card"
                 aria-label={t.replies.expire}
                 title={t.replies.expire}
                 onClick={() => setExpireTarget(row)}
               >
-                <ExpireActionIcon size={13} />
+                <ExpireActionIcon size={14} />
               </button>
             )}
             <span className="reply-card__copy">
               <ChatMessageCopyButton
+                onCard
                 state={messageCopy.stateOf(row.id)}
                 onCopy={() => copyCard(row)}
                 idleLabel={t.replies.copyWholeCard}
@@ -1653,13 +1655,13 @@ export function RepliesPage({
       actions: asSnoozed ? (
         <button
           type="button"
-          className="reply-card__icon-btn"
+          className="card-head__icon-btn"
           data-testid="unsnooze-card"
           aria-label={t.replies.unsnooze}
           title={t.replies.unsnooze}
           onClick={() => void doUnsnooze(row.id)}
         >
-          <UnsnoozeActionIcon size={13} />
+          <UnsnoozeActionIcon size={14} />
         </button>
       ) : (
         <ReplySnoozeMenu

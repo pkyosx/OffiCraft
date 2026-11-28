@@ -14,6 +14,7 @@ import type { Member, SharedDocView } from "../types";
 import { MemberChatChip, MemberChip } from "./MemberChip";
 import { PageToolbar } from "./PageToolbar";
 import "./page-toolbar.css";
+import "./card-head.css";
 import { ConfirmModal } from "./ConfirmModal";
 import {
   SharedDocDetail,
@@ -516,17 +517,17 @@ function RowActions({
     <span className="lore-row__actions shared-docs__actions">
       <button
         type="button"
-        className="lore-row__icon-btn"
+        className="card-head__icon-btn"
         data-testid="shared-doc-edit-info"
         aria-label={`${infoLabel} ${doc.name}`}
         title={infoLabel}
         onClick={onEditInfo}
       >
-        <PencilIcon size={15} />
+        <PencilIcon size={14} />
       </button>
       <button
         type="button"
-        className="lore-row__icon-btn"
+        className="card-head__icon-btn"
         data-testid="shared-doc-upload"
         aria-label={`${uploadTitle} ${doc.name}`}
         aria-disabled={link || busy || undefined}
@@ -535,18 +536,18 @@ function RowActions({
           if (!link && !busy) onUpload();
         }}
       >
-        <UploadIcon size={15} />
+        <UploadIcon size={14} />
       </button>
       {isOwner && (
         <button
           type="button"
-          className="lore-row__icon-btn lore-row__icon-btn--danger"
+          className="card-head__icon-btn card-head__icon-btn--danger"
           data-testid="shared-doc-delete"
           aria-label={`${d.delete} ${doc.name}`}
           title={d.delete}
           onClick={onDelete}
         >
-          <TrashIcon size={15} />
+          <TrashIcon size={14} />
         </button>
       )}
     </span>

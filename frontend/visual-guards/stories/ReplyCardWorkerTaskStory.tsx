@@ -21,6 +21,7 @@ import { JumpToMessageIcon } from "../../src/components/replyCardActionIcons";
 import { mkWorker, VERY_LONG_TITLE } from "./currentTaskFixtures";
 import "../../src/components/replies.css";
 import "../../src/components/card-meta.css";
+import "../../src/components/card-head.css";
 import "../../src/components/office.css";
 
 export function ReplyCardWorkerTaskStory() {
@@ -34,11 +35,11 @@ export function ReplyCardWorkerTaskStory() {
               <div className="reply-card__actions">
                 <button
                   type="button"
-                  className="reply-card__icon-btn"
+                  className="card-head__icon-btn"
                   aria-label="跳到原訊息"
                   title="跳到原訊息"
                 >
-                  <JumpToMessageIcon size={13} />
+                  <JumpToMessageIcon size={14} />
                 </button>
               </div>
               <span className="reply-card__waited">已等你 25m</span>

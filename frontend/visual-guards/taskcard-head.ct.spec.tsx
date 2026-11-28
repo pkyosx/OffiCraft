@@ -40,7 +40,7 @@ async function headGeometry(card: Locator) {
       ...row.children,
       el.querySelector(".task-card__expand-mark")!,
     ].map((n) => box(n));
-    const icon = el.querySelector(".task-card__status-icon svg")!;
+    const icon = el.querySelector(".card-head__status-icon svg")!;
     const cardBox = box(el);
     return {
       itemCount: row.children.length,
@@ -80,7 +80,7 @@ for (const width of [320, 390, 1440]) {
     }
 
     const colours = await cmp
-      .locator(".task-card__status-icon")
+      .locator(".card-head__status-icon")
       .evaluateAll((els) => els.map((el) => getComputedStyle(el).color));
     expect(new Set(colours).size, "every status has its own colour").toBe(8);
 
@@ -96,7 +96,7 @@ for (const width of [320, 390, 1440]) {
       root.setProperty("--color-danger", "rgb(191, 192, 193)");
     });
     const stepPainted = await cmp
-      .locator(".task-card__status-icon")
+      .locator(".card-head__status-icon")
       .evaluateAll((els) => els.map((el) => getComputedStyle(el).color));
     expect(
       stepPainted,

@@ -305,34 +305,7 @@
 .reply-card__copy .chat__msg-copy-status--failed {
   margin-left: 4px;
 }
-/* Drawn like 複製 beside them (.chat__msg-copy). */
-.reply-card__icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition:
-    color 0.15s,
-    background-color 0.15s;
-}
-.reply-card__icon-btn:hover {
-  color: var(--color-text);
-  background: color-mix(in srgb, currentColor 12%, transparent);
-}
 @media (hover: none) {
-  .reply-card__copy .chat__msg-copy,
-  .reply-card__icon-btn {
-    width: 26px;
-    height: 26px;
-  }
   /* A touch-only screen draws none of the 請示 page's head buttons: they are
    * all in the card's long-press menu (RepliesPage `pressMenuItems`), and the
    * name column takes the whole line. Like the chat's toolbar they stay in the
@@ -354,12 +327,13 @@
   .replies
     .reply-card__head
     .reply-card__actions:not(:has(:focus-visible))
-    :is(.chat__msg-copy, .reply-card__icon-btn) {
+    button.card-head__icon-btn {
     position: absolute;
     width: 1px;
     height: 1px;
     margin: -1px;
     padding: 0;
+    border: 0;
     overflow: hidden;
     clip-path: inset(50%);
   }

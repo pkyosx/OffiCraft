@@ -118,7 +118,7 @@ for (const viewport of [
 for (const width of [390, 1280]) {
   test.describe(() => {
     test.use({ hasTouch: width <= 720 });
-    test(`${width}px${width <= 720 ? ", touch" : ""}: the chat-card expiry icon button (${width <= 720 ? "26" : "22"}px) sits on the card's first line just before the chevron at its right end, inside the card above a summary with an unbreakable code block, and its confirmation fits the viewport`, async ({
+    test(`${width}px${width <= 720 ? ", touch" : ""}: the chat-card expiry icon button (24px, the task card's size) sits on the card's first line just before the chevron at its right end, inside the card above a summary with an unbreakable code block, and its confirmation fits the viewport`, async ({
       mount,
       page,
     }) => {
@@ -143,7 +143,7 @@ for (const width of [390, 1280]) {
       const expireBox = await expire.boundingBox();
       if (!cardBox || !expireBox) throw new Error("chat-card expiry action has no layout box");
       expect(await page.evaluate(() => matchMedia("(hover: none)").matches), "control: a touch screen").toBe(width <= 720);
-      const side = width <= 720 ? 26 : 22;
+      const side = 24;
       expect(expireBox.width, `the expiry button ${side}px wide`).toBeCloseTo(side, 0);
       expect(expireBox.height, `the expiry button ${side}px tall`).toBeCloseTo(side, 0);
       expect(expireBox.x).toBeGreaterThanOrEqual(cardBox.x - 1);

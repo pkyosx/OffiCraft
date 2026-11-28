@@ -16,6 +16,7 @@ import {
 import { CopyIdChip } from "./IdChips";
 import { PageToolbar } from "./PageToolbar";
 import "./page-toolbar.css";
+import "./card-head.css";
 import "./lore.css";
 import "./card-meta.css";
 import "./secrets.css";
@@ -182,23 +183,23 @@ function SecretRow({
         <span className="lore-row__actions">
           <button
             type="button"
-            className="lore-row__icon-btn"
+            className="card-head__icon-btn"
             data-testid="secret-edit"
             aria-label={`${d.edit} ${secret.name}`}
             title={d.edit}
             onClick={onEdit}
           >
-            <PencilIcon size={15} />
+            <PencilIcon size={14} />
           </button>
           <button
             type="button"
-            className="lore-row__icon-btn lore-row__icon-btn--danger"
+            className="card-head__icon-btn card-head__icon-btn--danger"
             data-testid="secret-delete"
             aria-label={`${d.delete} ${secret.name}`}
             title={d.delete}
             onClick={onDelete}
           >
-            <TrashIcon size={15} />
+            <TrashIcon size={14} />
           </button>
         </span>
       </div>

@@ -44,7 +44,7 @@ iOS Safari 在字小於 16px 的 input／textarea／select 聚焦時會放大整
 
 ## 卡片上重複的樣子只有一份
 
-owner `c-c6bd1f555f89`：五種卡片（任務、請示、金鑰、檔案庫、傳承）重複出現的樣子要抽成共用的一份，免得改一處漏一處。現在共用的：label/value 列與值 chip（`card-meta.css`）、人名 chip（`MemberChip.tsx`）、複製編號 chip（`IdChips.tsx` 的 `CopyIdChip`＋`id-chip.css`；跳轉編號是 `TaskIdChip`，兩者的「#」都由 `idChipText` 加）、時間（`lib/dateFormat.ts` 的 `formatAbsolute`、到期用 `lib/dueDate.ts` 的 `formatDue`）、沒有值的「-」（`t.common.emptyValue`）、整張卡是開關（`lib/cardToggle.ts`）、頁面工具列（`PageToolbar.tsx`）。`lore.css` 檔頭列的狀態圖示、卡頭圖示鈕等還是拷貝。新卡片或改這些樣子時，先找共用的那一份；CT `card-meta-rows` 以任務卡為基準量另外四種卡的列與編號 chip。
+owner `c-c6bd1f555f89`：五種卡片（任務、請示、金鑰、檔案庫、傳承）重複出現的樣子要抽成共用的一份，免得改一處漏一處。現在共用的：label/value 列與值 chip（`card-meta.css`）、人名 chip（`MemberChip.tsx`）、複製編號 chip（`IdChips.tsx` 的 `CopyIdChip`＋`id-chip.css`；跳轉編號是 `TaskIdChip`，兩者的「#」都由 `idChipText` 加）、時間（`lib/dateFormat.ts` 的 `formatAbsolute`、到期用 `lib/dueDate.ts` 的 `formatDue`）、沒有值的「-」（`t.common.emptyValue`）、整張卡是開關（`lib/cardToggle.ts`）、頁面工具列（`PageToolbar.tsx`）、第一行的狀態圖示與圖示鈕（`card-head.css` 的 `.card-head__status-icon`／`.card-head__icon-btn`，任務卡的大小；各頁只留狀態顏色）。`lore.css` 檔頭列出的其餘幾樣還是拷貝。新卡片或改這些樣子時，先找共用的那一份；CT `card-meta-rows` 以任務卡為基準量另外四種卡的列與編號 chip。
 
 ## 頁面工具列（筆數＋新增）
 

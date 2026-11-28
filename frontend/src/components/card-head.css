@@ -1,0 +1,69 @@
+/* card-head.css — the icons on a card's first line, at the task card's size
+ * (owner: every card follows the task card): the status icon that opens the
+ * status menu (任務卡、傳承), and the borderless icon buttons (轉派, 編輯,
+ * 刪除, 跳到原訊息, 稍後再看, 標為過期, 複製整張卡片內容 …). Each page keeps only
+ * its status colours, which outrank the muted default here by specificity
+ * (`button.<page>__status-icon--<state>`), not by stylesheet order. */
+.card-head__status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: 0 0 0 -4px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.card-head__status-icon:hover:not(:disabled),
+.card-head__status-icon[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
+}
+.card-head__status-icon:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.card-head__status-icon svg {
+  flex: none;
+  display: block;
+}
+
+.card-head__icon-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.card-head__icon-btn:hover:not(:disabled):not([aria-disabled="true"]),
+.card-head__icon-btn:focus-visible {
+  background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  color: var(--color-accent);
+}
+.card-head__icon-btn--danger:hover:not(:disabled):not([aria-disabled="true"]) {
+  border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+  color: var(--color-danger);
+}
+.card-head__icon-btn:disabled,
+.card-head__icon-btn[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.card-head__icon-btn svg {
+  flex: none;
+  display: block;
+}

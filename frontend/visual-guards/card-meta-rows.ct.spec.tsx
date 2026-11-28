@@ -3,7 +3,8 @@
 // each label starts at the rows' left edge in the task card's colour, opacity
 // and size, the values start one task-card gap after the card's widest label,
 // and a one-line value is centred on its label. The copy id chip on each
-// card's first line is drawn the same way too. Measured against the task card's
+// card's first line is drawn the same way too, and so are the first line's
+// icon buttons and status icon (the task card's size). Measured against the task card's
 // own rows and id chip in the same test, at phone and desktop width in zh and en.
 // jsdom lays nothing out.
 import { test, expect } from "@playwright/experimental-ct-react";
@@ -70,6 +71,23 @@ async function idChipLook(page: Page): Promise<string> {
   });
 }
 
+/** Size and look of every visible first-line icon button / status icon under
+ * `scope`, one string each. */
+async function headIconLooks(page: Page, scope: string, cls: string): Promise<string[]> {
+  return page.evaluate(
+    ([scope, cls]) =>
+      [...document.querySelectorAll<HTMLElement>(`${scope} .${cls}`)]
+        .filter((b) => b.getClientRects().length > 0)
+        .map((b) => {
+          const r = b.getBoundingClientRect();
+          const svg = b.querySelector("svg")!.getBoundingClientRect();
+          const cs = getComputedStyle(b);
+          return [r.width, r.height, svg.width, cs.borderRadius, cs.padding].join(" | ");
+        }),
+    [scope, cls] as const,
+  );
+}
+
 function expectSameRows(metas: Meta[], ref: Row, gap: number, tag: string) {
   expect(metas.length, `${tag}: some rows measured`).toBeGreaterThan(0);
   for (const meta of metas) {
@@ -109,6 +127,13 @@ for (const width of [320, 390, 1440]) {
       expectSameRows(task, ref, gap, `${tag} task card`);
       const idChip = await idChipLook(page);
       expect(idChip, `${tag} the task card's id chip`).not.toBe("no id chip");
+      const [taskButton] = await headIconLooks(page, ".task-card", "card-head__icon-btn");
+      const [taskStatus] = await headIconLooks(page, ".task-card", "card-head__status-icon");
+      expect(taskButton, `${tag} the task card's 轉派 button`).toBeDefined();
+      expect(taskStatus, `${tag} the task card's status icon`).toBeDefined();
+      for (const look of await headIconLooks(page, '[data-testid="task-reply-card"]', "card-head__icon-btn")) {
+        expect.soft(look, `${tag} reply card in a step: head button`).toBe(taskButton);
+      }
       expectSameRows(embedded, ref, gap, `${tag} reply card in a step`);
       expect(embedded[0].rows.map((r) => r.label), `${tag} the embedded card's rows`).toEqual([
         language === "zh" ? "開卡人" : "Asked by",
@@ -119,6 +144,9 @@ for (const width of [320, 390, 1440]) {
       await expect(cmp.locator(".reply-card .card-meta").first()).toBeVisible();
       expectSameRows(await measure(page, ".reply-card"), ref, gap, `${tag} 請示 page`);
       expect.soft(await idChipLook(page), `${tag} 請示 page id chip`).toBe(idChip);
+      const deskButtons = await headIconLooks(page, ".reply-card", "card-head__icon-btn");
+      expect(deskButtons.length, `${tag} 請示 page head buttons measured`).toBeGreaterThan(0);
+      expect.soft(new Set(deskButtons), `${tag} 請示 page head buttons`).toEqual(new Set([taskButton]));
       await cmp.unmount();
 
       for (const [name, story, card] of [
@@ -130,6 +158,14 @@ for (const width of [320, 390, 1440]) {
         await expect(cmp.locator(".card-meta").first()).toBeVisible();
         expectSameRows(await measure(page, card), ref, gap, `${tag} ${name}`);
         expect.soft(await idChipLook(page), `${tag} ${name} id chip`).toBe(idChip);
+        const buttons = await headIconLooks(page, card, "card-head__icon-btn");
+        expect(buttons.length, `${tag} ${name} head buttons measured`).toBeGreaterThan(0);
+        expect.soft(new Set(buttons), `${tag} ${name} head buttons`).toEqual(new Set([taskButton]));
+        if (name === "lore") {
+          const statuses = await headIconLooks(page, card, "card-head__status-icon");
+          expect(statuses.length, `${tag} lore status icons measured`).toBeGreaterThan(0);
+          expect.soft(new Set(statuses), `${tag} lore status icon`).toEqual(new Set([taskStatus]));
+        }
         await cmp.unmount();
       }
     });
