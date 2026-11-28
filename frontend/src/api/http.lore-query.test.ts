@@ -266,6 +266,17 @@ describe("httpApi lore budgets and edit", () => {
     });
   });
 
+  it("counts every entry in the office with one unfiltered limit-1 page, and is undefined from a server without total", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ ...emptyPage, limit: 1, total: 5 }));
+    expect(await httpApi.countLoreEntries()).toBe(5);
+    expect(lastUrl().pathname).toBe("/api/lore");
+    expect([...lastUrl().searchParams.entries()]).toEqual([["limit", "1"]]);
+
+    const { total: _omitted, ...older } = emptyPage;
+    fetchMock.mockImplementation(async () => jsonResponse(older));
+    expect(await httpApi.countLoreEntries()).toBeUndefined();
+  });
+
   it("reads every target's budget from GET /api/lore/budgets", async () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse({

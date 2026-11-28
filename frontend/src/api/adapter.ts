@@ -2949,6 +2949,9 @@ export interface Api {
   editLoreEntry(entryId: string, patch: LoreEntryEdit): Promise<void>;
   /** Every boot-document target's budget in one read (`GET /api/lore/budgets`). */
   listLoreBudgets(): Promise<LoreBudgetTargetView[]>;
+  /** Every 傳承 entry in the office, any state (`GET /api/lore?limit=1`'s `total`);
+   * undefined from a server that predates `total`. */
+  countLoreEntries(): Promise<number | undefined>;
   // ── Product guide (設定 › 使用說明) ──────────────────────────────────
   /** List the product-guide docs (`GET /api/docs`) — the 使用說明 landing
    * (slug + title cards). The same embed Mira reads via get_doc. */

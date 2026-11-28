@@ -1997,8 +1997,9 @@ function miraPage(entries: LoreEntryView[], over: Partial<LoreEntryPageView> = {
 }
 
 describe("LorePage — 目錄與段落頁", () => {
-  it("lands on the directory: every target with its count, usage and how many cannot be read, and no entries asked for", async () => {
+  it("lands on the directory: every target with its count, usage and how many cannot be read, the office's entry total in every state, and no entries asked for", async () => {
     stubTargets();
+    const count = vi.spyOn(api, "countLoreEntries").mockResolvedValue(57);
     const list = stubList(page([]));
     const { container } = renderPage();
 
@@ -2031,8 +2032,10 @@ describe("LorePage — 目錄與段落頁", () => {
       "4 筆讀不到",
     );
     expect(container.querySelector('[data-testid="lore-filter"]')).toBeNull();
-    // 所有人's 14 ride inside each member's count and are counted once.
-    expect(screen.getByTestId("lore-directory-filter-summary").textContent).toBe("39 筆傳承");
+    await waitFor(() =>
+      expect(screen.getByTestId("lore-directory-filter-summary").textContent).toBe("57 筆傳承"),
+    );
+    expect(count).toHaveBeenCalledTimes(1);
     const bar = screen.getByTestId("lore-directory-filter-toggle").parentElement!;
     expect(Array.from(bar.children).map((el) => el.getAttribute("data-testid"))).toEqual([
       "lore-directory-filter-toggle",
@@ -2418,6 +2421,21 @@ describe("LorePage — 目錄與段落頁", () => {
     // Its reason is its own line under the meta.
     expect(rowById(container, "L-9").querySelector('[data-testid="lore-retire-reason"]')!.textContent).toBe(
       "失效理由：併進 SOP",
+    );
+  });
+
+  it("the directory's count is hidden until the office total arrives, and a server without a total counts the live entries, 所有人 once", async () => {
+    stubTargets();
+    stubList(page([]));
+    let answer!: (n: number | undefined) => void;
+    vi.spyOn(api, "countLoreEntries").mockReturnValue(new Promise((r) => (answer = r)));
+    const { container } = renderPage();
+    await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
+    expect(screen.queryByTestId("lore-directory-filter-summary")).toBeNull();
+
+    answer(undefined);
+    await waitFor(() =>
+      expect(screen.getByTestId("lore-directory-filter-summary").textContent).toBe("39 筆傳承"),
     );
   });
 

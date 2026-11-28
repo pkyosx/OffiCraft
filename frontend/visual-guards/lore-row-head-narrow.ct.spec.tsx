@@ -280,6 +280,7 @@ for (const width of [320, 390, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       const cmp = await mount(<LoreRowHeadStory dirCollapsed={dirCollapsed === null ? null : [...dirCollapsed]} />);
       await expect(cmp.locator('[data-testid="lore-collapse-all"]')).toBeVisible();
+      await expect(cmp.locator('[data-testid="lore-directory-filter-summary"]')).toBeVisible();
       const g = await page.evaluate(() => {
         const box = (el: Element | null) => {
           if (!el) return null;

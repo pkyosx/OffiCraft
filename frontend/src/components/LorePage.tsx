@@ -236,8 +236,9 @@ function scopeOpts(def: { kind: LoreScopeKind; scopeKey: string }): LoreListOpti
   return { scopeKinds: [def.kind], scopeKeys: [def.scopeKey] };
 }
 
-/** Live entries across the directory. A member's count already includes the
- * 所有人 entries its boot document walks, so those are counted once. */
+/** Live entries across the directory, for a server without `total`. A member's
+ * count already includes the 所有人 entries its boot document walks, so those
+ * are counted once. */
 function directoryEntryTotal(defs: SectionDef[]): number {
   const everyone = defs.find((d) => d.kind === "everyone")?.target.entryCount ?? 0;
   return defs.reduce(
@@ -432,6 +433,25 @@ function LoreView({
   const { t, msg } = useI18n();
   const { members, membersLoading, membersError, workers, manuals, entryCaps } = shared;
   const canSetScope = canSetScopeProp ?? viewerMaySetLoreScope(members);
+
+  // undefined while asked, null when the server gave no total.
+  const [officeTotal, setOfficeTotal] = useState<number | null | undefined>(undefined);
+  useEffect(() => {
+    if (sectionKey !== null) return;
+    let alive = true;
+    api
+      .countLoreEntries()
+      .then((n) => {
+        if (alive) setOfficeTotal(n ?? null);
+      })
+      .catch((e) => {
+        console.warn("LorePage: lore total load failed", e);
+        if (alive) setOfficeTotal(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [sectionKey]);
 
   // ── 篩選 ────────────────────────────────────────────────────────────────
   const [searchDraft, setSearchDraft] = useState("");
@@ -1531,7 +1551,13 @@ function LoreView({
               : undefined
           }
           collapse={{ title: t.lore.filterDialogTitle, activeCount: dirApplied !== "" ? 1 : 0 }}
-          summary={budgetsReady ? msg.loreListedCount(directoryEntryTotal(defs)) : undefined}
+          summary={
+            typeof officeTotal === "number"
+              ? msg.loreListedCount(officeTotal)
+              : officeTotal === null && budgetsReady
+                ? msg.loreListedCount(directoryEntryTotal(defs))
+                : undefined
+          }
           actions={
             <button
               type="button"

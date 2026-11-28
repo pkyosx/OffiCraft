@@ -2473,6 +2473,11 @@ export const httpApi: Api = {
     return toLoreBudgetTargets(unwrap(await client.GET("/api/lore/budgets")));
   },
 
+  async countLoreEntries(): Promise<number | undefined> {
+    const wire = unwrap(await client.GET("/api/lore", { params: { query: { limit: 1 } } }));
+    return toLoreEntryPage(wire).total;
+  },
+
   async listDocs(): Promise<DocSummaryView[]> {
     // GET /api/docs -> DocSummaryDTO[] (slug + title).
     const wire = unwrap(await client.GET("/api/docs"));

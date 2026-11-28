@@ -6528,6 +6528,10 @@ const mockApiImpl = {
     };
   },
 
+  async countLoreEntries(): Promise<number | undefined> {
+    return mockLoreEntries.length;
+  },
+
   async listLoreBudgets(): Promise<LoreBudgetTargetView[]> {
     const target = (scopeKind: LoreScopeKind, scopeKey: string): LoreBudgetTargetView => {
       const walk = mockLoreWalk(scopeKind, scopeKey);
