@@ -9,9 +9,10 @@
 //   4. Owner's ruling scoped the move to THIS block: the head's meta column
 //      (任務類型 / 負責人 / 建立者) stays ABOVE the composer, untouched.
 
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { render, fireEvent, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
+import { zh } from "../i18n/locales/zh";
 import { TaskCard } from "./TaskCard";
 import type { Member } from "../types";
 import type { TaskView, TaskStepView, OutsourceWorkerView } from "../api/adapter";
@@ -132,16 +133,12 @@ describe("spec ③ 詳細敘述排在訊息輸入框之後", () => {
     const card = await findByTestId("task-card");
     const kids = [...card.children];
     const desc = container.querySelector(".task-card__desc")!;
-    const descBlock = container.querySelector(".task-card__desc-block")!;
+    const descBlock = container.querySelector('[data-testid="task-desc-section"]')!;
     const composer = container.querySelector(".task-card__composer")!;
-    // T-e271 made the description block a WRAPPER (it now also carries the
-    // 編輯敘述 affordance and, while editing, the editor), so the card's own
-    // top-level child is that wrapper rather than the rendered markdown. The
-    // property under test is unchanged and still measured, in two halves:
-    // the block is a DIRECT child of the card article (below), and the
-    // rendered description lives inside THAT block — so it still cannot have
-    // been buried inside the composer or anywhere else.
-    expect(desc.closest(".task-card__desc-block")).toBe(descBlock);
+    // The card's own top-level child is the framed 任務描述 section, and the
+    // rendered description lives inside THAT section — so it cannot have been
+    // buried inside the composer or anywhere else.
+    expect(desc.closest('[data-testid="task-desc-section"]')).toBe(descBlock);
     const descIdx = kids.indexOf(descBlock);
     const composerIdx = kids.indexOf(composer);
     expect(descIdx).toBeGreaterThan(-1);
@@ -194,5 +191,72 @@ describe("spec ③ 詳細敘述排在訊息輸入框之後", () => {
     expect(precedes(meta, composer)).toBe(true);
     expect(precedes(meta, desc)).toBe(true);
     expect(meta.closest(".task-card__head")).toBeTruthy();
+  });
+
+  describe("the framed 任務描述 section", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    // jsdom lays nothing out: the clamped body reports one height unit per
+    // character against a box of 40.
+    function fakeLayout() {
+      vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+        return this.dataset.testid === "task-desc-body" ? (this.textContent ?? "").length : 0;
+      });
+      vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) {
+        return this.dataset.testid === "task-desc-body" ? 40 : 0;
+      });
+    }
+
+    async function expand(description: string) {
+      const detail = mkTask({ description });
+      const view = renderCard(mkTask({}), vi.fn(async () => detail));
+      fireEvent.click(await view.findByTestId("task-card"));
+      await act(async () => {});
+      return view;
+    }
+
+    it("a long description is clamped with a fade and 展開全文 that opens and closes it, and the title bar counts its lines", async () => {
+      fakeLayout();
+      const long = Array.from({ length: 20 }, (_, i) => `第 ${i + 1} 行的敘述內容。`).join("\n");
+      const { getByTestId } = await expand(long);
+
+      expect(getByTestId("task-desc-section-summary").textContent).toBe("約 20 行");
+      const body = getByTestId("task-desc-body");
+      const toggle = getByTestId("task-desc-toggle");
+      expect(body.classList.contains("clamped-text__body--clamped")).toBe(true);
+      expect(body.classList.contains("clamped-text__body--faded")).toBe(true);
+      expect(toggle.textContent).toBe(zh.common.textShowAll);
+
+      fireEvent.click(toggle);
+      expect(toggle.textContent).toBe(zh.common.textShowLess);
+      expect(body.classList.contains("clamped-text__body--clamped")).toBe(false);
+      expect(getByTestId("task-card").getAttribute("aria-expanded")).toBe("true");
+
+      fireEvent.click(toggle);
+      expect(body.classList.contains("clamped-text__body--faded")).toBe(true);
+    });
+
+    it("a description that fits shows neither the fade nor 展開全文", async () => {
+      fakeLayout();
+      const { getByTestId, queryByTestId } = await expand("短");
+      expect(queryByTestId("task-desc-toggle")).toBeNull();
+      expect(getByTestId("task-desc-body").classList.contains("clamped-text__body--faded")).toBe(false);
+    });
+
+    it("its title bar hides and restores the whole body without collapsing the card", async () => {
+      const { container, getByTestId } = await expand(DESC);
+      const head = getByTestId("task-desc-section-head");
+      expect(head.textContent).toContain("任務描述");
+      expect(head.getAttribute("aria-expanded")).toBe("true");
+
+      fireEvent.click(head);
+      expect(head.getAttribute("aria-expanded")).toBe("false");
+      expect(container.querySelector(".task-card__desc")).toBeNull();
+      expect(getByTestId("task-card").getAttribute("aria-expanded")).toBe("true");
+      expect(container.querySelector(".task-card__workflow")).toBeTruthy();
+
+      fireEvent.click(head);
+      expect(container.querySelector(".task-card__desc")).toBeTruthy();
+    });
   });
 });

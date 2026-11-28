@@ -1772,6 +1772,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "tasks.creatorLabel",
   "tasks.creatorUnknown",
   "tasks.descEmpty",
+  "tasks.descTitle",
   "tasks.displayOptions",
   "tasks.displayOptionsChangedLead",
   "tasks.dod",

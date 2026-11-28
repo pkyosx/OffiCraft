@@ -409,6 +409,11 @@ export const zh = {
     collapseCard: "收合工作流程",
     // 工作流程時間軸
     workflow: "工作流程",
+    workflowStepCount: (n: number) => `${n} 個步驟`,
+    workflowDone: (done: number, total: number) => `${done}/${total} 完成`,
+    workflowCurrent: (name: string) => `進行中：${name}`,
+    descTitle: "任務描述",
+    descLines: (n: number) => `約 ${n} 行`,
     dod: "DoD",
     parallel: (n: number) => `同時進行 · ${n} 項並行`,
     // 過渡態(SPEC §3.1):外包未指派 → 等待指派;有執行者但零節點 →

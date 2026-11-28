@@ -46,6 +46,8 @@ paths:
 
 卡片預設收合；標題與 description 是唯讀 UI，owner 沒有要求編輯入口。進度與 gate 狀態直接使用 server 值；stepBadge 由 lib/stepBadge.ts 統一，superseded 不計入 progress。gate 預告、內嵌 TaskReplyCard、等待外部 banner 與任務訊息框都要維持原 wire 語意。
 
+展開後的任務描述與工作流程共用 TaskCard 內的 TaskCardSection 外框（標題列是 button，點它只收合該區塊）；描述的截斷沿用 ClampedText（children 模式按高度截），不另寫一套。狀態選單跳到等我回覆卡／等待外部步驟時會先把收合的工作流程打開，否則跳轉目標不在 DOM 裡。
+
 卡頭一行只有：狀態圖示（`task-status`，狀態色的線條圖示，`aria-label`／`title` 是狀態名，點了開狀態選單，選單第一行 `task-status-current` 寫狀態名給手機看）、`#編號`、優先權、轉派中鎖徽章（有才畫）。狀態只靠這顆圖示表達：卡片外框與進度條填色不隨狀態變。卡頭下面常駐負責人、到期日（＋有值時的前任、識別鍵）；類型、產物（個數 chip，0 個不畫）、建立者（同負責人不畫）收在「更多／收起」（`task-meta-more-toggle`，`aria-expanded`／`aria-controls` 指向 `task-meta-more`）後面，預設收起、每張卡只記在元件 state；它是 `<button>`，所以整卡開合的 closest() 濾網會放行。產物列是自己的 subgrid 容器（`.task-card__artifacts-row`），手機上產物浮層以它為定位參考、left/right 都貼卡片內容寬。測試要讀類型／產物／建立者前先點 `task-meta-more-toggle`。CT `taskcard-head` 在 320／390／1440 量每種狀態的卡頭同一行、在卡內、圖示 18px，與 390 展開「更多」不溢出。
 
 卡內（描述、步驟、備註）的附件連結可以下註解、回給負責人，步驟內嵌的請示卡則回給開卡人；契約見 overlays-and-modals.md〈附件連結〉。

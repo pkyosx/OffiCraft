@@ -1719,17 +1719,78 @@ button.task-card__waiting--dep:focus-visible {
   color: var(--color-text);
 }
 
+/* ── framed section (任務描述 / 工作流程): one frame for both ── */
+.task-section {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 22%, transparent);
+  border-radius: 10px;
+  background: var(--color-card);
+  overflow: hidden;
+}
+.task-section__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 12px;
+  border: 0;
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-card));
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.task-section__body {
+  padding: 12px 14px;
+  border-top: 1px solid color-mix(in srgb, var(--color-accent) 16%, transparent);
+}
+.task-section__head:hover {
+  background: color-mix(in srgb, var(--color-accent) 13%, var(--color-card));
+}
+.task-section__head:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+.task-section__icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-task-type);
+}
+.task-section__title {
+  flex: none;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.task-section__summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.task-section__chevron {
+  display: inline-flex;
+  flex: none;
+  margin-left: auto;
+  color: var(--color-text-muted);
+}
+.task-section__summary + .task-section__chevron {
+  margin-left: 0;
+}
+.task-card__desc-clamp {
+  font-size: 13px;
+  --clamped-text-line-height: 1.55em;
+}
+
 /* ── workflow timeline ── */
 .task-card__workflow {
   display: flex;
   flex-direction: column;
   gap: 10px;
-}
-.task-card__workflow-title {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  color: var(--color-text-muted);
 }
 .task-card__transition {
   padding: 14px 16px;

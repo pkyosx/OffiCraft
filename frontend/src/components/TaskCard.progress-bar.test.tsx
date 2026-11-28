@@ -29,7 +29,7 @@
 // failure owner described.
 
 import { describe, it, expect } from "vitest";
-import { render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { TaskCard } from "./TaskCard";
 import type { Member } from "../types";
@@ -157,11 +157,36 @@ describe("進度條看得見 — the fill width tracks the SERVER's counts", () 
     expect(fill(container)!.style.width).toBe("40%");
   });
 
-  it("the 2/5 text and the 2/5 fill agree (one source: the server counts)", () => {
+  it("the progress text, the fill and the 工作流程 title bar all read the server's 2/5", async () => {
     const { container, getByTestId } = renderCard(REPLANNED_2_OF_5);
     // superseded nodes are NOT counted — 8 steps exist, the card still says 2/5.
     expect(getByTestId("task-progress").textContent).toContain("2/5");
     expect(fill(container)!.style.width).toBe("40%");
+
+    fireEvent.click(getByTestId("task-card"));
+    await act(async () => {});
+    expect(getByTestId("task-workflow-section-summary").textContent).toBe("5 個步驟 · 2/5 完成");
+  });
+
+  it("collapsing 工作流程 from its title bar leaves only the bar, summarising progress and the step in progress", async () => {
+    const { container, getByTestId } = renderCard(REPLANNED_2_OF_5);
+    fireEvent.click(getByTestId("task-card"));
+    await act(async () => {});
+    const head = getByTestId("task-workflow-section-head");
+    expect(head.getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelectorAll('[data-testid="task-step"]').length).toBeGreaterThan(0);
+
+    fireEvent.click(head);
+    const current = REPLANNED_2_OF_5.steps.find((s) => s.status === "in_progress")!;
+    expect(head.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector(".task-card__workflow")).toBeNull();
+    expect(getByTestId("task-workflow-section-summary").textContent).toBe(
+      `2/5 完成 · 進行中：${current.name}`,
+    );
+    expect(getByTestId("task-card").getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(head);
+    expect(container.querySelectorAll('[data-testid="task-step"]').length).toBeGreaterThan(0);
   });
 
   it("0/0 yields a 0% fill, never NaN (no divide-by-zero)", () => {

@@ -17,6 +17,15 @@
   line-clamp: var(--clamped-text-lines);
   overflow: hidden;
 }
+.clamped-text__body--rich {
+  white-space: normal;
+}
+.clamped-text__body--rich.clamped-text__body--clamped {
+  display: block;
+  -webkit-line-clamp: none;
+  line-clamp: none;
+  max-height: calc(var(--clamped-text-lines) * var(--clamped-text-line-height, 1.5em));
+}
 /* A mask, not an overlay in the card's colour: it fades into whatever the text
  * sits on, so a hovered or themed card needs no matching rule here. */
 .clamped-text__body--faded {

@@ -1773,6 +1773,7 @@ var messageKeys = map[string]bool{
 	"tasks.creatorLabel":                               true,
 	"tasks.creatorUnknown":                             true,
 	"tasks.descEmpty":                                  true,
+	"tasks.descTitle":                                  true,
 	"tasks.displayOptions":                             true,
 	"tasks.displayOptionsChangedLead":                  true,
 	"tasks.dod":                                        true,

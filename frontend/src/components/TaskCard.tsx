@@ -128,6 +128,7 @@ import { useSuggestedRepliesTaskMessage } from "../hooks/useSuggestedReplies";
 import { useTaskManualSuggestedRepliesContext } from "../hooks/useTaskManualSuggestedReplies";
 import { mergeSuggestedReplies } from "../lib/suggestedReplies";
 import { ConfirmModal } from "./ConfirmModal";
+import { ClampedText } from "./ClampedText";
 import { Markdown } from "./Markdown";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 import { TaskArtifactsBadge } from "./TaskArtifactsPopover";
@@ -513,6 +514,8 @@ export function TaskCard({
   // link came to show).
   const [expanded, setExpanded] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [descOpen, setDescOpen] = useState(true);
+  const [workflowOpen, setWorkflowOpen] = useState(true);
   const moreId = useId();
   useEffect(() => {
     if (located) setExpanded(true);
@@ -1529,6 +1532,21 @@ export function TaskCard({
   }
 
   const timeline = buildTimeline(view.steps);
+  const descLineCount = view.description
+    ? view.description.split("\n").filter((l) => l.trim() !== "").length
+    : 0;
+  const currentStep = view.steps.find((s) => s.status === "in_progress");
+  const workflowSummary =
+    task.progressTotal === 0
+      ? ""
+      : workflowOpen
+        ? `${t.tasks.workflowStepCount(task.progressTotal)} · ${t.tasks.workflowDone(task.progressDone, task.progressTotal)}`
+        : [
+            t.tasks.workflowDone(task.progressDone, task.progressTotal),
+            currentStep && t.tasks.workflowCurrent(currentStep.name),
+          ]
+            .filter(Boolean)
+            .join(" · ");
 
   const card = (
     <article
@@ -1606,6 +1624,7 @@ export function TaskCard({
                       onClick={() => {
                         setStatusOpen(false);
                         setExpanded(true);
+                        setWorkflowOpen(true);
                         setReplyScrollPending(true);
                       }}
                     >
@@ -1657,6 +1676,7 @@ export function TaskCard({
                       onClick={() => {
                         setStatusOpen(false);
                         setExpanded(true);
+                        setWorkflowOpen(true);
                         setStepScrollPending(true);
                       }}
                     >
@@ -2746,22 +2766,33 @@ export function TaskCard({
            compact — and still hydrated from the full task, so it appears once
            detail lands. ── */}
       {expanded && (hasDetail || view.description) && (
-        <div className="task-card__desc-block">
-          {/* T-e5b1 (owner 2026-08-15): READ-ONLY. The in-place description
-              editor and its 編輯敘述 affordance were removed with the title's;
-              the capability is untouched. T-646a: the MCP tool is now
-              `update_task`, and POST /api/tasks/{id}/description stays on the
-              HTTP surface for this client. */}
-          {view.description ? (
-            <Markdown
-              source={view.description}
-              className="task-card__desc doc-md"
-              tableSizing="content-aware"
-            />
-          ) : (
-            <div className="task-card__desc-empty">{t.tasks.descEmpty}</div>
-          )}
-        </div>
+        <TaskCardSection
+          icon={<FileTextIcon size={14} />}
+          title={t.tasks.descTitle}
+          summary={descLineCount > 0 ? t.tasks.descLines(descLineCount) : ""}
+          open={descOpen}
+          onToggle={() => setDescOpen((v) => !v)}
+          testId="task-desc-section"
+        >
+          <div className="task-card__desc-block">
+            {/* T-e5b1 (owner 2026-08-15): READ-ONLY. The in-place description
+                editor and its 編輯敘述 affordance were removed with the title's;
+                the capability is untouched. T-646a: the MCP tool is now
+                `update_task`, and POST /api/tasks/{id}/description stays on the
+                HTTP surface for this client. */}
+            {view.description ? (
+              <ClampedText lines={6} className="task-card__desc-clamp" testId="task-desc">
+                <Markdown
+                  source={view.description}
+                  className="task-card__desc doc-md"
+                  tableSizing="content-aware"
+                />
+              </ClampedText>
+            ) : (
+              <div className="task-card__desc-empty">{t.tasks.descEmpty}</div>
+            )}
+          </div>
+        </TaskCardSection>
       )}
 
       {/* ── workflow timeline / transitional states (expanded only) ──
@@ -2770,8 +2801,15 @@ export function TaskCard({
        * so pre-binding data degrades to exactly the old surface, never a
        * crash. */}
       {expanded && (
+      <TaskCardSection
+        icon={<TasksIcon size={14} />}
+        title={t.tasks.workflow}
+        summary={workflowSummary}
+        open={workflowOpen}
+        onToggle={() => setWorkflowOpen((v) => !v)}
+        testId="task-workflow-section"
+      >
       <div className="task-card__workflow">
-        <div className="task-card__workflow-title">{t.tasks.workflow}</div>
         {detailFailed ? (
           // The hydrate failed — say so and offer a retry (re-clicking re-runs
           // the fetch) instead of silently rendering a fake 規劃中 empty state.
@@ -2864,6 +2902,7 @@ export function TaskCard({
           </div>
         )}
       </div>
+      </TaskCardSection>
       )}
 
       {confirmOpen && (
@@ -3093,5 +3132,53 @@ function DuplicateTargetPicker({
         </div>
       )}
     </>
+  );
+}
+
+function TaskCardSection({
+  icon,
+  title,
+  summary,
+  open,
+  onToggle,
+  testId,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  summary: string;
+  open: boolean;
+  onToggle: () => void;
+  testId: string;
+  children: React.ReactNode;
+}) {
+  const bodyId = useId();
+  return (
+    <section className="task-section" data-testid={testId}>
+      <button
+        type="button"
+        className="task-section__head"
+        aria-expanded={open}
+        aria-controls={open ? bodyId : undefined}
+        data-testid={`${testId}-head`}
+        onClick={onToggle}
+      >
+        <span className="task-section__icon" aria-hidden="true">{icon}</span>
+        <span className="task-section__title">{title}</span>
+        {summary && (
+          <span className="task-section__summary" data-testid={`${testId}-summary`}>
+            {summary}
+          </span>
+        )}
+        <span className="task-section__chevron" aria-hidden="true">
+          {open ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />}
+        </span>
+      </button>
+      {open && (
+        <div id={bodyId} className="task-section__body">
+          {children}
+        </div>
+      )}
+    </section>
   );
 }
