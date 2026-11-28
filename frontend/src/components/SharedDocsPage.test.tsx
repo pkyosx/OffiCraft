@@ -381,6 +381,16 @@ describe("SharedDocsPage", () => {
     expect(within(ownerRow).getByTestId("shared-doc-delete").getAttribute("title")).toBe("永久刪除");
   });
 
+  it("the toolbar shows no count while the list loads, and none beside the error when it cannot load", async () => {
+    let fail: (e: Error) => void = () => {};
+    vi.spyOn(api, "listSharedDocs").mockReturnValue(new Promise((_, reject) => (fail = reject)));
+    const { getByTestId, findByText } = renderPage();
+    expect(getByTestId("shared-docs-count").textContent).toBe("");
+    fail(new Error("boom"));
+    await findByText("讀不到檔案庫，請稍後再試");
+    expect(getByTestId("shared-docs-count").textContent).toBe("");
+  });
+
   it("永久刪除 asks first, then removes the doc for good, the count left of ＋ 新增 following", async () => {
     const { container, getByTestId } = renderPage();
     const [, review] = await waitRows(container, 2);

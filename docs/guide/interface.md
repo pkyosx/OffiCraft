@@ -458,7 +458,7 @@ The people who can change the due date are the same as for priority: you, the As
 - **Terminate**: the task closes as Terminated and cannot be resumed; the assignee is notified and wraps it up.
 - **Mark duplicate**: in the search box, type the original task's number or part of its title (all tasks are searched, including closed ones), and pick the original from the results. The task closes as Duplicate and cannot be resumed; the card shows "Duplicate of" and you can "Jump to the original". Members do the same when they find that their task duplicates another one.
 - **Reassign**: the task becomes Reassigning, and both the previous and the new assignee receive a handover notice.
-- **Force close**: only you and the Assistant can do this, on any open task. After closing, the card shows "Force-closed by" and the reason ("No reason given" if none was entered). This cannot be undone.
+- **Force close**: only you and the Assistant can do this, on any open task. After closing, the card shows "Force-closed by" with who did it (a member's name opens their chat, like the other names on the card) and the reason ("-" if none was entered). This cannot be undone.
 - **Artifacts**: "Remove artifact" keeps the current file but permanently deletes its earlier versions. Once the task is closed, artifacts can no longer be added or replaced.
 
 For task statuses, steps, gates and ways of closing, see [Tracking task progress](tasks.md).

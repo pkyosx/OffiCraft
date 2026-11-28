@@ -651,6 +651,18 @@ export function TaskCard({
   const forcedDoneByNames = useWorkerCodenames(
     isUnlisted(forcedDoneBy) ? [forcedDoneBy] : [],
   );
+  // Same resolution as the creator row: anyone with a chat is a chat chip;
+  // the owner (no self-chat) and an id nothing resolves are plain text.
+  const forcedDoneByPerson = ((): { text: string; peerId: string } => {
+    const m = members.find((x) => x.id === forcedDoneBy);
+    if (m) return { text: m.name, peerId: forcedDoneBy };
+    const name =
+      workers.find((x) => x.id === forcedDoneBy)?.codename ??
+      forcedDoneByNames.get(forcedDoneBy);
+    if (name) return { text: name, peerId: forcedDoneBy };
+    if (forcedDoneBy.startsWith("ow-")) return { text: forcedDoneBy, peerId: forcedDoneBy };
+    return { text: forcedDoneBy, peerId: "" };
+  })();
   // A task with no detail yet: show a loading placeholder while hydrating,
   // and an error+retry state if the fetch failed — never the transitional
   // empty state, which would be a silent lie. (The workflow render below ALSO
@@ -2521,18 +2533,25 @@ export function TaskCard({
       {view.forcedDoneBy && (
         <div className="task-card__forced-done" data-testid="task-forced-done">
           <span className="card-meta__label">{t.tasks.forcedDoneLabel}</span>
-          <span className="task-card__forced-done-by">
-            {members.find((m) => m.id === forcedDoneBy)?.name ??
-              forcedDoneByNames.get(forcedDoneBy) ??
-              forcedDoneBy}
-          </span>
-          <span
-            className={`task-card__forced-done-reason${
-              view.forcedDoneReason ? "" : " task-card__forced-done-reason--none"
-            }`}
-            data-testid="task-forced-done-reason"
-          >
-            {view.forcedDoneReason || t.tasks.forcedDoneNoReason}
+          {forcedDoneByPerson.peerId ? (
+            <MemberChatChip
+              name={forcedDoneByPerson.text}
+              avatar={identityAvatar(forcedDoneBy)}
+              label={t.tasks.messageForcedDoneBy}
+              onOpen={() => openChat(forcedDoneByPerson.peerId)}
+              testId="task-forced-done-by-link"
+              nameTestId="task-forced-done-by"
+            />
+          ) : (
+            <MemberChip
+              name={forcedDoneByPerson.text}
+              avatar={null}
+              testId="task-forced-done-by-row"
+              nameTestId="task-forced-done-by"
+            />
+          )}
+          <span className="task-card__forced-done-reason" data-testid="task-forced-done-reason">
+            {view.forcedDoneReason || t.common.emptyValue}
           </span>
         </div>
       )}

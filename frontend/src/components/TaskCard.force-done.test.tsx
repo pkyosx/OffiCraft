@@ -525,12 +525,20 @@ describe("④ what the server recorded comes back onto the card", () => {
     const row = await findByTestId("task-forced-done");
     await waitFor(() =>
       expect(
-        row.querySelector(".task-card__forced-done-by")?.textContent
+        row.querySelector('[data-testid="task-forced-done-by"]')?.textContent
       ).toBe("老管")
     );
+    const chip = row.querySelector<HTMLElement>('[data-testid="task-forced-done-by-link"]')!;
+    expect([chip.tagName, chip.getAttribute("aria-label"), chip.lastElementChild!.tagName]).toEqual([
+      "BUTTON",
+      "傳訊息給強制結案的人",
+      "svg",
+    ]);
+    fireEvent.click(chip);
+    expect(window.location.hash).toMatch(/^#office\/chat\/m-admin-left\/compose\/T-/);
   });
 
-  it("a forced close with NO reason says so out loud, rather than showing an empty row", async () => {
+  it("a forced close with NO reason still shows its row, with 「-」 for the reason and the owner who forced it as a plain chip with no chat", async () => {
     __injectMockTask(mkTask({ title: "沒有理由", status: "in_progress" }));
     const { findByTestId } = renderPage();
     showDone();
@@ -547,19 +555,10 @@ describe("④ what the server recorded comes back onto the card", () => {
     expandCard(await findByTestId("task-card"));
 
     const reason = await findByTestId("task-forced-done-reason");
-    // Absent is rendered AS absent. A row that silently dropped the line would
-    // read identically to a row that was never rendered, which is the one thing
-    // an optional field must never be allowed to look like.
-    expect(reason.textContent).toBe(zh.tasks.forcedDoneNoReason);
-    // 🔴 AND THE SAME FACT AGAIN AS A LITERAL — the line above is NOT enough on
-    // its own, because it reads the SAME constant the component renders. Invert
-    // that constant's meaning (「未填理由」→「已填理由」) and the assertion
-    // follows it happily; the reviewer's mutant did exactly that and this whole
-    // file stayed green. A literal is the one anchor that does not move when the
-    // constant does. The constant assertion is KEPT (it still pins that the
-    // component reads the locale rather than hardcoding a string) — this is an
-    // extra anchor, not a replacement.
-    expect(reason.textContent).toBe("未填理由");
+    expect(reason.textContent).toBe("-");
+    const row = await findByTestId("task-forced-done");
+    expect(row.querySelector('[data-testid="task-forced-done-by-link"]')).toBeNull();
+    expect(row.querySelector('[data-testid="task-forced-done-by-row"]')!.tagName).toBe("SPAN");
   });
 
   it("a task closed NORMALLY carries no 強制結案 row — the stamp is what tells the two closes apart", async () => {

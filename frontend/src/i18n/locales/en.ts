@@ -541,7 +541,7 @@ export const en: Dict = {
     // How a forced close reads back afterwards. A task closed by force always
     // says so; the reason may be absent, and absent is shown as absent.
     forcedDoneLabel: "Force-closed by",
-    forcedDoneNoReason: "No reason given",
+    messageForcedDoneBy: "Message who force-closed it",
     // Shown when a close is refused: the card says which status the task is
     // ACTUALLY in, because "the action failed" alone does not tell the owner
     // whether to retry, expand the card, or do nothing.

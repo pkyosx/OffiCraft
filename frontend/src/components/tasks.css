@@ -1390,20 +1390,15 @@ button.task-card__waiting--dep:focus-visible {
 }
 
 /* ── force-closed read-back (T-192) ──
-   Who forced the close, and the reason if one was given. The reason is
-   OPTIONAL server-side (owner ruling rc-a92a6252c3bd), so the absent case gets
-   its own muted styling rather than being dropped: a row that hid it would be
-   indistinguishable from a row that never rendered. */
+   Who forced the close (a member chip), and the reason, or 「-」 when none was
+   given: the row is never dropped for a missing reason. */
 .task-card__forced-done {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
   font-size: 12.5px;
   color: var(--color-danger);
-}
-.task-card__forced-done-by {
-  font-weight: 600;
 }
 .task-card__forced-done-reason {
   min-width: 0;
@@ -1411,10 +1406,6 @@ button.task-card__waiting--dep:focus-visible {
   /* A reason is free text an agent wrote — it must wrap, never widen the card
      (the long-token trap this stylesheet fights everywhere else). */
   overflow-wrap: anywhere;
-}
-.task-card__forced-done-reason--none {
-  color: var(--color-text-muted);
-  font-style: italic;
 }
 
 /* ── 強制結案 form (inside the confirm modal) ── */

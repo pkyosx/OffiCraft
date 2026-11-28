@@ -151,6 +151,16 @@ describe("SecretsPage", () => {
     expect(await screen.findByTestId("secret-id-copied")).toBeTruthy();
   });
 
+  it("the toolbar shows no count while the list loads, and none beside the error when it cannot load", async () => {
+    let fail: (e: Error) => void = () => {};
+    vi.spyOn(api, "listSecrets").mockReturnValue(new Promise((_, reject) => (fail = reject)));
+    renderPage();
+    expect(screen.getByTestId("secrets-count").textContent).toBe("");
+    fail(new Error("boom"));
+    await screen.findByText("讀不到密鑰，請稍後再試");
+    expect(screen.getByTestId("secrets-count").textContent).toBe("");
+  });
+
   it("the toolbar counts the secrets left of ＋ 新增; creating sends name, value and note, then shows the new row without its value and counts it", async () => {
     const createSpy = vi.spyOn(api, "createSecret");
     const { container } = renderPage();
