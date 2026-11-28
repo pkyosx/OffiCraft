@@ -2557,6 +2557,8 @@ export const en: Dict = {
       "Save these boot steps? Broken boot steps stop members booting after this from coming online, with no error message anywhere. Check the preview before saving; if it does go wrong, open Default content in the version history and press Sync to default.",
     bootDocSaveConfirmSystem:
       "Save this system-interaction document? Every member that boots after the save reads this content.",
+    bootDocSaveConfirmTermGlossary:
+      "Save this term glossary? Every member that boots after the save uses it to read the Chinese screen names you write.",
     bootDocSaveConfirmOffboard:
       "Save this Stop document? Every member stopped after this reads it, with nobody to ask and no time limit; the time-limited case reads the Accelerated stop document instead.",
     bootDocSaveConfirmAction: "Save",
@@ -2567,6 +2569,7 @@ export const en: Dict = {
     docCollapse: "Collapse this document",
     historyBootSystemTitle: "System interaction · version history",
     historyUserLanguageTitle: "User Language · version history",
+    historyTermGlossaryTitle: "Term glossary · version history",
     historyBootClaudeTitle: "Boot steps (Claude Code) · version history",
     historyBootCodexTitle: "Boot steps (Codex CLI) · version history",
     historyBootOffboardTitle: "Stop · version history",

@@ -86,7 +86,7 @@ export const SEED_TASK_UNBLOCKED_MD = foldOwnerId(SEED_TASK_UNBLOCKED_RAW);
 export const SEED_TASK_READY_FOR_DONE_MD = foldOwnerId(SEED_TASK_READY_FOR_DONE_RAW);
 
 /** The User Language document's two shipped defaults (display_language picks
- * one while it is unedited), and the read-only glossary that
+ * one while it is unedited), and the glossary's shipped default that
  * scripts/gen-term-aliases.mjs generates. */
 export const SEED_USER_LANGUAGE_ZH_MD = foldOwnerId(SEED_USER_LANGUAGE_ZH_RAW);
 export const SEED_USER_LANGUAGE_EN_MD = foldOwnerId(SEED_USER_LANGUAGE_EN_RAW);

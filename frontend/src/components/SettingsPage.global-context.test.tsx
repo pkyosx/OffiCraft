@@ -85,7 +85,7 @@ describe("SettingsPage · global-context 4 blocks", () => {
     expect(copy("boot-doc-entry-system_interaction")).toEqual(["每位成員開機時都會讀到的系統運作說明", null]);
     expect(copy("boot-doc-entry-task_closeout")).toEqual([null, null]);
     expect(copy("boot-doc-entry-user_language")).toEqual(["成員跟你說話用的語言 · 沒改過時跟著顯示語言", null]);
-    expect(copy("boot-doc-entry-term_glossary")).toEqual([null, "不能編輯"]);
+    expect(copy("boot-doc-entry-term_glossary")).toEqual([null, null]);
     expect(copy("boot-doc-entry-accelerated_stop")).toEqual([null, null]);
     expect(copy("boot-doc-entry-task_takeover_with_predecessor")).toEqual([s.taskTakeoverWithPredecessorSub, null]);
     expect(utils.getByTestId("boot-doc-entry-task_closeout").hasAttribute("aria-describedby")).toBe(false);
@@ -96,7 +96,7 @@ describe("SettingsPage · global-context 4 blocks", () => {
     );
   });
 
-  it("with developer mode on, every boot document but the glossary says it is editable", async () => {
+  it("with developer mode on, every boot document but User Language says it is editable", async () => {
     await api.patchServerSettings({ developerMode: true });
     const utils = await openRolesLog();
     const copy = (testId: string) => entryCopy(utils.getByTestId(testId));
@@ -107,7 +107,7 @@ describe("SettingsPage · global-context 4 blocks", () => {
       ])
     );
     expect(copy("boot-doc-entry-task_closeout")).toEqual([null, "可編輯"]);
-    expect(copy("boot-doc-entry-term_glossary")).toEqual([null, "不能編輯"]);
+    expect(copy("boot-doc-entry-term_glossary")).toEqual([null, "可編輯"]);
     expect(copy("boot-doc-entry-boot_sequence")).toEqual([null, s.bootDocEditableTag]);
     expect(copy("boot-doc-entry-user_language")).toEqual(["成員跟你說話用的語言 · 沒改過時跟著顯示語言", null]);
     expect(copy("boot-doc-entry-custom")).toEqual(["每位成員開機時都會讀到的自訂內容", null]);

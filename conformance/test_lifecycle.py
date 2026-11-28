@@ -664,13 +664,13 @@ def test_member_boot_context_preview_equals_the_member_boot_fold_verbatim(
 
 
 def test_boot_fold_user_language_follows_display_language(
-    client, owner_token
+    client, owner_token, developer_mode_on
 ) -> None:
     """§2.2 block 2: the 使用者語言 block sits between 系統互動 and 使用者自訂.
     While user_language is unedited it switches with display_language at the
     next assembly — "" (never set) and "en" give the English default, "zh" the
-    Chinese one; an edit is used under every language; the glossary is
-    read-only."""
+    Chinese one; an edit is used under every language; an edited glossary is
+    the table that follows it."""
     original = client.get("/api/settings", headers=_auth(owner_token)).json()[
         "display_language"
     ]
@@ -729,8 +729,14 @@ def test_boot_fold_user_language_follows_display_language(
             json={"body": "| a | b |", "allow_shrink": True},
             headers=_auth(owner_token),
         )
-        assert r.status_code == 405, r.text
+        assert r.status_code == 200, r.text
+        context, _ = _bootstrap_context(client, owner_token)
+        assert context.startswith(
+            f"{sys_block}\n\n# User Language\n\nReply in Klingon.\n\n"
+            f"| a | b |\n\n# User additions\n\n{marker}\n\n"
+        ), "the edited glossary is not the table in the block"
     finally:
+        client.post("/api/boot-docs/term_glossary/global/reset", headers=_auth(owner_token))
         client.post("/api/boot-docs/user_language/global/reset", headers=_auth(owner_token))
         client.patch(
             "/api/settings",

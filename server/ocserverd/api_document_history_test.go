@@ -1216,18 +1216,6 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 		})
 	})
 
-	t.Run("restoring the glossary answers 405 with developer mode on and off", func(t *testing.T) {
-		for name, newServer := range map[string]func(*testing.T) (*apiServer, http.Handler, *DAL, string){
-			"developer mode off": newAPITestServer, "developer mode on": newAPITestServerInDeveloperMode,
-		} {
-			_, h, _, owner := newServer(t)
-			status, data := apiJSON(t, h, "POST", "/api/document-history/term_glossary/global/1/restore", owner, "")
-			if status != 405 {
-				t.Fatalf("%s: want 405, got %d (%v)", name, status, data)
-			}
-		}
-	})
-
 	t.Run("while developer mode is off, a plain agent restoring a boot document's revision answers 403, not 409, the document stays and nothing fans", func(t *testing.T) {
 		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"old notice"}`)

@@ -88,13 +88,11 @@ var bootDocRegistry = []bootDocReg{{
 
 	NoDeveloperModeLock: true,
 }, {
-	// Generated from the cockpit's dictionaries, so only a release changes it.
-	Kind:     docKindTermGlossary,
-	Keys:     []string{bootDocSingletonKey},
-	SeedFor:  func(string) string { return termGlossarySeedMD },
-	DocName:  func(string) string { return "Term glossary" },
-	Cap:      func(s *apiServer) int { return s.termGlossaryCap() },
-	ReadOnly: true,
+	Kind:    docKindTermGlossary,
+	Keys:    []string{bootDocSingletonKey},
+	SeedFor: func(string) string { return termGlossarySeedMD },
+	DocName: func(string) string { return "Term glossary" },
+	Cap:     func(s *apiServer) int { return s.termGlossaryCap() },
 }, {
 	Kind: docKindBootSequence,
 	Keys: []string{bootSequenceKeyClaude, bootSequenceKeyCodex},

@@ -705,10 +705,10 @@ The boot context is these blocks, in this order, joined into one document:
    (`en`, or `""` = never set) the English one. An edit is used whatever the setting; a
    write whose text equals either default (ignoring leading and trailing whitespace) is
    stored as a reset, so the document follows the setting again. It is editable with
-   developer mode off. It is followed by the read-only `term_glossary/global` document, a
+   developer mode off. It is followed by the `term_glossary/global` document (folded: owner
+   edit ⊕ seed; locked while developer mode is off, like the other boot documents), a
    table mapping the English names the boot documents use to the Chinese screen names of
-   OffiCraft features (generated from the same rows as `spec/term-aliases.json`; only a
-   release changes it). A document whose folded text is blank is left out; the block is
+   OffiCraft features (its seed is generated from the same rows as `spec/term-aliases.json`). A document whose folded text is blank is left out; the block is
    dropped only when both are blank.
    It is read when the fold is assembled, so a language change or an edit reaches each
    member at its next boot; a running session is not notified;

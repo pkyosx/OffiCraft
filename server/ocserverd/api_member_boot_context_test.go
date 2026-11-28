@@ -180,6 +180,23 @@ func TestHandleGetMemberBootContextApiMembersMemberIdBootContextGet(t *testing.T
 		apiWantBody(t, data, map[string]any{"context": "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports.\n\n" + apiTestUserLanguageGlossary + "\n\n# Role: Preview Writer\n\n# Preview role instructions\n\n# Lore\n\n## L-2 own\n\nOWN LORE OF m-writer\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"})
 	})
 
+	t.Run("an edited glossary is what the User Language block carries", func(t *testing.T) {
+		_, h, d, owner := newAPITestServerInDeveloperMode(t)
+		memberPreviewSeed(t, d, Member{ID: "m-writer", Name: "Writer", RoleKey: memberPreviewRoleKey, Runtime: RuntimeClaude})
+		if status, data := apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"# SYSTEM INTERACTION"}`); status != 200 {
+			t.Fatalf("replace system interaction: %d %v", status, data)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/boot-docs/term_glossary/global", owner, `{"body":"| Tasks | 任務 |","allow_shrink":true}`); status != 200 {
+			t.Fatalf("replace term glossary: %d %v", status, data)
+		}
+
+		status, data := apiJSON(t, h, "GET", "/api/members/m-writer/boot-context", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"context": "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports.\n\n| Tasks | 任務 |\n\n# Role: Preview Writer\n\n# Preview role instructions\n\n# Lore\n\n## L-2 own\n\nOWN LORE OF m-writer\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"})
+	})
+
 	t.Run("two staff members of one role each preview their own 傳承 and not the other's", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
 		memberPreviewSeed(t, d,

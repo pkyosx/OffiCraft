@@ -45,7 +45,7 @@ The other documents come in three groups:
 | Group | Document | When members read it | Character limit |
 | --- | --- | --- | --- |
 | BOOT | System interaction | When each member starts | 150000 |
-| BOOT | Term glossary | When each member starts, right after User Language | — |
+| BOOT | Term glossary | When each member starts, right after User Language | 37500 |
 | BOOT | Boot steps (Claude Code) | Claude Code members follow it when they start | 37500 |
 | BOOT | Boot steps (Codex CLI) | Codex members follow it when they start | 37500 |
 | STOP | Stop | When a member is stopped | 37500 |
@@ -57,7 +57,7 @@ The other documents come in three groups:
 | TASK EVENTS | Your task is ready to be closed | Each time a task becomes ready to close | 37500 |
 
 - "Boot steps" is a single row in the list; open it to see one row per document, "Boot steps (Claude Code)" and "Boot steps (Codex CLI)", each opening its own page.
-- "Term glossary" lists the English and Chinese names of OffiCraft features side by side, after one line telling members that a Chinese screen name from the table means the English term in the same row. Nobody can edit it, even with developer mode on; it changes only with a new release.
+- "Term glossary" lists the English and Chinese names of OffiCraft features side by side, after one line telling members that a Chinese screen name from the table means the English term in the same row. Like the other documents here, it is locked while developer mode is off and editable once it is on; Sync to default brings back the table that shipped with this release.
 - The character limits are factory values, and these fields are not on the Advanced page. For a document with a limit, the card's title bar shows "current characters / limit".
 - Some documents begin with a read-only section written by the program (for example the member's name or the deadline), marked "Read-only (written by the program, not editable)"; you can only change the paragraphs after the read-only section. Saving replaces the editable part with the contents of the editor.
 - A document with default content is marked "In sync with default" or "Modified" on its card.

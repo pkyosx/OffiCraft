@@ -333,7 +333,8 @@ export const BOOT_DOC_ROWS: Record<
     Icon: BookIcon,
     tone: "blue",
     docKey: "global",
-    readOnly: true,
+    historyKey: "historyTermGlossaryTitle",
+    confirmKey: "bootDocSaveConfirmTermGlossary",
   },
   boot_sequence: {
     group: "launch",

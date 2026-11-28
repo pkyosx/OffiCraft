@@ -2607,6 +2607,8 @@ export const zh = {
       "要儲存這份啟動步驟嗎？寫壞會讓之後開機的成員無法上線，而且不會有任何錯誤訊息。存檔前請確認看過預覽；出事就到版本紀錄打開「預設內容」，按「同步預設內容」。",
     bootDocSaveConfirmSystem:
       "要儲存這份系統互動說明嗎？之後開機的每一個 agent 都會讀到這份內容。",
+    bootDocSaveConfirmTermGlossary:
+      "要儲存這份名詞對照表嗎？之後開機的每一位成員都會用它對照你說的中文畫面名稱。",
     bootDocSaveConfirmOffboard:
       "要儲存這份〈停止〉嗎？之後每一位被停止的成員都會讀到它，而且當下沒有人可以問、也沒有時間限制；有時限的情況讀的是〈加速停止〉。",
     bootDocSaveConfirmAction: "確認儲存",
@@ -2616,6 +2618,7 @@ export const zh = {
     docCollapse: "收合這份文件",
     historyBootSystemTitle: "系統互動的版本紀錄",
     historyUserLanguageTitle: "使用者語言的版本紀錄",
+    historyTermGlossaryTitle: "名詞對照表的版本紀錄",
     historyBootClaudeTitle: "啟動步驟（Claude Code）的版本紀錄",
     historyBootCodexTitle: "啟動步驟（Codex CLI）的版本紀錄",
     historyBootOffboardTitle: "停止的版本紀錄",

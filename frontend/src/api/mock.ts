@@ -812,9 +812,7 @@ const BOOT_DOC_SEEDS: Record<string, string> = {
 /** The documents the server SHOWS but refuses every write to — mirrors
  * bootDocRegistry's ReadOnly, so demo mode cannot validate a screen the real
  * server refuses. */
-const SHIPPED_BOOT_DOC_READ_ONLY: ReadonlySet<string> = new Set([
-  "term_glossary/global",
-]);
+const SHIPPED_BOOT_DOC_READ_ONLY: ReadonlySet<string> = new Set<string>();
 let BOOT_DOC_READ_ONLY: ReadonlySet<string> = SHIPPED_BOOT_DOC_READ_ONLY;
 
 /** Writable with developer mode off, like 使用者自訂 (bootDocRegistry's
