@@ -204,7 +204,7 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
   // genuinely different moments and the first one is the one that broke:
   // a COLLAPSED card has no steps yet (they arrive with the detail hydrate), so
   // a steps-only gate rendered nothing exactly where owner wants the item.
-  it("等待外部 jump: on a COLLAPSED waiting_external card, first in the menu, and expands the card", async () => {
+  it("等待外部 jump: on a COLLAPSED waiting_external card, first in the menu, expands the card and reopens a folded 工作流程 to scroll to the step", async () => {
     __injectMockTask(
       mkTask({
         title: "等外部的",
@@ -267,6 +267,20 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
       expect(
         scrolled.some((el) => el.getAttribute("data-step-id") === "s-1")
       ).toBe(true);
+
+      const wfHead = within(card).getByTestId("task-workflow-section-head");
+      fireEvent.click(wfHead);
+      expect(wfHead.getAttribute("aria-expanded")).toBe("false");
+      expect(card.querySelector('[data-testid="task-step"]')).toBeNull();
+      scrolled.length = 0;
+      fireEvent.click(within(card).getByTestId("task-status"));
+      fireEvent.click(within(card).getByTestId("task-status-jump-external"));
+      expect(wfHead.getAttribute("aria-expanded")).toBe("true");
+      await waitFor(() => {
+        expect(
+          scrolled.some((el) => el.getAttribute("data-step-id") === "s-1")
+        ).toBe(true);
+      });
     } finally {
       spy.mockRestore();
       if (!had) delete proto.scrollIntoView;

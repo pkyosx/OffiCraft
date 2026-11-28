@@ -316,7 +316,7 @@ describe("TaskCard whole-card toggle (mobile refactor)", () => {
     expect(follows(badge, prio)).toBeTruthy();
   });
 
-  it("the 等我回覆 jump lives in the status dropdown: badge → 查看等我回覆卡 expands + scrolls to the embedded reply card", async () => {
+  it("the 等我回覆 jump lives in the status dropdown: badge → 查看等我回覆卡 expands, reopens a folded 工作流程 and scrolls to the embedded reply card", async () => {
     const scrollCalls: Element[] = [];
     Element.prototype.scrollIntoView = function (this: Element) {
       scrollCalls.push(this);
@@ -386,10 +386,24 @@ describe("TaskCard whole-card toggle (mobile refactor)", () => {
       expect(waiting.contains(target!)).toBe(true);
     });
 
-    // Re-running the jump while already expanded never collapses the card.
+    // Re-running the jump while already expanded never collapses the card,
+    // and reopens a folded 工作流程 so the reply card is there to scroll to.
+    const wfHead = waiting.querySelector('[data-testid="task-workflow-section-head"]')!;
+    fireEvent.click(wfHead);
+    expect(wfHead.getAttribute("aria-expanded")).toBe("false");
+    expect(waiting.querySelector('[data-testid="task-reply-card"]')).toBeNull();
+    scrollCalls.length = 0;
     fireEvent.click(badge);
     fireEvent.click(waiting.querySelector('[data-testid="task-status-jump"]')!);
     expect(waiting.getAttribute("aria-expanded")).toBe("true");
+    expect(wfHead.getAttribute("aria-expanded")).toBe("true");
+    await waitFor(() => {
+      const target = scrollCalls.find(
+        (el) => el.getAttribute("data-testid") === "task-reply-card"
+      );
+      expect(target).toBeTruthy();
+      expect(waiting.contains(target!)).toBe(true);
+    });
   });
 
   it("with earlier answered cards in the timeline, the 等我回覆 jump scrolls to the WAITING card, not the DOM-first one", async () => {
