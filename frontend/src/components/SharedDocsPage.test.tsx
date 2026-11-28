@@ -4,7 +4,6 @@ import { I18nProvider } from "../i18n";
 import { SharedDocsPage } from "./SharedDocsPage";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
-import { formatAbsolute } from "../lib/dateFormat";
 import { ApiError } from "../api/errors";
 import { codeForStatus } from "../api/errorCodes";
 
@@ -145,7 +144,8 @@ afterEach(() => {
 });
 
 describe("SharedDocsPage", () => {
-  it("lists every doc as its own card in the list, no table: the ID with the type, the name with the description under it, 最後修改, then the actions", async () => {
+  it("lists every doc as its own card in the list, no table: the short ID, the kind as an icon named by its tooltip and the actions on the first line, the name with the description under it, then 建立者 and 最後更新 as label/value rows", async () => {
+    vi.spyOn(Date, "now").mockReturnValue((1763366700 + 3 * 86400 + 7200) * 1000);
     const boardId = await api.createSharedDoc({
       kind: "link",
       name: "Board",
@@ -160,7 +160,6 @@ describe("SharedDocsPage", () => {
     const row = (id: string) => container.querySelector<HTMLElement>(`[data-doc-id="${id}"]`)!;
     const api規格 = row("sd-0c41e97a2b58");
     const review = row("sd-3f9a2c71b0e4");
-    const now = Math.floor(Date.now() / 1000);
     expect(container.querySelector("table")).toBeNull();
     const list = within(container).getByRole("list");
     expect(Array.from(list.children)).toEqual(rows(container));
@@ -169,23 +168,28 @@ describe("SharedDocsPage", () => {
       expect(card.classList.contains("lore-row")).toBe(true);
     }
     expect(cellTexts(api規格)).toEqual([
-      "#sd-0c41e97a2b58連結",
+      "#sd-0c41e9",
       "API 規格GitHub 上的 spec/openapi.json，改 wire 前先讀",
-      `Mira · ${formatAbsolute(1761648240, now)}`,
-      "",
+      "建立者Mira最後更新22 天前 · Mira",
     ]);
     expect(cellTexts(review)).toEqual([
-      "#sd-3f9a2c71b0e4檔案",
+      "#sd-3f9a2c",
       "Review RulePR 審查時逐項核對的規則與退件標準",
-      `Mira · ${formatAbsolute(1763366700, now)}`,
-      "",
+      "建立者Mira最後更新3 天前 · Mira",
     ]);
-    const idCell = (id: string) =>
+    const head = (id: string) =>
       Array.from(row(id).firstElementChild!.querySelectorAll("[data-testid]")).map((el) => el.getAttribute("data-testid"));
-    expect(idCell("sd-3f9a2c71b0e4")).toEqual(["shared-doc-id", "shared-doc-kind-file"]);
-    expect(idCell("sd-0c41e97a2b58")).toEqual(["shared-doc-id", "shared-doc-kind-link"]);
-    expect(idCell(shotId)).toEqual(["shared-doc-id", "shared-doc-kind-image"]);
-    expect(row(shotId).querySelector('[data-testid="shared-doc-kind-image"]')!.textContent).toBe("圖片");
+    const actionIds = ["shared-doc-edit-info", "shared-doc-upload", "shared-doc-delete"];
+    expect(head("sd-3f9a2c71b0e4")).toEqual(["shared-doc-id", "shared-doc-kind-file", ...actionIds]);
+    expect(head("sd-0c41e97a2b58")).toEqual(["shared-doc-id", "shared-doc-kind-link", ...actionIds]);
+    expect(head(shotId)).toEqual(["shared-doc-id", "shared-doc-kind-image", ...actionIds]);
+    const kind = (id: string, k: string) => {
+      const chip = row(id).querySelector<HTMLElement>(`[data-testid="shared-doc-kind-${k}"]`)!;
+      return [chip.textContent, chip.getAttribute("role"), chip.getAttribute("aria-label"), chip.title];
+    };
+    expect(kind(shotId, "image")).toEqual(["", "img", "圖片", "圖片"]);
+    expect(kind("sd-0c41e97a2b58", "link")).toEqual(["", "img", "連結", "連結"]);
+    expect(kind("sd-3f9a2c71b0e4", "file")).toEqual(["", "img", "檔案", "檔案"]);
     const block = within(review).getByTestId("shared-doc-name");
     expect(block.querySelector('[data-testid^="shared-doc-kind-"]')).toBeNull();
     expect(Array.from(block.querySelectorAll(".shared-docs__file-text > span")).map((s) => s.textContent)).toEqual([
@@ -199,12 +203,14 @@ describe("SharedDocsPage", () => {
     ).toEqual(["Board"]);
     expect(row(shotId).querySelector("img")).toBeNull();
     const fileActions = [
+      ["shared-doc-edit-info", "編輯名稱與說明", ""],
       ["shared-doc-upload", "上傳新版本", ""],
       ["shared-doc-delete", "永久刪除", ""],
     ];
     for (const id of ["sd-3f9a2c71b0e4", notesId, shotId, contractId]) expect(actionStates(row(id))).toEqual(fileActions);
     const linkActions = [
-      ["shared-doc-upload", "連結的網址請用名稱旁的鉛筆修改", "true"],
+      ["shared-doc-edit-info", "編輯連結", ""],
+      ["shared-doc-upload", "連結的網址請用「編輯連結」修改", "true"],
       ["shared-doc-delete", "永久刪除", ""],
     ];
     expect(actionStates(api規格)).toEqual(linkActions);
@@ -220,7 +226,7 @@ describe("SharedDocsPage", () => {
     ]);
   });
 
-  it("the ID's one button copies the id and shows a check", async () => {
+  it("the ID shows six characters after sd- and its one button copies the full id and shows a check", async () => {
     const { container } = renderPage();
     const [, review] = await waitRows(container, 2);
     const badge = within(review!).getByTestId("shared-doc-id");
@@ -229,13 +235,16 @@ describe("SharedDocsPage", () => {
     fireEvent.click(badge);
     await waitFor(() => expect(copyTextMock).toHaveBeenCalledWith("sd-3f9a2c71b0e4"));
     await waitFor(() => expect(iconPaths()).toEqual(["M20 6 9 17l-5-5"]));
-    expect(badge.textContent).toBe("#sd-3f9a2c71b0e4");
+    expect([badge.textContent, badge.getAttribute("aria-label")]).toEqual([
+      "#sd-3f9a2c",
+      "複製檔案 ID sd-3f9a2c71b0e4",
+    ]);
     expect(
-      Array.from(review!.firstElementChild!.querySelectorAll("button")).map((b) => b.dataset.testid),
+      Array.from(review!.querySelectorAll<HTMLButtonElement>(".lore-row__badges button")).map((b) => b.dataset.testid),
     ).toEqual(["shared-doc-id"]);
   });
 
-  it("the name opens the content itself, a link in a new tab and a file or image in the preview over the list with the preview's own actions plus 編輯 on any text file, and 最後修改 opens the doc's version history over the list, a restore there showing on the row", async () => {
+  it("the name opens the content itself, a link in a new tab and a file or image in the preview over the list with the preview's own actions plus 編輯 on any text file, and 最後更新 opens the doc's version history over the list, a restore there showing on the row", async () => {
     const contractId = await createUploaded("file", "Contract", "contract.pdf", "pdf");
     const shotId = await createUploaded("image", "Shot", "shot.png", "png");
     const configId = await createUploaded("file", "Config", "ci.yaml", "# keep\nkey:  v\n");
@@ -318,11 +327,9 @@ describe("SharedDocsPage", () => {
     expect(window.location.hash).toBe("#shared-docs");
 
     const updated = within(row("sd-3f9a2c71b0e4")).getByTestId("shared-doc-updated");
-    const now = Math.floor(Date.now() / 1000);
-    expect([updated.tagName, updated.textContent, updated.getAttribute("aria-label"), updated.title]).toEqual([
+    expect([updated.tagName, updated.getAttribute("aria-label"), updated.title]).toEqual([
       "BUTTON",
-      `Mira · ${formatAbsolute(1763366700, now)}`,
-      `Mira · ${formatAbsolute(1763366700, now)} · 查看版本紀錄`,
+      `${updated.textContent} · 查看版本紀錄`,
       "查看版本紀錄",
     ]);
     fireEvent.click(updated);
@@ -334,7 +341,7 @@ describe("SharedDocsPage", () => {
     expect(restored.attachmentId).toBe("att-5d0c11a2b3b0");
     await waitFor(() =>
       expect(within(row("sd-3f9a2c71b0e4")).getByTestId("shared-doc-updated").textContent).toBe(
-        `CEO（你） · ${formatAbsolute(restored.updatedTs, Math.floor(Date.now() / 1000))}`,
+        "1 分鐘前 · CEO（你）",
       ),
     );
     expect(window.location.hash).toBe("#shared-docs");
@@ -342,7 +349,10 @@ describe("SharedDocsPage", () => {
 
   it("a member's token gets no 永久刪除", async () => {
     const member = await renderRealModeRow(fakeJwt({ scope: "agent", sub: "kip" }));
-    expect(actionStates(member)).toEqual([["shared-doc-upload", "上傳新版本", ""]]);
+    expect(actionStates(member)).toEqual([
+      ["shared-doc-edit-info", "編輯名稱與說明", ""],
+      ["shared-doc-upload", "上傳新版本", ""],
+    ]);
   });
 
   it("an owner token is offered 永久刪除", async () => {
@@ -642,7 +652,7 @@ describe("SharedDocsPage", () => {
     expect(queryByTestId("shared-docs-action-error")).toBeNull();
   });
 
-  it("the pencil after a name opens a dialog for its name and description, plus the URL on a link, without opening the file: 儲存 is off for a blank name and sends only what this dialog changed, a refused save stays open with the server's message, 取消 and Esc leave it, focus goes back to the pencil", async () => {
+  it("the pencil on the first line opens a dialog for its name and description, plus the URL on a link, without opening the file: 儲存 is off for a blank name and sends only what this dialog changed, a refused save stays open with the server's message, 取消 and Esc leave it, focus goes back to the pencil", async () => {
     const replace = vi.spyOn(api, "replaceSharedDoc");
     const { container, getByTestId, queryByTestId } = renderPage();
     const [apiSpec, review] = await waitRows(container, 2);
@@ -795,10 +805,9 @@ describe("SharedDocsPage", () => {
       filename: "review-rule.md",
       versionCount: 3,
     });
-    const saved = await api.getSharedDoc("sd-3f9a2c71b0e4");
     await waitFor(() =>
       expect(within(review!).getByTestId("shared-doc-updated").textContent).toBe(
-        `CEO（你） · ${formatAbsolute(saved.updatedTs, Math.floor(Date.now() / 1000))}`,
+        "1 分鐘前 · CEO（你）",
       ),
     );
     expect(window.location.hash).toBe("#shared-docs");

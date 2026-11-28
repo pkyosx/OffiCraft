@@ -57,7 +57,7 @@ for (const width of [1280, 390]) {
     );
     const iconColour = await row
       .locator(":scope > svg")
-      .evaluate((el) => getComputedStyle(el).color);
+      .evaluate((el: Element) => getComputedStyle(el).color);
     expect(iconColour, "reason icon colour").toBe("rgb(77, 88, 99)");
   });
 }

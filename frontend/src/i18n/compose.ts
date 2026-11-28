@@ -113,6 +113,7 @@ export interface Messages {
   sharedDocListedCount: (n: number) => string;
   sharedDocEditHint: () => string;
   sharedDocUpdated: (by: string, when: string) => string;
+  sharedDocUpdatedAgo: (by: string, secondsAgo: number) => string;
   // ── office ──
   outsourceLabel: (codename: string) => string;
   groupHeading: (name: string, count: number) => string;
@@ -530,6 +531,18 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     sharedDocEditHint: () =>
       `${t.sharedDocs.editHintLead}${t.sharedDocs.uploadVersion}${t.sharedDocs.editHintTail}`,
     sharedDocUpdated: (by, when) => `${by} · ${when}`,
+    // 「3 天前 · Mira」/「3 days ago · Mira」: the largest whole unit only.
+    sharedDocUpdatedAgo: (by, secondsAgo) => {
+      const sd = t.sharedDocs;
+      const { days, hours, minutes } = durationParts(secondsAgo);
+      const ago =
+        days > 0
+          ? counted(days, sd.updatedAgoDayOne, sd.updatedAgoDayMany)
+          : hours > 0
+            ? counted(hours, sd.updatedAgoHourOne, sd.updatedAgoHourMany)
+            : counted(minutes, sd.updatedAgoMinuteOne, sd.updatedAgoMinuteMany);
+      return `${ago}${sp}${sd.updatedAgoTail} · ${by}`;
+    },
 
     // The outsource identity label has ONE source of the word 外包 now: the
     // section title. It used to have two (a title leaf and an identically

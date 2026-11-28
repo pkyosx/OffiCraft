@@ -55,180 +55,89 @@
   color: var(--color-text-muted);
 }
 
-/* ── list: one lore card (.lore-row in .lore-section__body) per document ──
- * ID, kind and actions, then name, description and 最後修改. Doubled class:
- * SharedDocDetail pulls this sheet in before lore.css, so a tie would lose to
- * .lore-row's display: flex. */
-.lore-row.shared-docs__row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas:
-    "id actions"
-    "file file"
-    "updated updated";
-  align-items: center;
-  min-width: 0;
-  font-size: 13px;
-  color: var(--color-text);
-}
-.shared-docs__col-id {
-  grid-area: id;
-  min-width: 0;
-}
-.shared-docs__col-file {
-  grid-area: file;
-  min-width: 0;
-}
-.shared-docs__col-actions {
-  grid-area: actions;
-  align-self: start;
-}
-.shared-docs__actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.shared-docs__actions .ts-icon-btn[aria-disabled="true"] {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.shared-docs__actions .ts-icon-btn[aria-disabled="true"]:hover {
-  color: var(--color-text-muted);
-  border-color: var(--color-border);
-}
-/* Like the lore card's badge row: a kind chip that does not fit beside the
- * ID (320px) moves whole to the next line instead of under the actions. */
-.shared-docs__id-cell {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-.shared-docs__file {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-width: 0;
-  color: var(--color-text);
+/* ── list: one lore card per document ──
+ * The card, its head, id badge, icon actions, label/value grid and chips are
+ * lore.css's .lore-row vocabulary; this block only adds the kind icon chip and
+ * the name drawn as a link. */
+.lore-badge.shared-docs__kind {
+  padding: 3px 7px;
 }
 .lore-badge.shared-docs__kind::before {
   content: none;
+}
+.lore-badge.shared-docs__kind svg {
+  display: block;
+}
+.shared-docs__file {
+  position: relative;
+  min-width: 0;
 }
 .shared-docs__file-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-  flex: 1;
 }
 .shared-docs__name-line {
   display: flex;
-  align-items: center;
-  gap: 6px;
   min-width: 0;
 }
 .shared-docs__file-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
   min-width: 0;
   padding: 0;
   border: none;
   background: none;
   font: inherit;
-  color: inherit;
+  color: var(--color-accent);
   text-align: left;
   text-decoration: none;
   cursor: pointer;
 }
-/* The whole cell (icon, name, description) is the open target; the pencil
- * sits above that stretched area so it stays its own button. */
+/* The whole block (name and description) is the open target. */
 .shared-docs__file-open::after {
   content: "";
   position: absolute;
   inset: 0;
 }
-.shared-docs__name-edit {
-  position: relative;
-  z-index: 1;
+.shared-docs__file-open svg {
   flex: none;
-  display: inline-grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  opacity: 0;
 }
-.shared-docs__file:hover .shared-docs__name-edit,
-.shared-docs__name-edit:focus-visible {
-  opacity: 1;
-}
-.shared-docs__name-edit:hover {
-  color: var(--color-accent);
-  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
-}
-/* Hidden means unclickable too, so a click just past the name opens the file. */
-@media (hover: hover) {
-  .shared-docs__name-edit {
-    pointer-events: none;
-  }
-  .shared-docs__file:hover .shared-docs__name-edit,
-  .shared-docs__name-edit:focus-visible {
-    pointer-events: auto;
-  }
-}
-@media (hover: none) {
-  .shared-docs__name-edit {
-    opacity: 1;
-  }
-}
-.shared-docs__name,
-.shared-docs__file-description {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* Block, or the ellipsis never applies and a long name runs out of its cell. */
+/* Block, or the ellipsis never applies and a long name runs out of the card. */
 .shared-docs__name {
   display: block;
-  font-weight: 600;
-}
-.shared-docs__file-description {
-  font-size: 12px;
-  color: var(--color-text-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
 }
 .shared-docs__file-open:hover .shared-docs__name {
-  color: var(--color-accent);
+  text-decoration-color: currentColor;
 }
-.shared-docs__updated {
-  grid-area: updated;
+.shared-docs__file-description {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.shared-docs__chip-text {
   min-width: 0;
-  font-size: 12px;
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--color-text-muted);
-  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .shared-docs__updated-open {
-  max-width: 100%;
-  padding: 0;
-  border: none;
-  background: none;
-  font: inherit;
-  color: inherit;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-.shared-docs__updated-open:hover {
-  color: var(--color-accent);
-  text-decoration: underline;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── one document ── */

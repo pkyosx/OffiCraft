@@ -6,12 +6,14 @@ import { useI18n } from "../i18n";
 import { api, viewerIsOwner } from "../api";
 import { authedAttachmentUrl } from "../api/http";
 import { useActorName } from "../hooks/useActorName";
+import { useMembers } from "../hooks/useMembers";
+import { avatarKindForMember } from "../lib/avatarKind";
 import { useSharedDoc, useSharedDocAction, useSharedDocs } from "../hooks/useSharedDocs";
 import { copyText } from "../lib/clipboard";
-import { formatAbsolute } from "../lib/dateFormat";
 import { useHashRoute } from "../lib/hashRoute";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import type { SharedDocView } from "../types";
+import { Avatar } from "./Avatar";
 import { ConfirmModal } from "./ConfirmModal";
 import {
   SharedDocDetail,
@@ -26,12 +28,14 @@ import { RuntimeActionMenu } from "./RuntimeActionMenu";
 import { SharedDocVersionsModal } from "./SharedDocVersionsModal";
 import {
   CheckIcon,
+  ClockIcon,
   DownloadIcon,
   ExternalLinkIcon,
+  FileIcon,
   FileTextIcon,
   ImageIcon,
   LayersIcon,
-  PaperclipIcon,
+  LinkIcon,
   PencilIcon,
   TrashIcon,
   UploadIcon,
@@ -41,7 +45,6 @@ import "./inline-edit.css";
 import "./lore.css";
 import "./md-preview.css";
 import "./secrets.css";
-import "./theme-settings.css";
 import "./shared-docs.css";
 
 function useFlash(): [string | null, (key: string) => void] {
@@ -89,41 +92,47 @@ export function defaultLinkName(url: string): string {
   return Array.from(name).slice(0, NAME_MAX_CHARS).join("");
 }
 
+/** `sd-0c41e97a2b58` → `sd-0c41e9`: six characters after the prefix. */
+function shortDocId(id: string): string {
+  const dash = id.indexOf("-");
+  return dash < 0 ? id : id.slice(0, dash + 7);
+}
+
+/** The kind as an icon; its name is the tooltip and the accessible name. */
 function KindChip({ doc }: { doc: SharedDocView }) {
   const { t } = useI18n();
   const d = t.sharedDocs;
   const label = doc.kind === "link" ? d.kindLink : doc.kind === "image" ? d.kindImage : d.kindFile;
   return (
-    <span className="lore-badge shared-docs__kind" data-testid={`shared-doc-kind-${doc.kind}`}>
+    <span
+      className="lore-badge shared-docs__kind"
+      role="img"
+      aria-label={label}
+      title={label}
+      data-testid={`shared-doc-kind-${doc.kind}`}
+    >
       {doc.kind === "link" ? (
-        <ExternalLinkIcon size={13} />
+        <LinkIcon size={13} />
       ) : doc.kind === "image" ? (
         <ImageIcon size={13} />
       ) : (
-        <PaperclipIcon size={13} />
+        <FileIcon size={13} />
       )}
-      {label}
     </span>
   );
 }
 
-/** The card's name block: the name opens the content itself — a link in a new tab,
- * anything stored in the preview overlay — and the pencil after it opens the
- * name/description dialog. */
+/** The card's name block: the name opens the content itself — a link in a new
+ * tab, anything stored in the preview overlay — with the description under it. */
 function FileBlock({
   doc,
   onPreview,
-  onEditInfo,
 }: {
   doc: SharedDocView;
   onPreview: (doc: SharedDocView) => void;
-  onEditInfo: (doc: SharedDocView) => void;
 }) {
-  const { t } = useI18n();
-  const d = t.sharedDocs;
   const title = doc.description ? `${doc.name}\n${doc.description}` : doc.name;
   const name = <span className="shared-docs__name">{doc.name}</span>;
-  const infoLabel = doc.kind === "link" ? d.editLink : d.editInfo;
   return (
     <div className="shared-docs__file" data-testid="shared-doc-name">
       <span className="shared-docs__file-text">
@@ -138,6 +147,7 @@ function FileBlock({
               title={title}
             >
               {name}
+              <ExternalLinkIcon size={13} />
             </a>
           ) : (
             <button
@@ -150,16 +160,6 @@ function FileBlock({
               {name}
             </button>
           )}
-          <button
-            type="button"
-            className="shared-docs__name-edit"
-            data-testid="shared-doc-edit-info"
-            aria-label={`${infoLabel} ${doc.name}`}
-            title={infoLabel}
-            onClick={() => onEditInfo(doc)}
-          >
-            <PencilIcon size={13} />
-          </button>
         </span>
         {doc.description && <span className="shared-docs__file-description">{doc.description}</span>}
       </span>
@@ -485,7 +485,7 @@ function SharedDocEditOverlay({
   );
 }
 
-/** 最後修改 opens the doc's version history over the list; the doc's own
+/** 最後更新 opens the doc's version history over the list; the doc's own
  * page stays at #shared-docs/<id>. */
 function UpdatedButton({ text, onOpen }: { text: string; onOpen: () => void }) {
   const { t } = useI18n();
@@ -493,29 +493,33 @@ function UpdatedButton({ text, onOpen }: { text: string; onOpen: () => void }) {
   return (
     <button
       type="button"
-      className="shared-docs__updated-open"
+      className="lore-row__chip lore-row__chip--link shared-docs__updated-open"
       data-testid="shared-doc-updated"
       aria-label={`${text} · ${d.openHistory}`}
       title={d.openHistory}
       onClick={onOpen}
     >
-      {text}
+      <ClockIcon size={13} />
+      <span className="shared-docs__chip-text">{text}</span>
     </button>
   );
 }
 
-/** 上傳新版本 | 永久刪除, in the same places on every row; a link cannot take
- * an upload, so its button stays put, dimmed, with a tooltip saying why. */
+/** 編輯資訊 | 上傳新版本 | 永久刪除, in the same places on every card; a link
+ * cannot take an upload, so its button stays put, dimmed, with a tooltip
+ * saying why. */
 function RowActions({
   doc,
   isOwner,
   busy,
+  onEditInfo,
   onUpload,
   onDelete,
 }: {
   doc: SharedDocView;
   isOwner: boolean;
   busy: boolean;
+  onEditInfo: () => void;
   onUpload: () => void;
   onDelete: () => void;
 }) {
@@ -523,11 +527,22 @@ function RowActions({
   const d = t.sharedDocs;
   const link = doc.kind === "link";
   const uploadTitle = link ? d.uploadVersionUnavailable : d.uploadVersion;
+  const infoLabel = link ? d.editLink : d.editInfo;
   return (
-    <span className="shared-docs__actions">
+    <span className="lore-row__actions shared-docs__actions">
       <button
         type="button"
-        className="ts-icon-btn"
+        className="lore-row__icon-btn"
+        data-testid="shared-doc-edit-info"
+        aria-label={`${infoLabel} ${doc.name}`}
+        title={infoLabel}
+        onClick={onEditInfo}
+      >
+        <PencilIcon size={15} />
+      </button>
+      <button
+        type="button"
+        className="lore-row__icon-btn"
         data-testid="shared-doc-upload"
         aria-label={`${uploadTitle} ${doc.name}`}
         aria-disabled={link || busy || undefined}
@@ -541,7 +556,7 @@ function RowActions({
       {isOwner && (
         <button
           type="button"
-          className="ts-icon-btn ts-icon-btn--danger"
+          className="lore-row__icon-btn lore-row__icon-btn--danger"
           data-testid="shared-doc-delete"
           aria-label={`${d.delete} ${doc.name}`}
           title={d.delete}
@@ -550,6 +565,18 @@ function RowActions({
           <TrashIcon size={15} />
         </button>
       )}
+    </span>
+  );
+}
+
+/** 建立者: who made the doc, as an avatar chip. */
+function CreatorChip({ id, name }: { id: string; name: string }) {
+  const { members } = useMembers({ light: true });
+  const member = members.find((m) => m.id === id);
+  return (
+    <span className="lore-row__chip" data-testid="shared-doc-creator">
+      {member ? <Avatar size={18} kind={avatarKindForMember(member)} src={member.avatarUrl} /> : null}
+      <span className="shared-docs__chip-text">{name}</span>
     </span>
   );
 }
@@ -721,8 +748,8 @@ function SharedDocList({ actorName }: { actorName: (id: string) => string }) {
               data-testid="shared-doc-row"
               data-doc-id={doc.id}
             >
-              <div className="shared-docs__col-id">
-                <span className="shared-docs__id-cell">
+              <div className="lore-row__head">
+                <div className="lore-row__badges">
                   <button
                     type="button"
                     className="lore-row__id-badge"
@@ -734,37 +761,33 @@ function SharedDocList({ actorName }: { actorName: (id: string) => string }) {
                     }}
                   >
                     {flashed === `id:${doc.id}` ? <CheckIcon size={13} /> : <LayersIcon size={13} />}#
-                    {doc.id}
+                    {shortDocId(doc.id)}
                   </button>
                   <KindChip doc={doc} />
-                </span>
-              </div>
-              <div className="shared-docs__col-file">
-                <FileBlock
-                  doc={doc}
-                  onPreview={setPreview}
-                  onEditInfo={(target) => {
-                    setActionError("");
-                    setInfoId(target.id);
-                  }}
-                />
-              </div>
-              <div className="shared-docs__updated">
-                <UpdatedButton
-                  text={msg.sharedDocUpdated(actorName(doc.updatedBy), formatAbsolute(doc.updatedTs, nowSecs))}
-                  onOpen={() => setHistoryId(doc.id)}
-                />
-              </div>
-              <div className="shared-docs__col-actions">
+                </div>
                 <RowActions
                   doc={doc}
                   isOwner={isOwner}
                   busy={uploading.includes(doc.id)}
+                  onEditInfo={() => {
+                    setActionError("");
+                    setInfoId(doc.id);
+                  }}
                   onUpload={() => pick({ mode: "replace", doc })}
                   onDelete={() => {
                     setDeleteError("");
                     setDeleteTarget(doc);
                   }}
+                />
+              </div>
+              <FileBlock doc={doc} onPreview={setPreview} />
+              <div className="lore-row__meta">
+                <span className="lore-row__meta-label">{d.createdByLabel}</span>
+                <CreatorChip id={doc.createdBy} name={actorName(doc.createdBy)} />
+                <span className="lore-row__meta-label">{d.updatedLabel}</span>
+                <UpdatedButton
+                  text={msg.sharedDocUpdatedAgo(actorName(doc.updatedBy), nowSecs - doc.updatedTs)}
+                  onOpen={() => setHistoryId(doc.id)}
                 />
               </div>
             </div>
