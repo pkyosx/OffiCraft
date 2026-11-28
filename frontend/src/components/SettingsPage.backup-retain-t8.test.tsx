@@ -68,7 +68,7 @@ async function openParamsPage() {
  * the provider in `en` and reading the node it actually painted. */
 async function retainCopyIn(
   locale: "zh" | "en",
-): Promise<{ visible: string; info: string }> {
+): Promise<{ visible: string; info: string; unit: string }> {
   window.localStorage.setItem(LS_LANGUAGE, locale);
   const dict = locale === "zh" ? zh : en;
   const utils = render(
@@ -83,6 +83,7 @@ async function retainCopyIn(
   const copy = {
     visible: row.querySelector(".param-row__sub")?.textContent ?? "",
     info: infoHintText(row),
+    unit: row.querySelector(".param-pct__sign")?.textContent ?? "",
   };
   utils.unmount();
   return copy;
@@ -143,7 +144,7 @@ describe("T-8 — backup retention N is an adjustable setting", () => {
     expect((await retainCopyIn("en")).info).toContain("counts backups, not days");
   });
 
-  it("the copy beside the field says each backup type keeps N, so the disk holds up to twice as many", async () => {
+  it("the ⓘ says each backup type keeps N, so the disk holds up to twice as many, and the unit beside the field is the bare unit", async () => {
     // The failure: a reader sets 5 and believes the directory holds 5 files. It
     // holds up to 10 — routine and pre-migration backups keep separate quotas —
     // so both the disk cost and the depth are double what they assumed.
@@ -153,6 +154,8 @@ describe("T-8 — backup retention N is an adjustable setting", () => {
     const enInfo = (await retainCopyIn("en")).info;
     expect(enInfo).toContain("routine backups and pre-upgrade backups each keep this many");
     expect(enInfo).toContain("up to twice as many files on disk");
+    expect((await retainCopyIn("zh")).unit).toBe("份");
+    expect((await retainCopyIn("en")).unit).toBe("backups");
   });
 
   it("the copy says the excess is DELETED, not moved aside, on the row itself rather than behind ⓘ", async () => {

@@ -2743,7 +2743,7 @@ export const en: Dict = {
     backupRetainSub:
       "How many database backups are kept (1–20). It counts backups, not days; routine backups and pre-upgrade backups each keep this many, so there can be up to twice as many files on disk.",
     backupRetainWarning: "Anything past this number is permanently deleted on the next backup.",
-    backupRetainUnit: "backups (per type)",
+    backupRetainUnit: "backups",
     // T-122 (+ the lore list, T-33): the three suggested-reply lists. One row
     // per box and not one shared row, deliberately — answering a reply card,
     // writing to a task in progress and asking the writer of a lore entry about
