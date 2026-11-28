@@ -452,6 +452,83 @@ func TestSetLoreStateClearsTheReasonOnTheWayBack(t *testing.T) {
 	}
 }
 
+// TestSetLoreStateStampsRetiredTs — retired_ts is set when an entry becomes
+// retired, survives edits, bumps and a second retire, and is gone again once
+// the entry is moved back to active or pinned.
+func TestSetLoreStateStampsRetiredTs(t *testing.T) {
+	_, h, d, owner := newAPITestServer(t)
+	e, err := d.CreateLoreEntryMintingID(LoreEntry{
+		ScopeKind: LoreScopeEveryone, Title: "一件事", Body: "內容",
+		AuthorID: "m-lore-author", State: LoreStateActive,
+		EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100, LoreType: LoreTypeOther,
+	})
+	if err != nil {
+		t.Fatalf("CreateLoreEntryMintingID: %v", err)
+	}
+	read := func() map[string]any {
+		t.Helper()
+		status, data := apiJSON(t, h, "GET", "/api/lore?entry_id="+e.ID, owner, "")
+		if status != http.StatusOK {
+			t.Fatalf("GET /api/lore: %d %v", status, data)
+		}
+		return data["entries"].([]any)[0].(map[string]any)
+	}
+	do := func(method, path, body string) map[string]any {
+		t.Helper()
+		status, data := apiJSON(t, h, method, path, owner, body)
+		if status != http.StatusOK {
+			t.Fatalf("%s %s %s: %d %v", method, path, body, status, data)
+		}
+		return data
+	}
+	stateTo := func(body string) float64 {
+		t.Helper()
+		return do("POST", "/api/lore/"+e.ID+"/state", body)["updated_ts"].(float64)
+	}
+	wantNoRetiredTs := func(when string) {
+		t.Helper()
+		if got, has := read()["retired_ts"]; has {
+			t.Fatalf("%s: retired_ts = %v, want the field absent", when, got)
+		}
+	}
+	wantRetiredTs := func(when string, want float64) {
+		t.Helper()
+		if got := read()["retired_ts"]; got != want {
+			t.Fatalf("%s: retired_ts = %v, want %v", when, got, want)
+		}
+	}
+
+	wantNoRetiredTs("a new active entry")
+
+	before := nowSecs()
+	retiredAt := stateTo(`{"state":"retired","retire_reason":"已被取代"}`)
+	if retiredAt < before || retiredAt > nowSecs() {
+		t.Fatalf("retire stamped updated_ts %v outside the request", retiredAt)
+	}
+	wantRetiredTs("after retiring", retiredAt)
+
+	do("PATCH", "/api/lore/"+e.ID, `{"title":"改過的標題","body":"改過的內容"}`)
+	wantRetiredTs("after a text edit", retiredAt)
+	do("POST", "/api/lore/"+e.ID+"/bump", "")
+	wantRetiredTs("after a bump", retiredAt)
+	stateTo(`{"state":"retired","retire_reason":"換個理由"}`)
+	wantRetiredTs("after retiring a retired entry again", retiredAt)
+	if got := read()["retire_reason"]; got != "換個理由" {
+		t.Fatalf("retire_reason = %v, want 換個理由", got)
+	}
+
+	stateTo(`{"state":"active"}`)
+	wantNoRetiredTs("after moving back to active")
+
+	retiredAgainAt := stateTo(`{"state":"retired"}`)
+	if retiredAgainAt <= retiredAt {
+		t.Fatalf("second retire stamped %v, not after the first %v", retiredAgainAt, retiredAt)
+	}
+	wantRetiredTs("after retiring it again", retiredAgainAt)
+	stateTo(`{"state":"pinned"}`)
+	wantNoRetiredTs("after pinning")
+}
+
 // TestSetLoreStateRejectsAnUnknownState — the closed set is enforced at the
 // door, not only by the schema CHECK (which would surface as a 500).
 func TestSetLoreStateRejectsAnUnknownState(t *testing.T) {

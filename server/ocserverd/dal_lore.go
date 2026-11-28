@@ -31,6 +31,9 @@ type LoreEntry struct {
 	SourceTaskID string
 	State        string
 	RetireReason string
+	// RetiredTS is when the entry entered retired; 0 while it is not retired and
+	// on entries retired before the column existed.
+	RetiredTS float64
 
 	EffectiveTS float64
 
@@ -43,13 +46,13 @@ type LoreEntry struct {
 
 const loreEntryColumns = `id, seq, scope_kind, scope_key, title, body,
 	author_id, source_task_id, state, retire_reason,
-	effective_ts, created_ts, updated_ts, lore_type`
+	effective_ts, created_ts, updated_ts, lore_type, retired_ts`
 
 func scanLoreEntry(row interface{ Scan(...any) error }) (LoreEntry, error) {
 	var e LoreEntry
 	err := row.Scan(&e.ID, &e.Seq, &e.ScopeKind, &e.ScopeKey, &e.Title, &e.Body,
 		&e.AuthorID, &e.SourceTaskID, &e.State, &e.RetireReason,
-		&e.EffectiveTS, &e.CreatedTS, &e.UpdatedTS, &e.LoreType)
+		&e.EffectiveTS, &e.CreatedTS, &e.UpdatedTS, &e.LoreType, &e.RetiredTS)
 	return e, err
 }
 
@@ -80,10 +83,10 @@ func (d *DAL) CreateLoreEntryMintingID(e LoreEntry) (LoreEntry, error) {
 
 	if _, err := tx.Exec(
 		`INSERT INTO lore_entry (`+loreEntryColumns+`)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.ID, e.Seq, e.ScopeKind, e.ScopeKey, e.Title, e.Body,
 		e.AuthorID, e.SourceTaskID, e.State, e.RetireReason,
-		e.EffectiveTS, e.CreatedTS, e.UpdatedTS, e.LoreType); err != nil {
+		e.EffectiveTS, e.CreatedTS, e.UpdatedTS, e.LoreType, e.RetiredTS); err != nil {
 		return e, err
 	}
 	return e, tx.Commit()
@@ -246,11 +249,17 @@ func collectLoreEntries(rows *sql.Rows) ([]LoreEntry, error) {
 
 // SetLoreEntryState writes retire_reason on EVERY transition: moving back to
 // active must CLEAR it (the caller passes ""), or the cockpit keeps showing a
-// stale reason beside a live entry.
+// stale reason beside a live entry. retired_ts is cleared the same way, but
+// retired → retired keeps the first stamp (the card shows it as the end of
+// 生效期); the CASE sees the state from before this UPDATE.
 func (d *DAL) SetLoreEntryState(id, state, retireReason string, updatedTS float64) (bool, error) {
 	res, err := d.wdb.Exec(
-		`UPDATE lore_entry SET state = ?, retire_reason = ?, updated_ts = ?
-		 WHERE id = ?`, state, retireReason, updatedTS, id)
+		`UPDATE lore_entry SET state = ?, retire_reason = ?, updated_ts = ?,
+		   retired_ts = CASE WHEN ? <> ? THEN 0
+		                     WHEN state = ? THEN retired_ts
+		                     ELSE ? END
+		 WHERE id = ?`, state, retireReason, updatedTS,
+		state, LoreStateRetired, LoreStateRetired, updatedTS, id)
 	if err != nil {
 		return false, err
 	}

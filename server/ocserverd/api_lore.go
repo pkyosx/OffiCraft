@@ -807,6 +807,10 @@ func newLoreEntryDTO(e LoreEntry, facts loreScopeFacts) LoreEntryDTO {
 	taskTypeKey := facts.TaskTypeKey
 	options := loreScopeOptions(facts)
 	loreType := e.LoreType
+	var retiredTS *float64
+	if e.RetiredTS > 0 {
+		retiredTS = &e.RetiredTS
+	}
 	return LoreEntryDTO{
 		Id:           e.ID,
 		Seq:          e.Seq,
@@ -818,6 +822,7 @@ func newLoreEntryDTO(e LoreEntry, facts loreScopeFacts) LoreEntryDTO {
 		SourceTaskId: e.SourceTaskID,
 		State:        e.State,
 		RetireReason: e.RetireReason,
+		RetiredTs:    retiredTS,
 		EffectiveTs:  e.EffectiveTS,
 		CreatedTs:    e.CreatedTS,
 		UpdatedTs:    e.UpdatedTS,

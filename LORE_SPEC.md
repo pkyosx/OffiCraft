@@ -38,12 +38,13 @@
 | `source_task_id` | TEXT | 可空，寫入時所在的任務，純紀錄 |
 | `state` | TEXT | **`active` / `pinned` / `retired` 三選一互斥** |
 | `retire_reason` | TEXT | 可空，只在 `retired` 時有意義 |
+| `retired_ts` | REAL | 進入 `retired` 的時間；`0` ＝沒有失效，或在這個欄位加上（`00130`）之前就失效。改回 `active`／`pinned` 時清成 `0`；已是 `retired` 再設一次 `retired` 不動它（只換理由）。對外是 `LoreEntryDTO.retired_ts`，`0` 時不出現。卡片的「生效期」用它當結束時間 |
 | `effective_ts` | REAL | 生效期；建立時＝現在 |
 | `created_ts` | REAL | **建立時間，永不變動** —— 這是「最初的生效期」，讓「提到最新」可逆 |
 | `updated_ts` | REAL | 狀態、理由、適用範圍或內容（標題／內容／類型）變動時更新 |
 | `lore_type` | TEXT | 類型標籤，`instruction_conflict`（指示衝突）/ `instruction_supplement`（指示補充）/ `owner_decision`（Owner 決策）/ `owner_preference`（Owner 偏好）/ `other`（其他）五選一，**每一筆一定是其中一個**：寫入一定要給類型（owner `rc-714fa3879796` 圈 A）；標題沒有類型前綴的既有條目由 migration 標成 `other`（owner `rc-8ff3a3d41a26` 圈 B：「一律算『其他』」）。欄位 `NOT NULL DEFAULT 'other'`，DB CHECK 只收這五個值（不收 `''`）。寫入時決定，之後只能經修改路徑（`edit_lore_entry`，見 §5）改 |
 
-🔴 **可變的欄位只有這幾組，各走各的路徑：** `title` / `body` / `lore_type` 走修改（`PATCH /api/lore/{entry_id}`＝MCP `edit_lore_entry`，見 §5）；`state` / `retire_reason` 走改狀態；`effective_ts` 走提到最新；`scope_kind` / `scope_key` 走只限負責人／admin agent 的 `set_lore_entry_scope`（T-236，見 §5）。`id`、`seq`、`author_id`、`source_task_id`、`created_ts` 寫入後不變。
+🔴 **可變的欄位只有這幾組，各走各的路徑：** `title` / `body` / `lore_type` 走修改（`PATCH /api/lore/{entry_id}`＝MCP `edit_lore_entry`，見 §5）；`state` / `retire_reason` / `retired_ts` 走改狀態；`effective_ts` 走提到最新；`scope_kind` / `scope_key` 走只限負責人／admin agent 的 `set_lore_entry_scope`（T-236，見 §5）。`id`、`seq`、`author_id`、`source_task_id`、`created_ts` 寫入後不變。
 🔴 **修改不動 `effective_ts`**：改內容不是「提到最新」，條目在挑選順序裡的位置不變；但字數變長會多花共用的預算，可能把排在後面的條目擠到上限外。
 🔴 **`created_ts` 一旦寫入永不變動**，`effective_ts` 才是「提到最新」會蓋掉的那一個。
 

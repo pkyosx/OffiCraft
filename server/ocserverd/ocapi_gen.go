@@ -2009,6 +2009,9 @@ type LoreEntryDTO struct {
 	// RetireReason Why it was retired, or "". Meaningful only while ``state`` is ``retired``, and cleared when the entry is moved back.
 	RetireReason string `json:"retire_reason"`
 
+	// RetiredTs Epoch seconds the entry was moved into ``retired``. Absent while it is not retired and on entries retired before this field existed; moving the entry back clears it, and setting ``retired`` again on a retired entry keeps the first time. additive-optional.
+	RetiredTs *float64 `json:"retired_ts,omitempty"`
+
 	// ScopeKey The writer's own member id when ``scope_kind`` is ``agent``; the task manual's ``type_key`` when it is ``manual``; "" when it is ``everyone``. A surviving legacy ``role`` row (see ``scope_kind``) still carries a role_key here.
 	ScopeKey string `json:"scope_key"`
 
@@ -6685,7 +6688,7 @@ type ServerInterface interface {
 	// - `scope_kind`: The TARGET scope, one of “agent“, “manual“, “everyone“. Anything else — the retired “role“ included — is a 400 that names it. “manual“ is also a 400 when the entry has no derivable task type, and “agent“ when its author has no roster row; either is then absent from the entry's “scope_options“. There is no “scope_key“ field: the server derives the key itself (the author's member id / the task type_key / "").
 	// (POST /api/lore/{entry_id}/scope)
 	HandleSetLoreEntryScopeApiLoreEntryIdScopePost(w http.ResponseWriter, r *http.Request, entryId string)
-	// Move one lore entry to active / pinned / retired. Pin and unpin are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. Retire and Activate are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. A PINNED entry is outside its author's reach as well: until an admin un-pins it, every state change a non-admin requests on it, the author's included, is a 403. The author can still move it to the top of its group with “bump_lore_entry“. Retiring is not deleting: the entry keeps its id and can be moved back; “retire_reason“ is stored only with retired and cleared by the other two.
+	// Move one lore entry to active / pinned / retired. Pin and unpin are ADMIN-ONLY (owner ruling): a pinned entry sorts ahead of every other entry in its scope and so survives the cap at the others' expense. Retire and Activate are open to the entry's own AUTHOR -- anyone else is a 403 -- and admin capability is unrestricted. A PINNED entry is outside its author's reach as well: until an admin un-pins it, every state change a non-admin requests on it, the author's included, is a 403. The author can still move it to the top of its group with “bump_lore_entry“. Retiring is not deleting: the entry keeps its id and can be moved back; “retire_reason“ is stored only with retired and cleared by the other two. “retired_ts“ is stamped when the entry becomes retired and cleared the same way; retiring an already retired entry keeps the first stamp, and entries retired before the field existed have none.
 	// (POST /api/lore/{entry_id}/state)
 	HandleSetLoreEntryStateApiLoreEntryIdStatePost(w http.ResponseWriter, r *http.Request, entryId string)
 	// List machines (active wardens): machine_id/display_name/online.
