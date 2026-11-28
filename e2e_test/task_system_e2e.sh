@@ -16,7 +16,7 @@
 #       spawn → synthetic task done (disk-verified) → ready_for_done park →
 #       worker presses mark_task_done → fire →
 #     STAGE D  parallel_group fork-join (matrix §2.5 D1-D6):
-#       3 illegal plan shapes → 400; legal 3-lane+join plan → 200; real
+#       2 illegal plan shapes → 400; legal 3-lane+join plan → 200; real
 #       fork-join run (3/5/7 → sum 15, disk-verified) →
 #     PHASE teardown → clean slate.
 #
