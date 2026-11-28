@@ -69,9 +69,11 @@ export function TitleWithInfo({ title, hint }: { title: string; hint: string }) 
   );
 }
 
+const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u3000-\u303f\uff00-\uffef]/u;
+
 function lastWordStart(title: string): number {
-  const space = title.lastIndexOf(" ");
-  if (space >= 0) return space + 1;
   const last = [...title].pop() ?? "";
-  return title.length - last.length;
+  // A Latin word before a CJK run ("Secret 請示卡…") must not glue the whole run.
+  if (CJK.test(last)) return title.length - last.length;
+  return title.lastIndexOf(" ") + 1;
 }

@@ -27,7 +27,7 @@ function EscDialog() {
 function WrapSweep() {
   return (
     <div>
-      {["Reassign handover timeout", "外包交接逾時時間設定"].flatMap((title) =>
+      {["Reassign handover timeout", "外包交接逾時時間設定", "Secret 請示卡的取得後保留時間"].flatMap((title) =>
         Array.from({ length: 160 }, (_, i) => (
           <div key={`${title}-${i}`} className="param-row__name" style={{ width: 40 + i }}>
             <TitleWithInfo title={title} hint="說明" />

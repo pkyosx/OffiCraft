@@ -49,6 +49,17 @@ async function orphanIcons(page: Page) {
   );
 }
 
+/** Rows whose title (with its ⓘ) runs into the control beside it. */
+async function titlesIntoControl(page: Page) {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>(".param-row")).flatMap((row) => {
+      const icon = row.querySelector(".param-row__name .info-hint")?.getBoundingClientRect();
+      const control = row.querySelector(".param-pct, .set-toggle")?.getBoundingClientRect();
+      return icon && control && icon.right > control.left ? [row.querySelector(".param-row__name")!.textContent] : [];
+    }),
+  );
+}
+
 async function tapOutside(page: Page) {
   await page.mouse.click(2, page.viewportSize()!.height - 2);
 }
@@ -59,13 +70,14 @@ for (const width of [390, 1440]) {
       await page.setViewportSize({ width, height: 844 });
     });
 
-    test("一般設定: a tap opens the bubble at the icon, the page does not overflow, a tap elsewhere closes it, and no icon wraps alone", async ({ mount, page }) => {
+    test("一般設定: a tap opens the bubble at the icon, the page does not overflow, a tap elsewhere closes it, no icon wraps alone, and no title runs into its control", async ({ mount, page }) => {
       await mount(<InfoHintStory mode="settings" />);
       await page.getByTestId("settings-params-entry").click();
       const icon = page.getByRole("img", { name: `關於 ${s.sessionTtl}` });
       await expect(icon).toBeVisible();
       expect(await page.getByRole("tooltip").count()).toBe(0);
       expect(await orphanIcons(page)).toEqual([]);
+      expect(await titlesIntoControl(page)).toEqual([]);
 
       const target = (await icon.evaluate((el) => {
         const r = el.getBoundingClientRect();

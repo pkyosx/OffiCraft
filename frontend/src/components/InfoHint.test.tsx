@@ -41,13 +41,14 @@ describe("TitleWithInfo", () => {
       <I18nProvider>
         <TitleWithInfo title="Session length" hint="How long before you sign in again" />
         <TitleWithInfo title="登入有效期" hint="多久之後要重新登入" />
+        <TitleWithInfo title="Secret 請示卡的取得後保留時間" hint="說明" />
       </I18nProvider>,
     );
     const titles = Array.from(container.querySelectorAll(".info-hint__title"));
-    expect(titles.map((t) => t.textContent)).toEqual(["Session length", "登入有效期"]);
+    expect(titles.map((t) => t.textContent)).toEqual(["Session length", "登入有效期", "Secret 請示卡的取得後保留時間"]);
     expect(
       Array.from(container.querySelectorAll(".info-hint__glue")).map((g) => g.textContent),
-    ).toEqual(["length", "期"]);
+    ).toEqual(["length", "期", "間"]);
     expect(screen.getByRole("img", { name: "關於 Session length" })).toBeTruthy();
   });
 });
