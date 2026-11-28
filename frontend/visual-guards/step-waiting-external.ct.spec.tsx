@@ -50,5 +50,14 @@ for (const width of [1280, 390]) {
     expect(mdBox.y - labelBox.y).toBeGreaterThan(8);
     // STACKED-B: reason begins on a NEW flex line — left edge at/left-of label.
     expect(mdBox.x).toBeLessThanOrEqual(labelBox.x + 1);
+
+    // (3) the reason row's icon paints the theme's 等待外部 step colour.
+    await page.evaluate(() =>
+      document.documentElement.style.setProperty("--color-step-waiting-external", "rgb(77, 88, 99)")
+    );
+    const iconColour = await row
+      .locator(":scope > svg")
+      .evaluate((el) => getComputedStyle(el).color);
+    expect(iconColour, "reason icon colour").toBe("rgb(77, 88, 99)");
   });
 }

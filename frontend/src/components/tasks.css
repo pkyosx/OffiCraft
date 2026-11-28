@@ -1037,8 +1037,7 @@ button.task-card__prio-chip:hover {
 }
 
 /* 狀態 icon → owner-action dropdown: the jumps, 標記重複 / 終止 / 強制結案.
-   The icon is the card's only status encoding, coloured per status with the
-   same tokens the status badges use elsewhere. The pop anchors under its left
+   The icon is the card's only status encoding. The pop anchors under its left
    edge. */
 .task-card__status {
   position: relative;

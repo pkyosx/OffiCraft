@@ -8,7 +8,9 @@
 //     狀態 icon · #ID · 優先權 still share the first;
 //   · nothing in the head crosses the card's right edge and the page never
 //     scrolls sideways;
-//   · every status icon renders at the same size, in its status colour;
+//   · every status icon renders at the same size, in its status colour, and
+//     未開始／等我回覆／等待外部／完成 paint whatever the theme sets as their
+//     --color-step-* value;
 //   · collapsed, the meta shows only 負責人／到期日 and no 更多 toggle; expanded,
 //     類型／產物／建立者 sit right under 到期日 and stay inside the card at
 //     320 / 390 / 1440 in zh and en.
@@ -80,6 +82,21 @@ for (const width of [320, 390, 1440]) {
       .locator(".task-card__status-icon")
       .evaluateAll((els) => els.map((el) => getComputedStyle(el).color));
     expect(new Set(colours).size, "every status has its own colour").toBe(8);
+
+    await page.evaluate(() => {
+      const root = document.documentElement.style;
+      root.setProperty("--color-step-pending", "rgb(11, 22, 33)");
+      root.setProperty("--color-step-waiting-owner", "rgb(44, 55, 66)");
+      root.setProperty("--color-step-waiting-external", "rgb(77, 88, 99)");
+      root.setProperty("--color-step-done", "rgb(101, 102, 103)");
+    });
+    const stepPainted = await cmp
+      .locator(".task-card__status-icon")
+      .evaluateAll((els) => els.map((el) => getComputedStyle(el).color));
+    expect(
+      [stepPainted[1], stepPainted[2], stepPainted[3], stepPainted[5]],
+      "未開始／等我回覆／等待外部／完成 paint the theme's step colours"
+    ).toEqual(["rgb(11, 22, 33)", "rgb(44, 55, 66)", "rgb(77, 88, 99)", "rgb(101, 102, 103)"]);
 
     const overflow = await pageOverflow(page);
     expect(overflow.missing).toBe(false);
