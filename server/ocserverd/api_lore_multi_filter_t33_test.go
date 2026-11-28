@@ -378,7 +378,7 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 		t.Fatalf("everyone page: %d %v", status, data)
 	}
 	apiWantBody(t, data, map[string]any{
-		"entries": everyoneRows, "limit": 30, "offset": 0,
+		"entries": everyoneRows, "limit": 30, "offset": 0, "total": 5,
 		"cap_chars": 20, "first_dropped_id": oldest,
 		"used_chars": 20, "first_dropped_chars": 5,
 		"budget_segments": []any{map[string]any{"scope_kind": "everyone",
@@ -398,7 +398,7 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 	}
 	delete(data, "entries")
 	apiWantBody(t, data, map[string]any{
-		"limit": 30, "offset": 0, "cap_chars": 20, "first_dropped_id": one.Entries[0].Id,
+		"limit": 30, "offset": 0, "total": 6, "cap_chars": 20, "first_dropped_id": one.Entries[0].Id,
 		"used_chars": 20, "first_dropped_chars": 5,
 		"budget_segments": []any{
 			map[string]any{"scope_kind": "everyone",
@@ -451,7 +451,7 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 	secondEveryone := data["entries"].([]any)[4].(map[string]any)["id"]
 	delete(data, "entries")
 	apiWantBody(t, data, map[string]any{
-		"limit": 30, "offset": 0, "cap_chars": 20, "used_chars": 20,
+		"limit": 30, "offset": 0, "total": 9, "cap_chars": 20, "used_chars": 20,
 		"first_dropped_id": secondEveryone, "first_dropped_chars": 5,
 		"budget_segments": []any{
 			map[string]any{"scope_kind": "everyone",
@@ -743,6 +743,10 @@ func TestLoreTitleQFilter(t *testing.T) {
 		out := []string{}
 		for _, e := range data["entries"].([]any) {
 			out = append(out, e.(map[string]any)["title"].(string))
+		}
+		if data["total"] != float64(len(out)) {
+			t.Fatalf("q=%q%s: total=%v, want %d, the entries the title search matched",
+				q, extra, data["total"], len(out))
 		}
 		return out
 	}
