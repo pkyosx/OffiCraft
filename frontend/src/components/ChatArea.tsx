@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
 } from "react";
 import { flushSync } from "react-dom";
 import { useI18n } from "../i18n";
@@ -2597,7 +2598,10 @@ export function ChatArea({
          * that would lie. Own classes, NOT chat__gallery-toggle: that class is a
          * querySelector handle in ChatArea.gallery.test.tsx and a second element
          * wearing it would be silently picked up instead. */}
-        <div className={`chat__header-actions${topActionCount > 1 ? " chat__header-actions--stacked" : ""}`}>
+        <div
+          className={`chat__header-actions${topActionCount > 1 ? " chat__header-actions--stacked" : ""}`}
+          style={{ "--chat-header-action-cols": Math.ceil((topActionCount + 2) / 2) } as CSSProperties}
+        >
           {topActionCount > 0 && (
             <div className="chat__header-actions-row">
               {onOpenReplies && (
