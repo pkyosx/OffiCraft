@@ -2516,8 +2516,8 @@ function LoreEntryEditor({
   );
 }
 
-/** The 撰寫人 pill: who wrote the entry, never a way to reach them — the
- * message box under the card is that. */
+/** The 撰寫人 pill. Owner-written entries (and entries with no author) have
+ * no chat to open: there is no chat with yourself. */
 function LoreAuthorChip({
   authorId,
   author,

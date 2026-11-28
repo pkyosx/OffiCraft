@@ -449,7 +449,7 @@ export function TaskCard({
   // roster member (name, clickable), an outsource worker id ("ow-…" → its
   // 代號 when resolvable, else the raw id; chat reachable either way), a
   // dismissed member (name via the per-id read, clickable to the read-only
-  // history), "" on a pre-column task ("—", not clickable), or any other value
+  // history), "" on a pre-column task ("-", not clickable), or any other value
   // ("owner", an unresolvable id) which is shown as plain text and NOT
   // clickable — there is no self-chat, and fabricating one would be a lie
   // (owner ruling).

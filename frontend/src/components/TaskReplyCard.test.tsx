@@ -155,7 +155,7 @@ describe("TaskReplyCard", () => {
   });
 
   // ── lazy-load: answered-hinted cards default NOT loaded (owner 已回覆卡預設不載) ─
-  function renderHinted(initialStatus: "waiting" | "answered") {
+  function renderHinted(initialStatus: "waiting" | "answered" | "expired") {
     return render(
       <I18nProvider>
         <TaskReplyCard
@@ -236,6 +236,24 @@ describe("TaskReplyCard", () => {
     expect(fold.getAttribute("aria-label")).toBe("收合回覆卡");
     fireEvent.click(fold);
     expect(await findByTestId("task-reply-card-expand")).toBeTruthy();
+  });
+
+  it("expanding an EXPIRED-hinted card shows 處理時間 at the time it expired", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-28T12:00:00+08:00") });
+    try {
+      __injectMockReplyCard(
+        mkCard({ status: "expired", answeredTs: null, expiredTs: 1795793400 })
+      );
+      const { findByTestId } = renderHinted("expired");
+      fireEvent.click(await findByTestId("task-reply-card-expand"));
+      const card = await findByTestId("task-reply-card");
+      await waitFor(() =>
+        expect(card.querySelector('[data-testid="reply-status-icon"]')?.getAttribute("data-state")).toBe("expired")
+      );
+      expect(card.querySelector('[data-testid="reply-card-handled-at"]')!.textContent).toBe("處理時間 11/27 23:30");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("an expanded card reads its status, own id and 跳到原訊息, then its title, 開卡人, the divider and the question", async () => {

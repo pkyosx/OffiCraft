@@ -1199,24 +1199,6 @@ export function RepliesPage({
     });
   }
 
-  // Avatar → member panel (owner 2026-07-21: "也要可以" — every other avatar
-  // in the cockpit already opens the detail panel; this card's was the one
-  // hold-out). Mirrors MemberCard's avatar-as-second-target pattern and rides
-  // the SAME hash seam (frontend/src/lib/hashRoute.ts) OfficePage already
-  // reads: staff askers go through #office/member/<id> (detailId), an
-  // outsource asker through #office/worker/<id> (workerId) — OfficePage
-  // self-heals to the plain roster view if the id doesn't resolve (e.g. a
-  // released worker), so this never dead-ends. The split below keys on
-  // `kind === "staff"`, NOT on absence from `members`: GET /api/members
-  // carries kind='outsource' rows, so a live worker is present in the list
-  // and only its kind tells the two panels apart.
-  //
-  // backTo + backToId: without them,
-  // OfficePage's own 返回 button resets to its default chat view (roster[0])
-  // — correct when the panel was opened FROM the office page itself, but a
-  // silent wrong-room landing when opened via this cross-page deep link,
-  // since there was never a chat selected to return to. The marker tells
-  // OfficePage's 返回 to reopen this exact card instead.
   // §3.6 請示 → 任務: an ask that names a task shows it in a box right under
   // the first line. The route carries the task id so the tasks page can locate
   // the card. A pure chat ask renders nothing here.

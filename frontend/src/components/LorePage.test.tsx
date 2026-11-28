@@ -992,14 +992,15 @@ describe("LorePage — 順序跟任務頁一致", () => {
 // ────────────────────────────────────────────────────────────────────────────
 // 卡片版面 (owner 2026-09-08).
 describe("LorePage — 卡片底下的撰寫人與生效期", () => {
-  it("shows 撰寫人 with the author's chat chip and 生效期 with the time as two label/value rows, and the message box is the last thing on the card", async () => {
+  it("shows 撰寫人 with the author's chat chip and 生效期 with the time as two label/value rows, and the message box is the last thing on the card; the owner's own entry has a plain chip with no bubble that opens nothing", async () => {
     stubList(
       page([
         mkEntry({ id: "L-7", authorId: "mira", title: "標題", body: "四個字的", effectiveTs: 1788400000 }),
+        mkEntry({ id: "L-8", authorId: "owner" }),
       ]),
     );
     const { container } = await renderOpen();
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
     openAllRows(container);
     const row = rowById(container, "L-7");
     const meta = row.querySelector<HTMLElement>(".card-meta")!;
@@ -1023,6 +1024,16 @@ describe("LorePage — 卡片底下的撰寫人與生效期", () => {
     fireEvent.click(author);
     expect(window.location.hash).toBe("#office/chat/mira");
     expect(rowById(container, "L-7").dataset.folded).toBeUndefined();
+
+    window.location.hash = "#lore";
+    const ownerChip = rowById(container, "L-8").querySelector<HTMLElement>('[data-testid="lore-author-row"]')!;
+    expect([ownerChip.tagName, ownerChip.getAttribute("aria-label"), ownerChip.querySelector("svg")]).toEqual([
+      "SPAN",
+      null,
+      null,
+    ]);
+    fireEvent.click(ownerChip);
+    expect(window.location.hash).toBe("#lore");
   });
 
   it("a retired entry with its retire time shows 生效期 as start – end; one retired before that time was recorded, one bumped after it and a live entry show the start alone", async () => {
