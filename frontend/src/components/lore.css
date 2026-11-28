@@ -199,11 +199,6 @@ button.lore-dir-card__name--link:hover {
   color: var(--color-danger);
   border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
 }
-/* 任務卡's dot marks a state; a count is not one, nor is 讀不到. */
-.lore-dir-card__badges .lore-badge::before,
-.lore-row--folded .lore-badge::before {
-  display: none;
-}
 /* Unlike 任務卡 (tasks.css stacks bar and text at ≤720px), the bar stays beside
  * the numbers on a phone: the text is short and the bar keeps >80px at 390. */
 .lore-dir-card__usage {
@@ -540,9 +535,6 @@ button.lore-section__name--link:hover {
   max-width: 100%;
   color: var(--color-text);
 }
-.lore-badge--scope::before {
-  content: none;
-}
 .lore-badge__text {
   min-width: 0;
   overflow: hidden;
@@ -612,6 +604,7 @@ button.lore-section__name--link:hover {
 }
 .lore-row--retired .lore-row__title {
   color: var(--color-text-muted);
+  opacity: 0.55;
 }
 
 .lore-row__body {
@@ -654,7 +647,7 @@ button.lore-section__name--link:hover {
 }
 
 /* ── 讀不到的條目（伺服器回 dropped）：內容轉灰 ──
- * 🔴 THE CONTENT ONLY. The status badge and every button keep their normal
+ * 🔴 THE CONTENT ONLY. The status icon and every button keep their normal
  * colour (spec §6), because they are still live controls — an entry that cannot
  * be read is exactly the one an owner is most likely to want to 置頂 or 失效,
  * and greying the way to do that would fight the reason it is greyed.
@@ -664,8 +657,7 @@ button.lore-section__name--link:hover {
 .lore-row--dimmed .lore-row__body,
 .lore-row--dimmed .lore-row__author,
 .lore-row--dimmed .lore-row__effective-ts,
-.lore-row--dimmed .lore-row__retire,
-.lore-row--dimmed .lore-row__folded-title {
+.lore-row--dimmed .lore-row__retire {
   color: var(--color-text-muted);
   opacity: 0.55;
 }
@@ -673,44 +665,28 @@ button.lore-section__name--link:hover {
 .lore-row[role="button"] {
   cursor: pointer;
 }
-/* Folded: one line, no strike-through and no coloured edge (owner
- * c-1301314e3efa); a dropped entry greys only its title, as on the opened card. */
-.lore-row.lore-row--folded {
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  padding-block: 10px;
-  min-width: 0;
-}
-.lore-row--folded .lore-row__id-badge {
-  cursor: inherit;
-}
-.lore-row__folded-title {
-  flex: 1;
-  min-width: 0;
+/* Folded: the same card with the body cut to two lines. */
+.lore-row__body--clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14px;
-  color: var(--color-text);
 }
 .lore-row__fold {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 26px;
+  height: 26px;
   color: var(--color-text-muted);
-}
-.lore-row__fold--open,
-.lore-row__fold--held {
-  width: 20px;
-  height: 20px;
 }
 .lore-row__fold--open svg {
   transform: rotate(90deg);
 }
 
-/* ── status badge (copy of .task-badge) ── */
+/* ── tag pill (copy of .task-badge) ── */
 .lore-badge {
   flex: none;
   display: inline-flex;
@@ -724,34 +700,12 @@ button.lore-section__name--link:hover {
   white-space: nowrap;
   color: var(--color-text-muted);
 }
-.lore-badge::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.lore-badge--state-pinned {
-  color: var(--color-accent);
-  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
-}
-.lore-badge--state-active {
-  color: var(--color-success);
-  border-color: color-mix(in srgb, var(--color-success) 40%, transparent);
-}
-.lore-badge--state-retired {
-  color: var(--color-text-muted);
-}
-/* Type tag. Filled and dot-less so it does not read
- * as one more state pill beside the status badge. One colour for every type —
- * owner ruling rc-f15bc5f4013d; do not colour-code the types. */
+/* Type tag, filled. One colour for every type — owner ruling rc-f15bc5f4013d;
+ * do not colour-code the types. */
 .lore-badge--lore-type {
   color: var(--color-text);
   border-color: transparent;
   background: color-mix(in srgb, currentColor 14%, transparent);
-}
-.lore-badge--lore-type::before {
-  content: none;
 }
 .lore-row--highlight {
   border-color: var(--color-accent);
@@ -1006,7 +960,7 @@ button.lore-row__chip--link {
   white-space: nowrap;
 }
 
-/* ── 編輯 (settings.css .doc-btn--edit) on the head's first line ── */
+/* ── 編輯 icon and the chevron on the head's first line ── */
 .lore-row__actions {
   flex: none;
   display: inline-flex;
@@ -1042,10 +996,10 @@ button.lore-row__action:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
 }
 
+.lore-row__meta-row {
+  display: contents;
+}
 .lore-row__retire {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--color-text-muted);
   min-width: 0;
   overflow-wrap: anywhere;
 }

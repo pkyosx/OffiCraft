@@ -62,9 +62,6 @@
 .lore-badge.shared-docs__kind {
   padding: 3px 7px;
 }
-.lore-badge.shared-docs__kind::before {
-  content: none;
-}
 .lore-badge.shared-docs__kind svg {
   display: block;
 }

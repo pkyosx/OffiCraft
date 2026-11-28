@@ -3,15 +3,16 @@
 // 全部收合 leaves no sideways scroll (its touch box included), the directory's
 // toolbar row holds the count left with 篩選 and 全部收合 right and the 條目編號
 // field in the funnel's panel,
-// the tags (id → type → state → scope) wrap as whole pills, the head's
-// actions (編輯, the app-wide .doc-btn--edit, and the 收合 chevron) stay inside
-// the head without overlapping them, no open card has a clamped body, the 撰寫人／生效期
-// label/value grid stays inside the card, a folded row (讀不到 or folded by its
-// 收合) holds one line, the message box's 📎, input and 送出 sit on one row
+// the head (狀態 icon → id → type → scope, then 讀不到 on an unread entry) wraps
+// as whole pills, the head's actions (an open card's borderless 編輯 icon, and
+// the chevron) stay inside the head without overlapping them, no open card has
+// a clamped body and a folded one cuts it to two lines, the 撰寫人／生效期
+// (／失效理由) label/value grid stays inside the card, a folded card keeps the
+// same head, title and rows, the message box's 📎, input and 送出 sit on one row
 // inside the card with room to type, the section head's title, bar and legend stay
 // inside it, the 適用範圍 menu opens inside the viewport, the inline editor fits,
 // the unsaved-changes bar holds one line on the screen's bottom edge without
-// covering the last card, a staged card keeps its height with its ↺ marks inside
+// covering the last card, a staged card changes height only by its tags rewrapping, with its ↺ marks inside
 // it, and a staged state change leaves the scroll position and the card where
 // they were.
 //
@@ -27,6 +28,9 @@ type Box = { left: number; right: number; top: number; bottom: number };
 type RowGeom = {
   id: string;
   folded: boolean;
+  dimmed: boolean;
+  title: Box | null;
+  bodyLines: number | null;
   head: Box | null;
   row: Box | null;
   actions: Box | null;
@@ -74,7 +78,7 @@ async function measureEverySection(cmp: any, page: any) {
     await expect(cmp.locator('[data-testid="lore-section-head"]')).toBeVisible();
     await expect(cmp.locator('[data-testid="lore-section-body"]')).not.toContainText("載入中");
     const g = await measure(page);
-    rows.push(...g.rows.filter((r) => !r.folded));
+    rows.push(...g.rows);
     worstOver = {
       pageOver: Math.max(worstOver.pageOver, g.pageOver),
       loreOver: g.loreOver === -2 ? -2 : Math.max(worstOver.loreOver, g.loreOver),
@@ -102,9 +106,13 @@ async function measure(page: any): Promise<{
     const rows = [...document.querySelectorAll('[data-testid="lore-row"]')].map(
       (row) => {
         const badges = row.querySelector(".lore-row__badges");
+        const bodyEl = row.querySelector('[data-testid="lore-body"]') as HTMLElement | null;
         return {
           id: row.getAttribute("data-entry-id") ?? "",
           folded: row.getAttribute("data-folded") === "true",
+          dimmed: row.getAttribute("data-dimmed") === "true",
+          title: r(row.querySelector(".lore-row__title")),
+          bodyLines: bodyEl ? bodyEl.clientHeight / parseFloat(getComputedStyle(bodyEl).lineHeight) : null,
           head: r(row.querySelector(".lore-row__head")),
           row: r(row),
           actions: r(row.querySelector(".lore-row__actions")),
@@ -135,7 +143,9 @@ async function measure(page: any): Promise<{
           })(),
           toggle: row.getAttribute("role") === "button",
           meta: r(row.querySelector(".lore-row__meta")),
-          metaItems: [...row.querySelectorAll(".lore-row__meta > *")].map((c) => r(c)!),
+          metaItems: [
+            ...row.querySelectorAll(".lore-row__meta > :not(.lore-row__meta-row), .lore-row__meta-row > *"),
+          ].map((c) => r(c)!),
           composer: r(row.querySelector('[data-testid="lore-message-box"] .task-card__composer')),
           composerItems: [
             ...row.querySelectorAll('[data-testid="lore-message-box"] .task-card__composer > :not([hidden])'),
@@ -174,14 +184,18 @@ const inside = (inner: Box, outer: Box) =>
   inner.top >= outer.top - 1 &&
   inner.bottom <= outer.bottom + 1;
 
-function assertHeadContained(width: number, row: RowGeom) {
-  const tag = `[${width}px] ${row.id}`;
+const ACTION_NAMES = {
+  zh: { edit: "編輯", collapse: "收合", expand: "展開" },
+  en: { edit: "Edit", collapse: "Collapse", expand: "Expand" },
+};
+
+function assertHeadContained(width: number, row: RowGeom, language: "zh" | "en" = "zh") {
+  const tag = `[${width}px ${language}] ${row.id}${row.folded ? " folded" : ""}`;
+  const names = ACTION_NAMES[language];
   expect.soft(row.head, `${tag} .lore-row__head missing`).not.toBeNull();
-  // id, type, state, scope — in that order, inside the wrapper.
-  expect.soft(row.badges.length, `${tag} .lore-row__badges children`).toBe(4);
-  expect
-    .soft(row.badgeOrder, `${tag} badge order`)
-    .toEqual(["lore-entry-id", "lore-type", "lore-state", "lore-scope-name"]);
+  const order = ["lore-state", "lore-entry-id", "lore-type", "lore-scope-name"];
+  if (row.dimmed) order.push("lore-dropped-tag");
+  expect.soft(row.badgeOrder, `${tag} badge order`).toEqual(order);
   if (!row.head) return;
   for (const b of row.badges) {
     expect
@@ -189,55 +203,73 @@ function assertHeadContained(width: number, row: RowGeom) {
       .toBeLessThanOrEqual(row.head.right + 1);
     expect
       .soft(b.box.left, `${tag} "${b.cls}" left edge before the head`)
-      .toBeGreaterThanOrEqual(row.head.left - 1);
+      .toBeGreaterThanOrEqual(row.head.left - 5);
+  }
+  if (row.badges[0] && row.badges[1])
+    expect
+      .soft(Math.abs((row.badges[0].box.top + row.badges[0].box.bottom) / 2 - (row.badges[1].box.top + row.badges[1].box.bottom) / 2), `${tag} 狀態 icon not on the id's line`)
+      .toBeLessThanOrEqual(4);
+  expect.soft(row.title, `${tag} title missing`).not.toBeNull();
+  if (row.title && row.row) {
+    expect.soft(inside(row.title, row.row), `${tag} title outside the card`).toBe(true);
+    expect.soft(row.title.top, `${tag} title not under the head`).toBeGreaterThanOrEqual(row.head.bottom - 1);
   }
   expect.soft(row.meta, `${tag} meta grid missing`).not.toBeNull();
-  // 撰寫人, its pill, 生效期, the time: two label/value rows.
-  expect.soft(row.metaItems.length, `${tag} meta items`).toBe(4);
+  // 撰寫人, its pill, 生效期, the time (, 失效理由, the reason): label/value rows.
+  expect.soft([4, 6].includes(row.metaItems.length), `${tag} meta items ${row.metaItems.length}`).toBe(true);
   if (row.row)
     for (const m of row.metaItems)
       expect.soft(inside(m, row.row), `${tag} meta item outside the card`).toBe(true);
   const mid = (b: Box) => (b.top + b.bottom) / 2;
-  if (row.metaItems.length === 4) {
-    const [authorLabel, author, effLabel, eff] = row.metaItems;
-    expect.soft(Math.abs(mid(authorLabel) - mid(author)), `${tag} 撰寫人 beside its pill`).toBeLessThanOrEqual(4);
-    expect.soft(Math.abs(mid(effLabel) - mid(eff)), `${tag} 生效期 beside its time`).toBeLessThanOrEqual(4);
-    expect.soft(effLabel.top, `${tag} 生效期 on the row under 撰寫人`).toBeGreaterThanOrEqual(author.bottom - 1);
-    expect.soft(Math.abs(author.left - eff.left), `${tag} values share one column`).toBeLessThanOrEqual(1);
-  }
-  expect.soft(row.composer, `${tag} message box missing`).not.toBeNull();
-  expect
-    .soft(row.composerItems.map((c) => c.id), `${tag} message box parts`)
-    .toEqual(["lore-msg-attach", "lore-msg-input", "lore-msg-send"]);
-  row.composerItems.forEach((c, i) => {
-    if (row.row) expect.soft(inside(c.box, row.row), `${tag} "${c.id}" outside the card`).toBe(true);
-    const next = row.composerItems[i + 1];
-    if (next) {
-      expect.soft(c.box.right, `${tag} "${c.id}" runs into "${next.id}"`).toBeLessThanOrEqual(next.box.left + 1);
-      expect.soft(Math.abs(c.box.bottom - next.box.bottom), `${tag} "${c.id}" and "${next.id}" not on one row`).toBeLessThanOrEqual(4);
+  for (let i = 0; i + 1 < row.metaItems.length; i += 2) {
+    const [label, value] = [row.metaItems[i], row.metaItems[i + 1]];
+    expect.soft(Math.abs(mid(label) - mid(value)) <= 4 || Math.abs(label.top - value.top) <= 4, `${tag} meta row ${i / 2} label beside its value`).toBe(true);
+    expect.soft(value.left, `${tag} meta row ${i / 2} value not right of its label`).toBeGreaterThanOrEqual(label.right);
+    if (i > 0) {
+      expect.soft(label.top, `${tag} meta row ${i / 2} not under the one above`).toBeGreaterThanOrEqual(row.metaItems[i - 1].bottom - 1);
+      expect.soft(Math.abs(value.left - row.metaItems[1].left), `${tag} values share one column`).toBeLessThanOrEqual(1);
     }
-  });
-  const input = row.composerItems.find((c) => c.id === "lore-msg-input");
-  if (input) expect.soft(input.box.right - input.box.left, `${tag} message input too narrow`).toBeGreaterThanOrEqual(150);
-  const send = row.composerItems.find((c) => c.id === "lore-msg-send");
-  if (send) expect.soft(send.box.bottom - send.box.top, `${tag} 送出 wraps`).toBeLessThanOrEqual(40);
-  // Open: the body shows in full and the card itself is the fold toggle.
-  expect.soft(row.bodyOverflows, `${tag} body missing or clipped`).toBe(false);
+  }
+  if (row.folded) {
+    expect.soft(row.composer, `${tag} folded card has a message box`).toBeNull();
+    expect.soft(row.bodyLines, `${tag} body missing`).not.toBeNull();
+    expect.soft(Math.round(row.bodyLines ?? 0), `${tag} folded body lines`).toBeLessThanOrEqual(2);
+  } else {
+    expect.soft(row.composer, `${tag} message box missing`).not.toBeNull();
+    expect
+      .soft(row.composerItems.map((c) => c.id), `${tag} message box parts`)
+      .toEqual(["lore-msg-attach", "lore-msg-input", "lore-msg-send"]);
+    row.composerItems.forEach((c, i) => {
+      if (row.row) expect.soft(inside(c.box, row.row), `${tag} "${c.id}" outside the card`).toBe(true);
+      const next = row.composerItems[i + 1];
+      if (next) {
+        expect.soft(c.box.right, `${tag} "${c.id}" runs into "${next.id}"`).toBeLessThanOrEqual(next.box.left + 1);
+        expect.soft(Math.abs(c.box.bottom - next.box.bottom), `${tag} "${c.id}" and "${next.id}" not on one row`).toBeLessThanOrEqual(4);
+      }
+    });
+    const input = row.composerItems.find((c) => c.id === "lore-msg-input");
+    if (input && width >= 360)
+      expect.soft(input.box.right - input.box.left, `${tag} message input too narrow`).toBeGreaterThanOrEqual(150);
+    const send = row.composerItems.find((c) => c.id === "lore-msg-send");
+    if (send) expect.soft(send.box.bottom - send.box.top, `${tag} 送出 wraps`).toBeLessThanOrEqual(40);
+    expect.soft(row.bodyOverflows, `${tag} body missing or clipped`).toBe(false);
+  }
   expect.soft(row.toggle, `${tag} card is not the fold toggle`).toBe(true);
   expect.soft(row.actions, `${tag} actions missing`).not.toBeNull();
-  // 編輯 at every width, the app's own edit button: pencil + label, and the
-  // 30px .doc-btn box (proves settings.css styles it, not a bare <button>);
-  // then the 收合 chevron, no taller than 編輯.
+  // Open: the borderless 編輯 icon, then the 收合 chevron; folded: the chevron.
   expect
     .soft(row.actionButtons.map((b) => [b.text, b.cls, b.svg]), `${tag} actions`)
-    .toEqual([
-      ["編輯", "doc-btn doc-btn--edit", true],
-      ["收合", "lore-row__fold lore-row__fold--open", true],
-    ]);
-  const editHeight = row.actionButtons[0]?.height ?? 0;
-  expect.soft(Math.round(editHeight), `${tag} 編輯 height`).toBe(30);
+    .toEqual(
+      row.folded
+        ? [[names.expand, "lore-row__fold", true]]
+        : [
+            [names.edit, "lore-row__icon-btn", true],
+            [names.collapse, "lore-row__fold lore-row__fold--open", true],
+          ],
+    );
+  const firstBadge = row.badges[0];
   for (const b of row.actionButtons) {
-    expect.soft(b.height, `${tag} "${b.text}" taller than 編輯`).toBeLessThanOrEqual(editHeight + 1);
+    expect.soft(b.height, `${tag} "${b.text}" taller than the 狀態 icon`).toBeLessThanOrEqual((firstBadge ? firstBadge.box.bottom - firstBadge.box.top : 26) + 1);
     expect.soft(inside(b.box, row.head), `${tag} "${b.text}" outside the head`).toBe(true);
     if (row.row) expect.soft(inside(b.box, row.row), `${tag} "${b.text}" outside the card`).toBe(true);
     for (const badge of row.badges) {
@@ -383,6 +415,33 @@ for (const width of [320, 390, 1440]) {
 
 }
 
+for (const width of [320, 390, 1440]) {
+  for (const language of ["zh", "en"] as const) {
+    test(`every section page keeps each card's badges, actions and meta rows inside it, folded or open @${width}px ${language}`, async ({ mount, page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate((lang) => localStorage.setItem("oc.language", lang), language);
+      const cmp = await mount(<LoreRowHeadStory roleCap={100} />);
+      await expect(cmp.locator('[data-testid="lore-target"]').first()).toBeVisible();
+      const g = await measureEverySection(cmp, page);
+      assertNoHScroll(width, g);
+      expect(g.keys.length, `[${width}px] sections visited`).toBeGreaterThanOrEqual(4);
+      expect(g.rows.length, `[${width}px] rows rendered`).toBeGreaterThanOrEqual(5);
+      expect(g.rows.some((r) => r.folded), `[${width}px] a folded card measured`).toBe(true);
+
+      for (const row of g.rows) {
+        assertHeadContained(width, row, language);
+        const tag = `[${width}px ${language}] ${row.id}`;
+        if (width === 1440) {
+          const tops = row.badges.map((b) => (b.box.top + b.box.bottom) / 2);
+          expect
+            .soft(Math.max(...tops) - Math.min(...tops), `${tag} badges not on one line`)
+            .toBeLessThanOrEqual(4);
+        }
+      }
+    });
+  }
+}
+
 for (const width of [390, 1440]) {
   test(`the directory lists every target inside its row @${width}px`, async ({ mount, page }) => {
     await mountAt(mount, page, width, false, "");
@@ -390,25 +449,6 @@ for (const width of [390, 1440]) {
     assertNoHScroll(width, g);
     assertSectionHeadsContained(width, g.sections);
     expect(g.rows.length, `[${width}px] the directory shows no cards`).toBe(0);
-  });
-
-  test(`every section page keeps each card's badges, actions and meta line inside it @${width}px`, async ({ mount, page }) => {
-    const cmp = await mountAt(mount, page, width, false, "");
-    const g = await measureEverySection(cmp, page);
-    assertNoHScroll(width, g);
-    expect(g.keys.length, `[${width}px] sections visited`).toBeGreaterThanOrEqual(4);
-    expect(g.rows.length, `[${width}px] rows rendered`).toBeGreaterThanOrEqual(5);
-
-    for (const row of g.rows) {
-      assertHeadContained(width, row);
-      const tag = `[${width}px] ${row.id}`;
-      if (width === 1440) {
-        const tops = row.badges.map((b) => (b.box.top + b.box.bottom) / 2);
-        expect
-          .soft(Math.max(...tops) - Math.min(...tops), `${tag} badges not on one line`)
-          .toBeLessThanOrEqual(4);
-      }
-    }
   });
 
   test(`a manual name longer than a line wraps inside the section head @${width}px`, async ({
@@ -529,112 +569,63 @@ for (const width of [390, 1440]) {
 }
 
 for (const width of [390, 1440]) {
-  test(`a folded 讀不到 row holds id, title, tag and chevron on one line inside the card, and opens into a full card @${width}px`, async ({ mount, page }) => {
+  test(`a folded 讀不到 card keeps its head, title and rows inside it with the body cut to two lines, and opens into the full card @${width}px`, async ({ mount, page }) => {
     await page.setViewportSize({ width, height: 900 });
     const cmp = await mount(<LoreRowHeadStory roleCap={100} hash={MIRA} />);
     const folded = cmp.locator('[data-testid="lore-row"][data-folded="true"]');
     await expect(folded.first()).toBeVisible();
-    const rows = await page.evaluate(() =>
-      [...document.querySelectorAll('[data-testid="lore-row"][data-folded="true"]')].map((row) => {
-        const r = (el: Element) => {
-          const b = el.getBoundingClientRect();
-          return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
-        };
-        const title = row.querySelector('[data-testid="lore-folded-title"]') as HTMLElement | null;
-        return {
-          id: row.getAttribute("data-entry-id") ?? "",
-          row: r(row),
-          parts: [...row.children].map((c) => ({ cls: c.className.toString(), box: r(c) })),
-          titleClipped: title ? getComputedStyle(title).textOverflow : null,
-        };
-      }),
-    );
-    expect(rows.length, `[${width}px] folded rows`).toBeGreaterThanOrEqual(1);
-    for (const f of rows) {
-      const tag = `[${width}px] folded ${f.id}`;
-      expect.soft(f.parts.length, `${tag} parts`).toBe(4);
-      const mids = f.parts.map((p) => (p.box.top + p.box.bottom) / 2);
-      expect.soft(Math.max(...mids) - Math.min(...mids), `${tag} not one line`).toBeLessThanOrEqual(4);
-      for (const p of f.parts) expect.soft(inside(p.box, f.row), `${tag} "${p.cls}" outside the row`).toBe(true);
-      expect.soft(f.titleClipped, `${tag} title ellipsis`).toBe("ellipsis");
-      expect.soft(f.parts[3]?.box.right ?? 0, `${tag} chevron at the right edge`).toBeGreaterThan(f.row.right - 40);
+    const before = await measure(page);
+    const foldedRows = before.rows.filter((r) => r.folded);
+    expect(foldedRows.length, `[${width}px] folded cards`).toBeGreaterThanOrEqual(1);
+    for (const f of foldedRows) {
+      expect.soft(f.dimmed, `[${width}px] ${f.id} folded card not 讀不到`).toBe(true);
+      assertHeadContained(width, f);
+      if (f.row && f.actionButtons[0])
+        expect.soft(f.actionButtons[0].box.right, `[${width}px] ${f.id} chevron at the right edge`).toBeGreaterThan(f.row.right - 40);
     }
-    assertNoHScroll(width, await pageAndLoreOver(page));
+    assertNoHScroll(width, before);
 
-    const id = rows[0].id;
-    await cmp.locator(`[data-testid="lore-row"][data-entry-id="${id}"]`).click();
+    const id = foldedRows[0].id;
+    await cmp.locator(`[data-testid="lore-row"][data-entry-id="${id}"] .lore-row__title`).click();
     const opened = cmp.locator(`[data-testid="lore-row"][data-entry-id="${id}"]`);
-    await expect(opened.locator('[data-testid="lore-fold-mark"]')).toBeVisible();
+    await expect(opened).not.toHaveAttribute("data-folded", "true");
     const g = await measure(page);
     const row = g.rows.find((r) => r.id === id)!;
-    expect.soft(row.folded, `[${width}px] ${id} still folded`).toBe(false);
-    for (const b of row.actionButtons)
-      expect.soft(inside(b.box, row.head!), `[${width}px] ${id} "${b.text}" outside the head`).toBe(true);
-    expect.soft(row.metaItems.length, `[${width}px] ${id} meta items`).toBe(4);
+    assertHeadContained(width, row);
     assertNoHScroll(width, g);
   });
 
-  test(`a click on a read card's body folds it to id, title, type and chevron on one line inside the card, the cards below move up, and a click opens it again @${width}px`, async ({ mount, page }) => {
+  test(`a click on a read card's body folds it to the same card with its body cut to two lines and no message box, the cards below move up, and a click opens it again @${width}px`, async ({ mount, page }) => {
     const cmp = await mountAt(mount, page, width, false, MIRA);
     const open = cmp.locator('[data-testid="lore-row"]:not([data-folded]):not([data-dimmed="true"])');
     const card = open.first();
     const id = (await card.getAttribute("data-entry-id"))!;
     const row = cmp.locator(`[data-testid="lore-row"][data-entry-id="${id}"]`);
     const next = row.locator("xpath=following-sibling::*[1]");
-    const before = await page.evaluate(
-      ([rowSel]) => {
-        const el = document.querySelector(rowSel)!;
-        const b = el.getBoundingClientRect();
-        const n = el.nextElementSibling!.getBoundingClientRect();
-        return { height: b.height, nextTop: n.top };
-      },
-      [`[data-testid="lore-row"][data-entry-id="${id}"]`],
-    );
+    const geom = (rowSel: string) =>
+      page.evaluate((sel: string) => {
+        const el = document.querySelector(sel)!;
+        return { height: el.getBoundingClientRect().height, nextTop: el.nextElementSibling!.getBoundingClientRect().top };
+      }, rowSel);
+    const sel = `[data-testid="lore-row"][data-entry-id="${id}"]`;
+    const before = await geom(sel);
     await row.locator('[data-testid="lore-body"]').click();
     await expect(row).toHaveAttribute("data-folded", "true");
-    const f = await page.evaluate(
-      ([rowSel]) => {
-        const el = document.querySelector(rowSel)!;
-        const r = (e: Element) => {
-          const b = e.getBoundingClientRect();
-          return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
-        };
-        const title = el.querySelector('[data-testid="lore-folded-title"]');
-        return {
-          row: r(el),
-          nextTop: el.nextElementSibling!.getBoundingClientRect().top,
-          parts: [...el.children].map((c) => ({ id: c.getAttribute("data-testid") ?? c.className.toString(), box: r(c) })),
-          titleOverflow: title ? getComputedStyle(title).textOverflow : null,
-          titleWhiteSpace: title ? getComputedStyle(title).whiteSpace : null,
-        };
-      },
-      [`[data-testid="lore-row"][data-entry-id="${id}"]`],
-    );
+    const after = await geom(sel);
     const tag = `[${width}px] folded ${id}`;
-    expect
-      .soft(f.parts.map((p) => p.id), `${tag} parts`)
-      .toEqual(["lore-entry-id", "lore-folded-title", "lore-folded-type", "lore-row__fold"]);
-    const mids = f.parts.map((p) => (p.box.top + p.box.bottom) / 2);
-    expect.soft(Math.max(...mids) - Math.min(...mids), `${tag} not one line`).toBeLessThanOrEqual(4);
-    for (const p of f.parts) expect.soft(inside(p.box, f.row), `${tag} "${p.id}" outside the row`).toBe(true);
-    f.parts.forEach((p, i) => {
-      const n = f.parts[i + 1];
-      if (n) expect.soft(p.box.right, `${tag} "${p.id}" runs into "${n.id}"`).toBeLessThanOrEqual(n.box.left + 1);
-    });
-    expect.soft([f.titleOverflow, f.titleWhiteSpace], `${tag} title clipping`).toEqual(["ellipsis", "nowrap"]);
-    expect.soft(f.parts[3]?.box.right ?? 0, `${tag} chevron at the right edge`).toBeGreaterThan(f.row.right - 40);
-    expect.soft(f.row.bottom - f.row.top, `${tag} not shorter than the open card`).toBeLessThan(before.height / 2);
-    expect.soft(f.nextTop, `${tag} the card below did not move up`).toBeLessThan(before.nextTop - 1);
-    assertNoHScroll(width, await pageAndLoreOver(page));
+    const g = await measure(page);
+    assertHeadContained(width, g.rows.find((r) => r.id === id)!);
+    expect.soft(after.height, `${tag} not shorter than the open card`).toBeLessThan(before.height - 1);
+    expect.soft(after.nextTop, `${tag} the card below did not move up`).toBeLessThan(before.nextTop - 1);
+    assertNoHScroll(width, g);
     await expect(next).toBeVisible();
 
     await row.click();
     await expect(row).not.toHaveAttribute("data-folded", "true");
     await expect(row).toBeFocused();
-    const g = await measure(page);
-    const reopened = g.rows.find((r) => r.id === id)!;
-    assertHeadContained(width, reopened);
-    assertNoHScroll(width, g);
+    const g2 = await measure(page);
+    assertHeadContained(width, g2.rows.find((r) => r.id === id)!);
+    assertNoHScroll(width, g2);
   });
 
   test(`the member section head's char/cap row and per-source counts each hold one line inside the head @${width}px`, async ({ mount, page }) => {
@@ -964,10 +955,10 @@ for (const width of [390, 1440]) {
     expect(before.scrollTop, `[${width}px] .lore did not scroll`).toBeGreaterThan(0);
 
     const row = cmp.locator(sel);
-    const next = (await row.locator('[data-testid="lore-state"]').textContent())?.trim() === "置頂" ? "active" : "pinned";
+    const next = (await row.locator('[data-testid="lore-state"]').getAttribute("aria-label")) === "置頂" ? "active" : "pinned";
     await row.locator('[data-testid="lore-state"]').click();
     await row.locator(`[data-testid="lore-state-${next}"]`).click();
-    await expect(row.locator('[data-testid="lore-state"]')).toHaveText(next === "pinned" ? "置頂" : "生效中");
+    await expect(row.locator('[data-testid="lore-state"]')).toHaveAttribute("aria-label", next === "pinned" ? "置頂" : "生效中");
 
     const after = {
       scrollTop: await page.evaluate(() => (document.querySelector(".lore") as HTMLElement).scrollTop),
@@ -1001,19 +992,23 @@ async function stageOtherState(row: any) {
 }
 
 /** Every card's box, keyed by id. */
-async function cardBoxes(page: any): Promise<Record<string, Box>> {
+/** Each card's box, plus its head's height: a staged tag whose label is
+ * shorter or longer may rewrap the tags, and that is the only height change a
+ * staged card is allowed. */
+async function cardBoxes(page: any): Promise<Record<string, Box & { head: number }>> {
   return page.evaluate(() =>
     Object.fromEntries(
       [...document.querySelectorAll('[data-testid="lore-row"]')].map((row) => {
         const b = row.getBoundingClientRect();
-        return [row.getAttribute("data-entry-id"), { left: b.left, right: b.right, top: b.top, bottom: b.bottom }];
+        const head = row.querySelector(".lore-row__head")!.getBoundingClientRect().height;
+        return [row.getAttribute("data-entry-id"), { left: b.left, right: b.right, top: b.top, bottom: b.bottom, head }];
       }),
     ),
   );
 }
 
 for (const width of [360, 390, 1440]) {
-  test(`a staged card is as tall as before, the cards below stay put, and every ↺ sits inside its card @${width}px`, async ({ mount, page }) => {
+  test(`a staged card is as tall as before but for its tags rewrapping, the cards below move only by that, and every ↺ sits inside its card @${width}px`, async ({ mount, page }) => {
     const cmp = await mountAt(mount, page, width, false, MIRA, 900);
     const row = cmp.locator('[data-testid="lore-row"]:has(button[data-testid="lore-scope-name"])').first();
     const id = await row.getAttribute("data-entry-id");
@@ -1027,16 +1022,19 @@ for (const width of [360, 390, 1440]) {
       .click();
     await expect(row.locator('[data-testid^="lore-revert-"]')).toHaveCount(3);
     const after = await cardBoxes(page);
+    let shift = 0;
     for (const [k, b] of Object.entries(before)) {
       if (!after[k]) continue;
-      expect.soft(Math.abs(after[k].bottom - after[k].top - (b.bottom - b.top)), `[${width}px] ${k} height changed (staged: ${id})`).toBeLessThanOrEqual(0.5);
-      expect.soft(Math.abs(after[k].top - b.top), `[${width}px] ${k} moved (staged: ${id})`).toBeLessThanOrEqual(0.5);
+      const rewrap = after[k].head - b.head;
+      expect.soft(Math.abs(after[k].top - b.top - shift), `[${width}px] ${k} moved (staged: ${id})`).toBeLessThanOrEqual(0.5);
+      expect.soft(Math.abs(after[k].bottom - after[k].top - (b.bottom - b.top) - rewrap), `[${width}px] ${k} height changed beyond its tags rewrapping (staged: ${id})`).toBeLessThanOrEqual(0.5);
+      shift += rewrap;
     }
     await assertMarksInside(page, width);
     assertNoHScroll(width, await pageAndLoreOver(page));
   });
 
-  test(`a card under a long manual name keeps its height when its type and state are staged @${width}px`, async ({ mount, page }) => {
+  test(`a card under a long manual name keeps its height but for its tags rewrapping when its type and state are staged @${width}px`, async ({ mount, page }) => {
     const cmp = await mountAt(mount, page, width, true, MANUAL, 900);
     const row = cmp.locator('[data-entry-id="L-4"]');
     const before = await cardBoxes(page);
@@ -1046,7 +1044,7 @@ for (const width of [360, 390, 1440]) {
     const after = await cardBoxes(page);
     for (const [k, b] of Object.entries(before)) {
       if (!after[k]) continue;
-      expect.soft(Math.abs(after[k].bottom - after[k].top - (b.bottom - b.top)), `[${width}px] ${k} height changed`).toBeLessThanOrEqual(0.5);
+      expect.soft(Math.abs(after[k].bottom - after[k].top - (b.bottom - b.top) - (after[k].head - b.head)), `[${width}px] ${k} height changed beyond its tags rewrapping`).toBeLessThanOrEqual(0.5);
     }
     await assertMarksInside(page, width);
     assertNoHScroll(width, await pageAndLoreOver(page));

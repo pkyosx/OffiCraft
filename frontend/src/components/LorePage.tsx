@@ -99,8 +99,11 @@ import {
   ChevronRightIcon,
   ChevronsDownUpIcon,
   ChevronsUpDownIcon,
+  CircleCheckBigIcon,
+  CircleSlashIcon,
   PaperclipIcon,
   PencilIcon,
+  PinIcon,
   RotateCcwIcon,
   SendIcon,
   UsersIcon,
@@ -1358,23 +1361,14 @@ function LoreView({
           const entry = withStaged(stored, ch);
           const dropped = stored.dropped === true;
           const foldable = !ch;
-          if (foldable && !(openOverride.get(entry.id) ?? !dropped)) {
-            return (
-              <LoreFoldedRow
-                key={entry.id}
-                entry={entry}
-                dropped={dropped}
-                highlighted={entry.id === highlightId}
-                onExpand={() => setEntryOpen(entry.id, true)}
-              />
-            );
-          }
+          const expanded = !foldable || (openOverride.get(entry.id) ?? !dropped);
           return (
             <LoreRow
                   key={entry.id}
                   entry={entry}
                   dimmed={dropped}
-                  onCollapse={foldable ? () => setEntryOpen(entry.id, false) : null}
+                  expanded={expanded}
+                  onToggle={foldable ? () => setEntryOpen(entry.id, !expanded) : null}
                   author={resolveAuthor(entry.authorId)}
                   avatar={authorAvatar(entry.authorId)}
                   scope={resolveScope(entry)}
@@ -1867,13 +1861,15 @@ function loreTypeLabel(t: ReturnType<typeof useI18n>["t"], lt: LoreType): string
   }
 }
 
-/** ONE 傳承 row, open: the body in full. A click on the card (not on one of
- * its controls, not ending a text selection), Enter or Space folds it back to
- * its LoreFoldedRow, as on 任務卡; the chevron only marks that state. */
+/** ONE 傳承 card. Folded, its body is cut to two lines and it has neither the
+ * 編輯 icon nor the message box; open, the body is in full. A click on the card
+ * (not on one of its controls, not ending a text selection), Enter or Space
+ * folds or opens it, as on 任務卡; the chevron only marks that state. */
 function LoreRow({
   entry,
   dimmed,
-  onCollapse,
+  expanded,
+  onToggle,
   author,
   avatar,
   scope,
@@ -1892,11 +1888,13 @@ function LoreRow({
   onRestored,
 }: {
   entry: LoreEntryView;
+  /** The server left it out of what members read: content greyed, 讀不到 tag. */
   dimmed: boolean;
-  /** Folds the card to its one-line row; null ⇒ this card does not fold (it
-   * carries a staged change). It does not fold either while its editor is open
-   * or its message box holds unsent input. */
-  onCollapse: (() => void) | null;
+  expanded: boolean;
+  /** Folds or opens the card; null ⇒ this card stays open (it carries a staged
+   * change). It does not fold either while its editor is open or its message
+   * box holds unsent input. */
+  onToggle: (() => void) | null;
   author: AuthorIdentity;
   avatar: { src?: string; kind: AvatarKind } | null;
   /** 屬於, already resolved (resolveScope). `manualKey` non-empty offers the
@@ -1933,7 +1931,7 @@ function LoreRow({
   const scopeRef = useRef<HTMLSpanElement>(null);
   const [editing, setEditing] = useState(false);
   const [messageUnsent, setMessageUnsent] = useState(false);
-  const collapse = editing || (recipient !== null && messageUnsent) ? null : onCollapse;
+  const toggle = expanded && (editing || (recipient !== null && messageUnsent)) ? null : onToggle;
 
   useEffect(() => {
     if (!scopeOpen) return;
@@ -2003,18 +2001,19 @@ function LoreRow({
       data-entry-id={entry.id}
       data-dimmed={dimmed ? "true" : "false"}
       data-staged={staged ? "true" : "false"}
-      {...(collapse
+      data-folded={expanded ? undefined : "true"}
+      {...(toggle
         ? {
             role: "button",
             tabIndex: 0,
-            "aria-expanded": true,
-            "aria-label": t.lore.collapseEntry,
+            "aria-expanded": expanded,
+            "aria-label": expanded ? t.lore.collapseEntry : t.lore.expandEntry,
             // The message box's padding around its textarea is still the box.
             onClick: (e: React.MouseEvent<HTMLElement>) => {
-              if (isCardToggleClick(e, ".lore-row__message")) collapse();
+              if (isCardToggleClick(e, ".lore-row__message")) toggle();
             },
             onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
-              if (isCardToggleKey(e)) collapse();
+              if (isCardToggleKey(e)) toggle();
             },
           }
         : // Focusable from code only: a highlighted entry lands here.
@@ -2022,9 +2021,66 @@ function LoreRow({
     >
       <div className="lore-row__head">
         <div className="lore-row__badges">
-          {/* Order: 編號 → 類型 → 狀態 → 適用範圍. The id leads, as on 任務卡,
-              because it is what you quote to somebody else (owner: 「make them
-              consistent with task」). 傳承 has no 優先權; do not invent one for the slot. */}
+          {/* Order: 狀態 icon → 編號 → 類型 → 適用範圍, the 任務卡's head. The
+              status icon is also the 變更狀態 control; its menu hangs from its
+              LEFT edge (.lore-row__status-pop pins left:0) because a
+              right-anchored pop would open off the card. */}
+          <div className="lore-row__status" ref={statusRef}>
+            <button
+              type="button"
+              className={`lore-row__status-icon lore-row__status-icon--${entry.state}${
+                stagedFrom?.state !== undefined ? " lore-row__status-icon--staged" : ""
+              }`}
+              title={stateLabel}
+              aria-label={stateLabel}
+              aria-haspopup="menu"
+              aria-expanded={stateOpen}
+              data-testid="lore-state"
+              data-state={entry.state}
+              disabled={chipsLocked}
+              onClick={() => setStateOpen((o) => !o)}
+            >
+              <LoreStateIcon state={entry.state} />
+            </button>
+            {stagedFrom?.state !== undefined && (
+              <LoreRevertMark
+                field="state"
+                from={stagedFrom.state}
+                onRevert={() => onRevert(entry.id, "state")}
+                disabled={chipsLocked}
+              />
+            )}
+            {stateOpen && (
+              <div
+                className="lore-row__menu-pop lore-row__status-pop"
+                role="menu"
+                aria-label={t.lore.stateMenuLabel}
+                data-testid="lore-state-options"
+              >
+                {STATE_ACTIONS.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    role="menuitem"
+                    // 「當前值用強調色＋700」 IS this modifier — the same one the
+                    // 任務卡's 優先權/狀態 menus use (tasks.css
+                    // .task-card__menu-item--active), copied into lore.css.
+                    className={`lore-row__menu-item${
+                      entry.state === s ? " lore-row__menu-item--active" : ""
+                    }`}
+                    data-testid={`lore-state-${s}`}
+                    onClick={() => {
+                      setStateOpen(false);
+                      if (entry.state !== s) onSetState(entry.id, s);
+                    }}
+                  >
+                    {actionLabel(s)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
             className="lore-row__id-badge"
@@ -2108,67 +2164,8 @@ function LoreRow({
             )}
           </div>
 
-          {/* ONE status badge, and it is also the control (spec §6). Both this
-              menu and the type menu hang from their badge's LEFT edge
-              (.lore-row__status-pop pins left:0): the badges sit at the row's
-              left, and a right-anchored pop would open off the row. */}
-          <div className="lore-row__status" ref={statusRef}>
-            <button
-              type="button"
-              className={`lore-badge lore-badge--state-${entry.state} lore-row__status-chip${
-                stagedFrom?.state !== undefined ? " lore-row__status-chip--staged" : ""
-              }`}
-              title={t.lore.stateMenuLabel}
-              aria-label={t.lore.stateMenuLabel}
-              aria-haspopup="menu"
-              aria-expanded={stateOpen}
-              data-testid="lore-state"
-              disabled={chipsLocked}
-              onClick={() => setStateOpen((o) => !o)}
-            >
-              {stateLabel}
-            </button>
-            {stagedFrom?.state !== undefined && (
-              <LoreRevertMark
-                field="state"
-                from={stagedFrom.state}
-                onRevert={() => onRevert(entry.id, "state")}
-                disabled={chipsLocked}
-              />
-            )}
-            {stateOpen && (
-              <div
-                className="lore-row__menu-pop lore-row__status-pop"
-                role="menu"
-                aria-label={t.lore.stateMenuLabel}
-                data-testid="lore-state-options"
-              >
-                {STATE_ACTIONS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    role="menuitem"
-                    // 「當前值用強調色＋700」 IS this modifier — the same one the
-                    // 任務卡's 優先權/狀態 menus use (tasks.css
-                    // .task-card__menu-item--active), copied into lore.css.
-                    className={`lore-row__menu-item${
-                      entry.state === s ? " lore-row__menu-item--active" : ""
-                    }`}
-                    data-testid={`lore-state-${s}`}
-                    onClick={() => {
-                      setStateOpen(false);
-                      if (entry.state !== s) onSetState(entry.id, s);
-                    }}
-                  >
-                    {actionLabel(s)}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* 適用範圍 rides the tag row as the fourth tag. A viewer who may move
-              the entry gets the same badge-is-the-control pattern as 類型/狀態;
+          {/* 適用範圍 rides the tag row as the last tag. A viewer who may move
+              the entry gets the same badge-is-the-control pattern as 類型;
               anyone else reads it as plain text. The menu hangs from
               .lore-row__head (this wrapper is not positioned) so a tag that
               wrapped to the row's right edge cannot push the menu off a phone. */}
@@ -2275,27 +2272,35 @@ function LoreRow({
               <span className="lore-badge__text">{scope.label}</span>
             </span>
           )}
+          {dimmed && (
+            <span className="lore-badge lore-badge--dropped" data-testid="lore-dropped-tag">
+              {t.lore.droppedTag}
+            </span>
+          )}
         </div>
 
         <div className="lore-row__actions">
-          <button
-            type="button"
-            className="doc-btn doc-btn--edit"
-            data-testid="lore-edit"
-            disabled={editing}
-            onClick={() => setEditing(true)}
-          >
-            <PencilIcon size={14} />
-            <span>{t.lore.actionEdit}</span>
-          </button>
-          {collapse ? (
+          {expanded && (
+            <button
+              type="button"
+              className="lore-row__icon-btn"
+              data-testid="lore-edit"
+              aria-label={t.lore.actionEdit}
+              title={t.lore.actionEdit}
+              disabled={editing}
+              onClick={() => setEditing(true)}
+            >
+              <PencilIcon size={15} />
+            </button>
+          )}
+          {toggle ? (
             <span
-              className="lore-row__fold lore-row__fold--open"
+              className={`lore-row__fold${expanded ? " lore-row__fold--open" : ""}`}
               data-testid="lore-fold-mark"
               aria-hidden="true"
-              title={t.lore.collapseEntry}
+              title={expanded ? t.lore.collapseEntry : t.lore.expandEntry}
             >
-              <ChevronRightIcon size={16} />
+              <ChevronRightIcon size={18} />
             </span>
           ) : (
             // Holds the chevron's width: staging a change must not rewrap the
@@ -2305,7 +2310,7 @@ function LoreRow({
         </div>
       </div>
 
-      {editing ? (
+      {expanded && editing ? (
         <LoreEntryEditor
           entry={entry}
           caps={entryCaps}
@@ -2332,7 +2337,10 @@ function LoreRow({
               (one behaviour for one kind of text). The renderer's inline set is
               only `**bold**`, `` `code` `` and links; `_` is not syntax, so a body
               carrying `note_size_chars` is unaffected. */}
-          <div className="lore-row__body" data-testid="lore-body">
+          <div
+            className={`lore-row__body${expanded ? "" : " lore-row__body--clamped"}`}
+            data-testid="lore-body"
+          >
             <Markdown source={entry.body} className="lore-row__body-md doc-md" breaks />
           </div>
         </>
@@ -2345,14 +2353,15 @@ function LoreRow({
         <span className="lore-row__effective-ts" data-testid="lore-effective">
           {formatAbsolute(entry.effectiveTs, Date.now() / 1000)}
         </span>
+        {/* No reason, no row: an empty one would teach that retirements come unexplained. */}
+        {entry.retireReason !== "" && (
+          <div className="lore-row__meta-row" data-testid="lore-retire-reason">
+            <span className="lore-row__meta-label">{t.lore.retireReasonLabel}</span>
+            <span className="lore-row__retire">{entry.retireReason}</span>
+          </div>
+        )}
       </div>
-      {/* No reason, no line: an empty one would teach that retirements come unexplained. */}
-      {entry.retireReason !== "" && (
-        <div className="lore-row__retire" data-testid="lore-retire-reason">
-          {t.lore.retireReasonLabel}：{entry.retireReason}
-        </div>
-      )}
-      {recipient !== null && (
+      {expanded && recipient !== null && (
         <LoreMessageBox
           entryId={entry.id}
           recipient={recipient}
@@ -2363,64 +2372,15 @@ function LoreRow({
   );
 }
 
-/** An entry, folded: id, title and one tag (讀不到 on a dropped entry, its
- * type otherwise) on one line. A click (not one ending a text selection), Enter
- * or Space opens the full card in its place. The id and tag are drawn, not
- * buttons, so the whole row stays one control. */
-function LoreFoldedRow({
-  entry,
-  dropped,
-  highlighted,
-  onExpand,
-}: {
-  entry: LoreEntryView;
-  dropped: boolean;
-  highlighted: boolean;
-  onExpand: () => void;
-}) {
-  const { t } = useI18n();
-  return (
-    <div
-      className={`lore-row lore-row--folded${dropped ? " lore-row--dimmed" : ""}${
-        highlighted ? " lore-row--highlight" : ""
-      }`}
-      data-testid="lore-row"
-      data-entry-id={entry.id}
-      data-dimmed={dropped ? "true" : "false"}
-      data-folded="true"
-      role="button"
-      tabIndex={0}
-      aria-expanded={false}
-      onClick={(e) => {
-        if (isCardToggleClick(e)) onExpand();
-      }}
-      onKeyDown={(e) => {
-        if (isCardToggleKey(e)) onExpand();
-      }}
-    >
-      <span className="lore-row__id-badge" data-testid="lore-entry-id">
-        <BookIcon size={13} />#{entry.id}
-      </span>
-      <span className="lore-row__folded-title" data-testid="lore-folded-title">
-        {entry.title}
-      </span>
-      {dropped ? (
-        <span className="lore-badge lore-badge--dropped" data-testid="lore-dropped-tag">
-          {t.lore.droppedTag}
-        </span>
-      ) : (
-        <span
-          className="lore-badge lore-badge--lore-type"
-          data-testid="lore-folded-type"
-          data-lore-type={entry.loreType}
-        >
-          {loreTypeLabel(t, entry.loreType)}
-        </span>
-      )}
-      <span className="lore-row__fold" aria-hidden="true" title={t.lore.expandEntry}>
-        <ChevronRightIcon size={16} />
-      </span>
-    </div>
+/** The 狀態 icon: 置頂 a hollow pin, 生效中 a big check in a circle, 已失效 a
+ * slashed circle. */
+function LoreStateIcon({ state }: { state: LoreEntryState }) {
+  return state === "pinned" ? (
+    <PinIcon size={18} />
+  ) : state === "active" ? (
+    <CircleCheckBigIcon size={18} />
+  ) : (
+    <CircleSlashIcon size={18} />
   );
 }
 
