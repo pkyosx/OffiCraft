@@ -637,9 +637,17 @@ export const en: Dict = {
   // because each page words its own.
   replies: {
     waitingTitle: "Ask",
-    handledTitle: "Recently handled",
-    handledHint:
-      "Items answered or expired · answers can still be changed",
+    // The status axis. Answered / expired list only the server's last 24h,
+    // which the hint beside those options says.
+    filterStatusNoun: "Status",
+    filterStatusAll: "All statuses",
+    statusWaiting: "Unanswered",
+    statusSnoozed: "Snoozed",
+    statusAnswered: "Answered",
+    statusExpired: "Expired",
+    statusRecentHint: "last 24h",
+    statusGroupOpen: "Open",
+    statusGroupHandled: "Handled",
     empty: "✓ No pending asks",
     emptyFiltered: "No asks match the current filter",
     // The 開卡人 axis (T-118). Wording mirrors the 任務頁 executor dropdown:
@@ -653,7 +661,6 @@ export const en: Dict = {
     filterOpenerNoun: "Opener",
     filterOpenerAll: "All openers",
     filterIdLabel: "Reply-card id",
-    filterWaitingOnly: "Waiting only",
     clearFilters: "Clear filters",
     // ── Filter panel (T-93 round 2) ──
     // 🔴 Three outcomes, three sentences — never merged. Round 1 had one, so
@@ -756,8 +763,6 @@ export const en: Dict = {
     snoozeTooFar: "90 days at most",
     snoozeError: "Couldn't snooze. Please try again.",
     snoozeStale: "This card was already answered or expired, so it can't be snoozed.",
-    snoozedTitle: "Snoozed",
-    snoozedHint: "Each comes back to Ask at its time",
     unsnooze: "Bring back now",
     unsnoozeError: "Couldn't bring it back. Please try again.",
     unsnoozeStale: "This card was already answered or expired, so there is nothing to bring back.",

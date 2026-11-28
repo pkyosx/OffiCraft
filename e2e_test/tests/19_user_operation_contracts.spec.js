@@ -15,6 +15,14 @@ const {
   uniqueName,
 } = require('../lib/fixtures');
 
+/** Tick 已回覆 in the 請示 page's 狀態 field and close its popover. */
+async function showAnswered(page) {
+  const trigger = page.getByTestId('filter-status');
+  await trigger.click();
+  await page.getByTestId('filter-status-opt-answered').locator('input').check();
+  await trigger.click();
+}
+
 function options(texts, aiPickAt) {
   return texts.map((text, i) => ({ text, ai_pick: i === aiPickAt }));
 }
@@ -155,7 +163,7 @@ test.describe('user-operation contract · single card draft preservation', () =>
     await chip(waiting, 1).click();
 
     await expect(waiting, 'one tap must close the page card').toHaveCount(0);
-    await page.getByTestId('answered-toggle').click();
+    await showAnswered(page);
     const answered = page
       .getByTestId('answered-card')
       .filter({ hasText: summary });

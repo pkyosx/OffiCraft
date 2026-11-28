@@ -2,10 +2,8 @@
 // count, from ONE shared source (T-e862 同源化). The WAITING list is the
 // always-live pane (mount + every "reply_card" SSE delta), fetched alongside
 // the cheap counts. The HANDLED list (answered + expired, merged newest-first
-// by their handled stamp) is DEFERRED (owner 已回覆卡預設不載 / 收合狀態下不
-// fetch): the collapsed 近期已處理 pane shows its 「· N」 header from the
-// counts alone (answered + expired), and the lists are pulled only when the
-// owner expands the pane (loadHandled). Reconcile-by-refetch (contract B): a
+// by their handled stamp) is DEFERRED (owner 已回覆卡預設不載): the lists are
+// pulled only when the page asks for 已回覆 or 已過期 (loadHandled). Reconcile-by-refetch (contract B): a
 // delta REFETCHES — the waiting list + counts always, and the handled lists
 // only when currently loaded (expanded) — never merges an event payload. The
 // answer/re-answer/expire actions do NOT refetch directly — see T-a3e4 step 8
@@ -134,14 +132,10 @@ interface UseReplyCards {
    * now with null. Resolves once the write landed and is shown. */
   snooze: (id: string, untilTs: number | null) => Promise<void>;
   /** Cards answered OR expired within the last 24h — merged, newest handled
-   * first. EMPTY until `loadHandled()` is called (the pane is collapsed by
-   * default). */
+   * first. EMPTY until `loadHandled()` is called (the page does not list
+   * them by default). */
   handled: ReplyCardRow[];
-  /** Recently-handled (24h) count from the cheap count endpoint (answered +
-   * expired) — drives the collapsed 近期已處理 · N header (and its zero-hide)
-   * WITHOUT the lists. */
-  handledCount: number;
-  /** True once the handled lists have actually been fetched (pane expanded). */
+  /** True once the handled lists have actually been fetched. */
   handledLoaded: boolean;
   loading: boolean;
   /** True when the mount fetch REJECTED (500/network; 401 already bounced to
@@ -194,7 +188,6 @@ function useReplyCardsState(): UseReplyCards {
   const [clock, setClock] = useState(() => Date.now() / 1000);
   const [nextChangeTs, setNextChangeTs] = useState<number | null>(null);
   const [handled, setHandled] = useState<ReplyCardRow[]>([]);
-  const [handledCount, setHandledCount] = useState(0);
   const [handledLoaded, setHandledLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -288,10 +281,6 @@ function useReplyCardsState(): UseReplyCards {
       setClock(Date.now() / 1000);
       setNextChangeTs(counts.waitingNextChangeTs ?? null);
       waitingRef.current = next;
-      // The counts came from the SAME (pre-write) snapshot as the rows we just
-      // held back, so add them: otherwise the 近期已處理 header would drop by
-      // one for as long as the hold lasts.
-      setHandledCount(counts.answered + counts.expired + heldBack.length);
       setError(false);
     } catch (e) {
       // Only the latest attempt owns the error surface — a stale rejection must
@@ -466,10 +455,6 @@ function useReplyCardsState(): UseReplyCards {
       const next = prev.filter((c) => c.id !== receipt.id);
       waitingRef.current = next;
       setWaiting(next);
-      // It left the waiting pane, so the 近期已處理 header's count gained it.
-      // (Only when it really WAS waiting — a 重新決定 revises an already-handled
-      // card and must not re-count it.)
-      setHandledCount((n) => n + 1);
     }
     // Keep the handled lists coherent too, but only while they are actually
     // loaded — a collapsed, never-expanded pane stays unfetched (the same gate
@@ -587,7 +572,6 @@ function useReplyCardsState(): UseReplyCards {
     snooze,
     handled,
     refresh,
-    handledCount,
     handledLoaded,
     loading,
     error,

@@ -674,8 +674,16 @@ export const zh = {
   // 不留空殼；欄位的標籤本來就分別住在 `tasks.*` 與 `replies.*`，兩頁各自措辭。
   replies: {
     waitingTitle: "請示",
-    handledTitle: "近期已處理",
-    handledHint: "已回覆或已標為過期的事項 · 已回覆的可重新決定",
+    // 狀態軸。已回覆／已過期只列近 24 小時（server 的視窗），提示寫在選項旁。
+    filterStatusNoun: "狀態",
+    filterStatusAll: "所有狀態",
+    statusWaiting: "未回覆",
+    statusSnoozed: "已延後",
+    statusAnswered: "已回覆",
+    statusExpired: "已過期",
+    statusRecentHint: "近 24 小時",
+    statusGroupOpen: "待處理",
+    statusGroupHandled: "已處理",
     // 全部處理完的空狀態
     empty: "✓ 目前沒有待處理的請示",
     // 篩掉之後什麼都不剩的空狀態。跟上面那句是兩件事:上面是「你回完了」,
@@ -690,7 +698,6 @@ export const zh = {
     filterOpenerNoun: "開卡人",
     filterOpenerAll: "所有開卡人",
     filterIdLabel: "請示卡編號",
-    filterWaitingOnly: "只看待回覆",
     clearFilters: "清除篩選",
     // ── 篩選面板（T-93 第二輪）──
     // 🔴 三種結局三句話，不可合併成一句。第一輪只有「沒有符合篩選條件的請示」，
@@ -797,8 +804,6 @@ export const zh = {
     snoozeTooFar: "最多只能延後 90 天",
     snoozeError: "延後失敗，請稍後重試",
     snoozeStale: "這張卡已經回覆或標為過期，不能再延後",
-    snoozedTitle: "已延後",
-    snoozedHint: "時間到會自動回到請示",
     unsnooze: "取消延後",
     unsnoozeError: "取消延後失敗，請稍後重試",
     unsnoozeStale: "這張卡已經回覆或標為過期，不用再取消延後",

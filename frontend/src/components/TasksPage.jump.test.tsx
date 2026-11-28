@@ -551,7 +551,7 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
   // both printed 所有X, a reader who ticked everyone was told he had selected
   // everyone — and then anyone who loaded afterwards was silently excluded from
   // a filter still claiming to show them all. On 請示卡 that is reachable in two
-  // clicks, because 近期已處理 fetches its rows on first unfold.
+  // clicks, because handled cards are fetched only once 已回覆 is ticked.
   //
   // It also made the pill disagree with the 清除篩選 button standing next to it:
   // the button keys on the page's own `anyFilter` (size > 0), so it appeared

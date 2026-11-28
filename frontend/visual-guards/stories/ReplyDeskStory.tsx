@@ -5,8 +5,7 @@
 // the shortest (5m) to the longest (12d 23h) shape, and a snoozed card whose
 // stamp is a full return date. `questions` adds the newest waiting card, whose
 // question has a body with a mention and a link and runs taller than a phone's
-// room above the selection bar, a waiting secret card, and an answered card in
-// 近期已處理. `longAskers` adds waiting cards from askers whose name, role or
+// room above the selection bar, a waiting secret card, and an answered card. `longAskers` adds waiting cards from askers whose name, role or
 // (an outsource worker's) current task — number, type and title — is longer
 // than a phone's head line, and one whose task row (number, priority, no due
 // date) has a title longer than the row.

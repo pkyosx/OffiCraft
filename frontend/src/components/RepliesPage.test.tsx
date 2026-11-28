@@ -30,7 +30,7 @@
 // 若日後有人在聊天面單獨加條件（例如聊天面不顯示標題），不會有任何東西變紅。
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, fireEvent, waitFor, act, within } from "@testing-library/react";
+import { render, fireEvent, waitFor, act, within, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { RepliesPage } from "./RepliesPage";
@@ -46,6 +46,7 @@ import {
   mockApi,
 } from "../api/mock";
 import { WithSuggestedReplies } from "../test/suggestedReplies";
+import { toggleFilter } from "../test/tasksFilter";
 import { api } from "../api";
 import type { ReplyCard } from "../api/adapter";
 import { ApiError } from "../api/errors";
@@ -72,6 +73,13 @@ vi.mock("../hooks/useWorkerCodenames", () => ({
   // behaviour (and its empty state) is pinned in RepliesPage.worker-task.test.tsx.
   useWorkerCurrentTasks: () => new Map(),
 }));
+
+/** Add 已回覆 and 已過期 to the default 狀態 selection. */
+async function showHandled() {
+  await screen.findByTestId("filter-status");
+  toggleFilter("filter-status", "answered");
+  toggleFilter("filter-status", "expired");
+}
 
 function mkCard(over: Partial<ReplyCard>): ReplyCard {
   return {
@@ -458,7 +466,7 @@ describe("RepliesPage", () => {
     // The answered pane is collapsed by default — expand it to see the card.
     // (Expanding a pane is not answering anything: the ONLY click aimed at the
     // card itself was the one above.)
-    fireEvent.click(await findByTestId("answered-toggle"));
+    await showHandled();
     const answeredCard = await findByTestId("answered-card");
     await openCards();
     // The ask is GONE from 待回覆 and standing in 近期已回覆 — the owner's own
@@ -495,7 +503,7 @@ describe("RepliesPage", () => {
       })
     );
     const { findByTestId, getByText } = renderPage();
-    fireEvent.click(await findByTestId("answered-toggle"));
+    await showHandled();
     const card = await findByTestId("answered-card");
     await openCards();
     fireEvent.click(getByText("查看當初選項"));
@@ -554,7 +562,7 @@ describe("RepliesPage", () => {
         "conflict", "task is already closed — this card is orphaned")
     );
     const { findByTestId, getByText } = renderPage();
-    fireEvent.click(await findByTestId("answered-toggle"));
+    await showHandled();
     const card = await findByTestId("answered-card");
     await openCards();
     fireEvent.click(getByText("查看當初選項"));
@@ -605,7 +613,7 @@ describe("RepliesPage", () => {
     fireEvent.change(input, { target: { value: "收件人是誰？" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    fireEvent.click(await findByTestId("answered-toggle"));
+    await showHandled();
     const answeredCard = await findByTestId("answered-card");
     await openCards();
     const final = answeredCard.querySelector('[data-testid="final-answer"]');
@@ -635,7 +643,7 @@ describe("RepliesPage", () => {
     await waitFor(() => expect(answerSpy).toHaveBeenCalledTimes(1));
     expect(answerSpy.mock.calls[0][1].text).toBe("交給 [@Mira](/#office/member/mira) 處理");
 
-    fireEvent.click(await findByTestId("answered-toggle"));
+    await showHandled();
     const answeredCard = await findByTestId("answered-card");
     await openCards();
     const final = answeredCard.querySelector('[data-testid="final-answer"]')!;
@@ -710,7 +718,7 @@ describe("RepliesPage", () => {
     const workersSpy = vi.spyOn(api, "listOutsourceWorkers");
     const { findAllByTestId, findByTestId, getAllByPlaceholderText } = renderPage();
     await findAllByTestId("waiting-card");
-    fireEvent.click(await findByTestId("answered-toggle"));
+    await showHandled();
     const answeredCard = await findByTestId("answered-card");
     await openCards();
 
@@ -726,30 +734,48 @@ describe("RepliesPage", () => {
     expect(workersSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("近期已處理 is collapsed by default; the title row toggles it open and shut", async () => {
+  it("the default 狀態 lists 未回覆 then 已延後 cards, each tagged, and neither shows nor fetches handled ones until 已回覆 is ticked", async () => {
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(mkCard({ id: "rc-wait", createdTs: now - 60 }));
+    __injectMockReplyCard(mkCard({ id: "rc-later", createdTs: now - 30, snoozedUntilTs: now + 3600 }));
     __injectMockReplyCard(
       mkCard({
+        id: "rc-done",
         status: "answered",
-        answeredTs: Date.now() / 1000 - 60,
+        answeredTs: now - 60,
         answer: { optionIdxs: [0], text: "", attachments: [] },
       })
     );
-    const { findByTestId, queryAllByTestId } = renderPage();
+    __injectMockReplyCard(mkCard({ id: "rc-gone", status: "expired", expiredTs: now - 30 }));
+    const listSpy = vi.spyOn(api, "listReplyCards");
+    const { findAllByTestId, getByTestId } = renderPage();
+    await findAllByTestId("snoozed-card");
 
-    // Collapsed by default: the toggle row shows title · count, no cards.
-    const toggle = await findByTestId("answered-toggle");
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(toggle.textContent).toContain("近期已處理 · 1");
-    expect(queryAllByTestId("answered-card")).toHaveLength(0);
+    const shown = () =>
+      [...document.querySelectorAll<HTMLElement>("[data-reply-card-id][aria-expanded]")].map(
+        (el) => [el.dataset.replyCardId, el.querySelector('[data-testid="reply-status-tag"]')?.textContent]
+      );
+    expect(shown()).toEqual([
+      ["rc-wait", "未回覆"],
+      ["rc-later", "已延後"],
+    ]);
+    expect(getByTestId("filter-status").textContent).toBe("待處理");
+    expect(listSpy.mock.calls.map(([status]) => status)).not.toContain("answered");
 
-    // Click → expanded; click again → collapsed.
-    fireEvent.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(await findByTestId("answered-card")).toBeTruthy();
-
-    fireEvent.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(queryAllByTestId("answered-card")).toHaveLength(0);
+    toggleFilter("filter-status", "answered");
+    expect(
+      document.querySelector('[data-testid="filter-status-opt-answered"]')!.textContent
+    ).toBe("已回覆近 24 小時");
+    await waitFor(() =>
+      expect(shown()).toEqual([
+        ["rc-wait", "未回覆"],
+        ["rc-later", "已延後"],
+        ["rc-done", "已回覆"],
+      ])
+    );
+    toggleFilter("filter-status", "expired");
+    expect(shown().map(([id]) => id)).toEqual(["rc-wait", "rc-later", "rc-gone", "rc-done"]);
+    expect(shown()[2][1]).toBe("已過期");
   });
 
   it("查看當初選項 expands the original options with the standing pick marked", async () => {
@@ -761,7 +787,7 @@ describe("RepliesPage", () => {
       })
     );
     const { findByTestId, getByText } = renderPage();
-    fireEvent.click(await findByTestId("answered-toggle"));
+    await showHandled();
     const card = await findByTestId("answered-card");
     await openCards();
 
@@ -794,7 +820,7 @@ describe("RepliesPage", () => {
       })
     );
     const { findByTestId, getByText, getByPlaceholderText } = renderPage();
-    fireEvent.click(await findByTestId("answered-toggle"));
+    await showHandled();
     let card = await findByTestId("answered-card");
     await openCards();
 
@@ -855,7 +881,7 @@ describe("RepliesPage", () => {
       })
     );
     const { findByTestId, getByText, queryByPlaceholderText } = renderPage();
-    fireEvent.click(await findByTestId("answered-toggle"));
+    await showHandled();
     const card = await findByTestId("answered-card");
     await openCards();
 
@@ -927,7 +953,7 @@ describe("RepliesPage", () => {
     expect(avatarBtn.getAttribute("aria-label")).toBe(zh.office.viewProfile);
   });
 
-  it("標為過期 double-confirms, closes the card without an answer, and lands it 已過期 in 近期已處理", async () => {
+  it("標為過期 double-confirms, closes the card without an answer, and lists it as 已過期 once that status is ticked", async () => {
     __injectMockReplyCard(mkCard({}));
     const { findByTestId, findAllByTestId, queryAllByTestId, queryByTestId } =
       renderPage();
@@ -951,7 +977,7 @@ describe("RepliesPage", () => {
     await waitFor(() =>
       expect(queryAllByTestId("waiting-card")).toHaveLength(0)
     );
-    fireEvent.click(await findByTestId("answered-toggle"));
+    await showHandled();
     const expired = await findByTestId("expired-card");
     await openCards();
     expect(expired.textContent).toContain("已過期");
@@ -977,7 +1003,7 @@ describe("RepliesPage", () => {
     await openCards();
 
     fireEvent.click(card.querySelectorAll(".reply-option")[0]);
-    fireEvent.click(await findByTestId("answered-toggle"));
+    await showHandled();
     await findByTestId("answered-card");
     await openCards();
 
@@ -1059,8 +1085,7 @@ describe("RepliesPage", () => {
       }),
     );
     const { findByTestId } = renderPage();
-    fireEvent.click(await findByTestId("answered-toggle"));
-    fireEvent.click(await findByTestId("snoozed-toggle"));
+    await showHandled();
     await findByTestId("answered-card");
     await findByTestId("snoozed-card");
     await openCards();
@@ -1109,7 +1134,7 @@ describe("RepliesPage", () => {
     __injectMockReplyCard(
       mkCard({ id: "rc-snz", createdTs: THU_10AM - 60, snoozedUntilTs: THU_10AM + 86400 + 4.5 * 3600 }),
     );
-    const { getByTestId } = renderPage();
+    renderPage();
     await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1m", "rc-11m", "rc-23h", "rc-3d"]));
     const pillOf = (id: string) =>
       within(document.querySelector<HTMLElement>(`[data-reply-card-id="${id}"] .reply-card__head`)!).getByRole("img");
@@ -1128,7 +1153,6 @@ describe("RepliesPage", () => {
       expect(pill.querySelector('svg path[d="M5 22h14"]'), "an hourglass").not.toBeNull();
     }
 
-    fireEvent.click(getByTestId("snoozed-toggle"));
     const snoozed = pillOf("rc-snz");
     expect(snoozed.getAttribute("data-testid")).toBe("snoozed-pill");
     expect(snoozed.textContent).toBe("11/06");
@@ -1235,16 +1259,11 @@ describe("RepliesPage", () => {
       answered.querySelector(".reply-card__answered-at")?.textContent
     ).toMatch(/^已回覆 (?:\d{4}\/)?\d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
     expect(container.querySelector(".replies__section-title")?.textContent).toBe(
-      "請示 · 0開卡時間（新到舊）"
+      "請示 · 1開卡時間（新到舊）"
     );
-    const handledToggle = await findByTestId("answered-toggle");
-    expect(handledToggle.textContent).toContain("近期已處理 · 1");
-    expect(
-      handledToggle
-        .closest("section")
-        ?.querySelector('[data-testid="answered-card"]')
-    ).toBe(answered);
+    toggleFilter("filter-status", "answered");
     expect(await findByTestId("handled-load-error")).toBeTruthy();
+    expect(document.querySelector('[data-testid="answered-card"]')).toBe(answered);
     expect(listSpy).toHaveBeenCalledWith("answered");
     expect(listSpy).toHaveBeenCalledWith("expired");
     expect(
@@ -1275,16 +1294,11 @@ describe("RepliesPage", () => {
       expired.querySelector(".reply-card__answered-at")?.textContent
     ).toMatch(/^已過期 (?:\d{4}\/)?\d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
     expect(container.querySelector(".replies__section-title")?.textContent).toBe(
-      "請示 · 0開卡時間（新到舊）"
+      "請示 · 1開卡時間（新到舊）"
     );
-    const handledToggle = await findByTestId("answered-toggle");
-    expect(handledToggle.textContent).toContain("近期已處理 · 1");
-    expect(
-      handledToggle
-        .closest("section")
-        ?.querySelector('[data-testid="expired-card"]')
-    ).toBe(expired);
+    toggleFilter("filter-status", "expired");
     expect(await findByTestId("handled-load-error")).toBeTruthy();
+    expect(document.querySelector('[data-testid="expired-card"]')).toBe(expired);
     expect(listSpy).toHaveBeenCalledWith("answered");
     expect(listSpy).toHaveBeenCalledWith("expired");
     expect(
@@ -1315,7 +1329,7 @@ describe("RepliesPage", () => {
     expect(queryByTestId("reply-task-ref")).toBeNull();
   });
 
-  it("顯示方式 › 排序依據 → each order re-sorts 待回覆 only (已延後 stays by return time, 近期已處理 by handled time), the 請示 title folds and unfolds the list, the active sort is named beside it, the panel closes once a sort is picked, and the choice survives a remount", async () => {
+  it("顯示方式 › 排序依據 → each order re-sorts the 未回覆 cards only, which lead the list ahead of 已延後 by return time and handled cards by handled time; the active sort is named beside the title, the panel closes once a sort is picked, and the choice survives a remount", async () => {
     const now = Date.now() / 1000;
     const task = (id: string, priority: string, dueTs: number | null = null) => ({ id, typeKey: "", title: id, priority, dueTs });
     __injectMockReplyCard(mkCard({ id: "rc-notask", createdTs: now - 10 * 60, task: null }));
@@ -1351,20 +1365,21 @@ describe("RepliesPage", () => {
     const first = renderPage();
     await waitFor(() => expect(paneIds("waiting-card")).toHaveLength(5));
     expect(paneIds("waiting-card")).toEqual(["rc-notask", "rc-low", "rc-mid", "rc-high", "rc-frozen"]);
-    fireEvent.click(await first.findByTestId("snoozed-toggle"));
-    fireEvent.click(await first.findByTestId("answered-toggle"));
+    await showHandled();
     await waitFor(() => expect(paneIds("answered-card")).toHaveLength(3));
     expect(first.getByTestId("replies-sort-active").textContent).toBe("開卡時間（新到舊）");
-    const waitingToggle = first.getByTestId("waiting-toggle");
-    expect(waitingToggle.getAttribute("aria-expanded")).toBe("true");
-    fireEvent.click(waitingToggle);
-    expect(waitingToggle.getAttribute("aria-expanded")).toBe("false");
-    expect(paneIds("waiting-card")).toEqual([]);
-    expect(paneIds("snoozed-card")).toEqual(["rc-snz-soon", "rc-snz-late"]);
-    expect(paneIds("answered-card")).toEqual(["rc-handled", "rc-handled-mid", "rc-handled-early"]);
-    expect(waitingToggle.textContent).toBe("請示 · 5開卡時間（新到舊）");
-    fireEvent.click(waitingToggle);
-    expect(paneIds("waiting-card")).toEqual(["rc-notask", "rc-low", "rc-mid", "rc-high", "rc-frozen"]);
+    expect(
+      [...document.querySelectorAll<HTMLElement>("[data-reply-card-id][aria-expanded]")].map(
+        (el) => el.dataset.replyCardId
+      )
+    ).toEqual([
+      "rc-notask", "rc-low", "rc-mid", "rc-high", "rc-frozen",
+      "rc-snz-soon", "rc-snz-late",
+      "rc-handled", "rc-handled-mid", "rc-handled-early",
+    ]);
+    expect(document.querySelector(".replies__section-title")?.textContent).toBe(
+      "請示 · 10開卡時間（新到舊）"
+    );
 
     fireEvent.click(first.getByTestId("display-options"));
     const select = first.getByTestId("replies-sort") as HTMLSelectElement;
@@ -1502,7 +1517,7 @@ describe("RepliesPage", () => {
     const { getByTestId, findByTestId, queryByTestId } = renderPage();
     await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1", "rc-2"]));
     expect(getByTestId("nav-badge").textContent).toBe("2");
-    expect(queryByTestId("snoozed-section")).toBeNull();
+    expect(paneIds("snoozed-card")).toEqual([]);
 
     const card = document.querySelector<HTMLElement>('[data-reply-card-id="rc-2"]')!;
     const heads = [...document.querySelectorAll(".reply-card__head")].map((h) =>
@@ -1529,11 +1544,6 @@ describe("RepliesPage", () => {
     expect(snoozeSpy).toHaveBeenCalledWith("rc-2", THU_10AM + 3 * 3600);
     expect(queryByTestId("snooze-menu-rc-2")).toBeNull();
     expect(getByTestId("nav-badge").textContent).toBe("1");
-    expect(getByTestId("snoozed-toggle").textContent).toBe("已延後 · 1時間到會自動回到請示");
-    expect(getByTestId("snoozed-toggle").getAttribute("aria-expanded")).toBe("false");
-    expect(paneIds("snoozed-card")).toEqual([]);
-
-    fireEvent.click(getByTestId("snoozed-toggle"));
     expect(paneIds("snoozed-card")).toEqual(["rc-2"]);
     const snoozedCard = document.querySelector('[data-testid="snoozed-card"]')!;
     expect(snoozedCard.querySelector('[data-testid="snoozed-pill"]')!.getAttribute("title")).toBe("2026/11/5（四） 13:00 回來");
@@ -1576,20 +1586,18 @@ describe("RepliesPage", () => {
     expect(snoozeSpy).toHaveBeenCalledWith("rc-1", THU_10AM + 90 * 86400);
   });
 
-  it("取消延後 → the card is back in 待回覆 and the badge at once", async () => {
+  it("取消延後 → the card is back as 未回覆 and in the badge at once", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(mkCard({ id: "rc-1", snoozedUntilTs: now + 3600 }));
     const snoozeSpy = vi.spyOn(api, "snoozeReplyCard");
-    const { getByTestId, findByTestId } = renderPage();
-    fireEvent.click(await findByTestId("snoozed-toggle"));
-    expect(paneIds("snoozed-card")).toEqual(["rc-1"]);
+    const { getByTestId } = renderPage();
+    await waitFor(() => expect(paneIds("snoozed-card")).toEqual(["rc-1"]));
     expect(getByTestId("nav-badge").textContent).toBe("0");
 
     fireEvent.click(getByTestId("unsnooze-card"));
     await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1"]));
     expect(snoozeSpy).toHaveBeenCalledWith("rc-1", null);
     expect(paneIds("snoozed-card")).toEqual([]);
-    expect(document.querySelector('[data-testid="snoozed-section"]')).toBeNull();
     expect(getByTestId("nav-badge").textContent).toBe("1");
   });
 
@@ -1597,9 +1605,8 @@ describe("RepliesPage", () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(mkCard({ id: "rc-a", summary: "延後要回答", snoozedUntilTs: now + 3600 }));
     __injectMockReplyCard(mkCard({ id: "rc-e", summary: "延後要過期", snoozedUntilTs: now + 7200 }));
-    const { findByTestId, getByTestId } = renderPage();
-    fireEvent.click(await findByTestId("snoozed-toggle"));
-    expect(paneIds("snoozed-card")).toEqual(["rc-a", "rc-e"]);
+    const { findByTestId } = renderPage();
+    await waitFor(() => expect(paneIds("snoozed-card")).toEqual(["rc-a", "rc-e"]));
 
     const answering = document.querySelector<HTMLElement>('[data-reply-card-id="rc-a"]')!;
     fireEvent.click(answering);
@@ -1611,9 +1618,11 @@ describe("RepliesPage", () => {
     const expiring = document.querySelector<HTMLElement>('[data-reply-card-id="rc-e"]')!;
     fireEvent.click(expiring.querySelector('[data-testid="expire-card"]')!);
     fireEvent.click(await findByTestId("expire-confirm-btn"));
-    await waitFor(() => expect(document.querySelector('[data-testid="snoozed-section"]')).toBeNull());
+    await waitFor(() => expect(paneIds("snoozed-card")).toEqual([]));
     expect((await mockApiCard("rc-e")).status).toBe("expired");
-    expect(getByTestId("answered-toggle").textContent).toContain("近期已處理 · 2");
+    await showHandled();
+    await waitFor(() => expect(paneIds("answered-card")).toEqual(["rc-a"]));
+    expect(document.querySelector('[data-testid="expired-card"]')?.getAttribute("data-reply-card-id")).toBe("rc-e");
   });
 
   it("a 409 on 稍後再看 → says the card was already handled, closes the menu and re-reads the panes; any other failure keeps the menu open with an error", async () => {
@@ -1655,8 +1664,7 @@ describe("RepliesPage", () => {
       );
     const listSpy = vi.spyOn(api, "listReplyCards");
     const { findByTestId, getByTestId, queryByTestId } = renderPage();
-    fireEvent.click(await findByTestId("snoozed-toggle"));
-    fireEvent.click(getByTestId("unsnooze-card"));
+    fireEvent.click(await findByTestId("unsnooze-card"));
     const err = await findByTestId("unsnooze-error");
     expect(err.textContent).toBe("取消延後失敗，請稍後重試");
     expect(err.closest("[data-reply-card-id]")?.getAttribute("data-reply-card-id")).toBe("rc-1");
@@ -1768,7 +1776,7 @@ describe("RepliesPage", () => {
     fireEvent.click(getByTestId("chat-msg-sheet-backdrop"));
     expect(menuLabels()).toEqual([]);
 
-    fireEvent.click(getByTestId("answered-toggle"));
+    await showHandled();
     await waitFor(() => expect(paneIds("answered-card")).toEqual(["rc-done"]));
     await hold(document.querySelector('[data-reply-card-id="rc-done"] .reply-card__summary')!, 520);
     expect(menuLabels()).toEqual(["跳到原訊息", "複製訊息", "選取文字"]);
@@ -1804,7 +1812,6 @@ describe("RepliesPage", () => {
     expect(snoozeSpy).toHaveBeenCalledWith("rc-1", THU_10AM + 3 * 3600);
     expect(queryByTestId("snooze-menu-rc-1")).toBeNull();
 
-    fireEvent.click(getByTestId("snoozed-toggle"));
     expect(paneIds("snoozed-card")).toEqual(["rc-1", "rc-s"]);
     await hold(summaryOf("rc-s"), 520);
     expect(menuLabels()).toEqual(["跳到原訊息", "取消延後", "標為過期", "複製訊息", "選取文字"]);
@@ -1904,7 +1911,6 @@ describe("RepliesPage", () => {
     await findByTestId("snooze-menu-rc-1");
     fireEvent.click(getByTestId("snooze-preset-3h"));
     await waitFor(() => expect(paneIds("waiting-card")).toEqual([]));
-    fireEvent.click(getByTestId("snoozed-toggle"));
     fireEvent.click(getByTestId("unsnooze-card"));
     await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1"]));
     expect(queryByTestId("snooze-menu-rc-1")).toBeNull();
@@ -1986,12 +1992,11 @@ describe("RepliesPage", () => {
   });
 
 
-  it("in the selection mode a card that comes back from 已延後 into 請示 stays in the mode; a card answered elsewhere, which leaves its pane, ends the mode with the rest of the page back in reach", async () => {
+  it("in the selection mode a card that comes back from 已延後 to 未回覆 stays in the mode; a card answered elsewhere, which leaves the list, ends the mode with the rest of the page back in reach", async () => {
     __injectMockReplyCard(mkCard({ id: "rc-1", body: "收件人寫在附件裡", snoozedUntilTs: Date.now() / 1000 + 1.5 }));
     __injectMockReplyCard(mkCard({ id: "rc-2", createdTs: Date.now() / 1000 - 3600 }));
     const { getByTestId, queryByTestId } = renderPage();
     await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-2"]));
-    fireEvent.click(getByTestId("snoozed-toggle"));
     await waitFor(() => expect(paneIds("snoozed-card")).toEqual(["rc-1"]));
     const cardEl = () => document.querySelector<HTMLElement>('[data-reply-card-id="rc-1"]');
     const bodyOf = () =>
@@ -2003,10 +2008,8 @@ describe("RepliesPage", () => {
     await hold(cardEl()!.querySelector(".reply-card__summary")!, 520);
     choose("選取文字");
     await bodyOf();
-    const before = cardEl();
 
     await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1", "rc-2"]), { timeout: 3000 });
-    expect(cardEl(), "the card was not remounted in the other pane").not.toBe(before);
     expect(cardEl()!.classList.contains("reply-card--selecting")).toBe(true);
     const body = await bodyOf();
     fireEvent.pointerDown(body);

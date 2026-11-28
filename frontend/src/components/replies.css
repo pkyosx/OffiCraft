@@ -43,32 +43,6 @@
   font-size: 12px;
 }
 
-/* 近期已回覆 title row AS the collapse toggle — same look as
- * .replies__section-title (a button in section-label clothing), plus the
- * shared .reply-card__caret chevron for the open/closed cue. */
-.replies__section-toggle {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  width: 100%;
-  padding: 0 2px 12px;
-  border: none;
-  background: transparent;
-  text-align: left;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: color 0.15s;
-}
-.replies__section-toggle:hover {
-  color: var(--color-text);
-}
-.replies__section-toggle .reply-card__caret {
-  align-self: center;
-  flex: none;
-}
-
 /* The ✓ all-answered empty state (spec copy). */
 .replies__empty {
   padding: 26px 20px;
@@ -327,6 +301,19 @@
   white-space: nowrap;
 }
 
+.reply-card__title-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.reply-card__title-line > .reply-card__summary {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.reply-card__status {
+  margin-top: 1px;
+  user-select: none;
+}
 .reply-card__summary {
   font-size: 14px;
   font-weight: 600;
@@ -1100,28 +1087,6 @@
   cursor: default;
 }
 
-/* 只看待回覆 — shaped like the active filter pills beside it (.tasks__filter +
- * .tasks__ms-trigger--active in tasks.css); keep the two in step. */
-.replies__filter-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 10px;
-  border-radius: var(--radius-pill);
-  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
-  background: var(--color-card);
-  color: var(--color-text-strong);
-  font-size: 13px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.replies__filter-pill svg {
-  flex: none;
-  color: var(--color-text-muted);
-}
-.replies__filter-pill:hover svg {
-  color: var(--color-text);
-}
 /* 已延後 on an inline stub: still the owner's (the waiting colour), but set
  * aside — a dashed outline and muted text so it does not read as 待回覆. */
 .reply-tag--snoozed {

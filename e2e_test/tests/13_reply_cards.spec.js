@@ -87,6 +87,14 @@ const {
   uniqueName,
 } = require('../lib/fixtures');
 
+/** Tick 已回覆 in the 請示 page's 狀態 field and close its popover. */
+async function showAnswered(page) {
+  const trigger = page.getByTestId('filter-status');
+  await trigger.click();
+  await page.getByTestId('filter-status-opt-answered').locator('input').check();
+  await trigger.click();
+}
+
 // Build the wire `options` array. `aiPickAt` is the index that carries the
 // recommendation — the caller ALWAYS passes one that is not 0, on purpose (see
 // the header); pass -1 for a card that recommends nothing.
@@ -356,8 +364,8 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
         message: 'the tap alone must have answered it server-side',
       })
       .toBe(baseWaiting + 1);
-    // 近期已處理 collapses by default and loads lazily — expand it first.
-    await page.getByTestId('answered-toggle').click();
+    // Answered cards are not in the default 狀態 and load lazily — tick it first.
+    await showAnswered(page);
     const answeredA = page
       .getByTestId('answered-card')
       .filter({ hasText: summaryA });
@@ -508,8 +516,8 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
     await expect(
       page.getByTestId('waiting-card').filter({ hasText: summaryB }),
     ).toHaveCount(0);
-    // Fresh visit → 近期已處理 starts collapsed again; expand to see B.
-    await page.getByTestId('answered-toggle').click();
+    // Fresh visit → 狀態 is back at its default; tick 已回覆 to see B.
+    await showAnswered(page);
     await expect(
       page.getByTestId('answered-card').filter({ hasText: summaryB }),
     ).toBeVisible();
@@ -613,7 +621,7 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
 
     // Both circled options render on the final row — showing only the first
     // would silently drop half the decision.
-    await page.getByTestId('answered-toggle').click();
+    await showAnswered(page);
     const answered = page
       .getByTestId('answered-card')
       .filter({ hasText: summary });
@@ -741,8 +749,8 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
     await openPageCard(waiting);
     await tapOption(waiting, 0);
     await expect(waiting).toHaveCount(0);
-    // 近期已處理 collapses by default and loads lazily — expand it first.
-    await page.getByTestId('answered-toggle').click();
+    // Answered cards are not in the default 狀態 and load lazily — tick it first.
+    await showAnswered(page);
     await expect(
       page.getByTestId('answered-card').filter({ hasText: summary }),
     ).toBeVisible();

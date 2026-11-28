@@ -17,6 +17,7 @@ import {
 } from "../api/mock";
 import type { ReplyCard } from "../api/adapter";
 import { watchSecretValue } from "../test/secretValueWatch";
+import { toggleFilter } from "../test/tasksFilter";
 
 const SENTINEL = "dummy-aaaaaaaaaaaa";
 const CARD_ID = "rc-aaaaaaaaaaaa";
@@ -103,8 +104,13 @@ const surfaces: {
     },
     focusesOnOpen: true,
     showSettled: async (u) => {
-      const toggle = await u.findByTestId("answered-toggle");
-      if (toggle.getAttribute("aria-expanded") === "false") fireEvent.click(toggle);
+      await u.findByTestId("filter-status");
+      for (const status of ["answered", "expired"]) {
+        const box = document.querySelector<HTMLInputElement>(
+          `[data-testid="filter-status-opt-${status}"] input`
+        );
+        if (!box?.checked) toggleFilter("filter-status", status);
+      }
     },
   },
 ];
@@ -435,7 +441,9 @@ describe("the replies page's handled pane", () => {
         </ReplyCardsProvider>,
       ),
     );
-    fireEvent.click(await u.findByTestId("answered-toggle"));
+    await u.findByTestId("filter-status");
+    toggleFilter("filter-status", "answered");
+    toggleFilter("filter-status", "expired");
     const stamp = async (id: string) =>
       waitFor(() => {
         const el = u.container.querySelector(`[data-reply-card-id="${id}"] .reply-card__answered-at`);

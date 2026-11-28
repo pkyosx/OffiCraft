@@ -45,6 +45,8 @@ export interface MultiSelectOption {
   label: string;
   /** Optional trailing count badge (負責人 task counts). */
   count?: number;
+  /** Muted qualifier after the label, shown in the popover only. */
+  hint?: string;
 }
 
 /** A row above the options that ticks or unticks several of them at once. */
@@ -175,6 +177,7 @@ export function MultiSelectFilter({
                 onChange={() => toggle(o.value)}
               />
               <span className="tasks__ms-opt-label">{o.label}</span>
+              {o.hint && <span className="tasks__ms-hint">{o.hint}</span>}
               {o.count !== undefined && (
                 <span
                   className="tasks__ms-count"

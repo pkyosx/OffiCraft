@@ -5,6 +5,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { OfficePage } from "./OfficePage";
+import { RepliesPage } from "./RepliesPage";
+import { useHashRoute } from "../lib/hashRoute";
 import { ReplyCardsProvider } from "../hooks/useReplyCards";
 import { __resetWorkerCodenameCache } from "../hooks/useWorkerCodenames";
 import { resetAllSharedSnapshots } from "../lib/sharedSnapshot";
@@ -44,12 +46,18 @@ function card(from: string, over: Partial<ReplyCard> = {}): ReplyCard {
   };
 }
 
+function RepliesWhenRouted() {
+  const [route] = useHashRoute();
+  return route.page === "replies" ? <RepliesPage openerId={route.openerId} /> : null;
+}
+
 function openRoom(id: string) {
   window.location.hash = `#office/chat/${id}`;
   return render(
     <I18nProvider>
       <ReplyCardsProvider>
         <OfficePage />
+        <RepliesWhenRouted />
       </ReplyCardsProvider>
     </I18nProvider>,
   );
@@ -100,9 +108,18 @@ describe("OfficePage chat header 請示卡 jump", () => {
     expect(badge()).toBeNull();
   });
 
-  it.each(["mira", "ow-a"])("clicking it in the %s room opens #replies/opener/<that peer>", async (id) => {
+  it.each([
+    ["mira", 2],
+    ["ow-a", 1],
+  ])("clicking it in the %s room opens #replies/opener/<that peer> on exactly the cards its badge counted, all 未回覆", async (id, count) => {
     openRoom(id);
     fireEvent.click(await button());
     expect(window.location.hash).toBe(`#replies/opener/${id}`);
+    const cards = () => [...document.querySelectorAll(".replies [data-reply-card-id][aria-expanded]")];
+    await waitFor(() => expect(cards()).toHaveLength(count));
+    expect(cards().map((c) => c.querySelector('[data-testid="reply-status-tag"]')?.textContent)).toEqual(
+      Array(count).fill("未回覆"),
+    );
+    expect(screen.getByTestId("filter-status").textContent).toBe("未回覆");
   });
 });

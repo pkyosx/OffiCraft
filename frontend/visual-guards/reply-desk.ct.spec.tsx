@@ -253,6 +253,14 @@ async function expectTaskRow(card: Locator, cardBox: Box) {
 const LONG_TASK_TITLE = "OffiCraft 入門介紹影片（繁中，4 章＋完整版）的旁白、字幕與封面，另含英文與日文版本的字幕翻譯、章節縮圖、配樂授權確認、各平台上架描述撰寫，以及上線後第一週的觀看數據整理與回報，並把觀眾留言中的常見問題整理成下一版的修改清單、附上每一章的平均觀看秒數與跳出點分析";
 const LONG_TASK_LINE = "T-9021034多語系入門影片的旁白錄製、字幕校對、封面設計、章節切分、配樂授權確認、各平台上架前的最終品質檢查與上線後數據回報流程";
 
+/** Add 已回覆 and 已過期 to the 狀態 field, then close its popover. */
+async function tickHandled(page: Page, gesture: "click" | "tap") {
+  const trigger = page.getByTestId("filter-status");
+  await trigger[gesture]();
+  await page.getByTestId("filter-status-group-handled").locator("input")[gesture]();
+  await trigger[gesture]();
+}
+
 async function noPageOverflow(page: Page) {
   const m = await page.evaluate(() => ({
     scroll: document.documentElement.scrollWidth,
@@ -356,7 +364,6 @@ for (const { width, mode } of HEAD_SCENES) {
       }
       await noPageOverflow(page);
 
-      await cmp.getByTestId("snoozed-toggle").click();
       const snoozed = cmp.getByTestId("snoozed-card");
       const until = snoozed.getByTestId("snoozed-pill");
       await expect(until).toHaveText(/^\d{2}\/\d{2}$/);
@@ -364,7 +371,7 @@ for (const { width, mode } of HEAD_SCENES) {
       await expect(until.locator('svg polyline[points="12 7 12 12 15 14"]'), "the 稍後再看 clock").toHaveCount(1);
       rights.push((await expectHeadLine(snoozed, "snoozed", mode)).stamp.right);
 
-      await cmp.getByTestId("answered-toggle").click();
+      await tickHandled(page, "click");
       const answered = cardOf(page, "rc-desk-done");
       await expect(answered.locator(".reply-card__answered-at")).toHaveText(/^已回覆 /);
       rights.push((await expectHeadLine(answered, "answered", mode)).stamp.right);
@@ -449,7 +456,7 @@ for (const width of [1440, 1728]) {
         const stamp = await box(cards.nth(i).getByTestId("waited"));
         expect(stamp.right - stamp.left, `${full[i]}: the stamp no wider than its pill`).toBeCloseTo(64, 0);
       }
-      await expect(cmp.locator(".reply-card__waited"), "no words beside the pill").toHaveText(["5m", "2h", "12d"]);
+      await expect(cards.locator(".reply-card__waited"), "no words beside the pill").toHaveText(["5m", "2h", "12d"]);
 
       const label = HEAD_BUTTONS[language as "zh" | "en"];
       const jumpLefts: number[] = [];
@@ -461,7 +468,6 @@ for (const width of [1440, 1728]) {
       expect(Math.max(...jumpLefts) - Math.min(...jumpLefts), `跳到原訊息 lefts ${jumpLefts}`).toBeLessThanOrEqual(0.5);
       expect(Math.max(...expireLefts) - Math.min(...expireLefts), `標為過期 lefts ${expireLefts}`).toBeLessThanOrEqual(0.5);
 
-      await cmp.getByTestId("snoozed-toggle").click();
       const snoozed = cmp.getByTestId("snoozed-card");
       await expect(snoozed).toHaveCount(1);
       const snoozedBox = await box(snoozed);
@@ -513,9 +519,8 @@ test.describe(() => {
     const cmp = await mount(<ReplyDeskStory />);
     expect(await page.evaluate(() => matchMedia("(hover: none) and (min-width: 721px)").matches), "control: a touch tablet").toBe(true);
     await expect(cmp.getByTestId("waiting-card")).toHaveCount(3);
-    await expect(cmp.locator(".reply-card__waited")).toHaveText(["5m", "2h", "12d"]);
+    await expect(cmp.getByTestId("waiting-card").locator(".reply-card__waited")).toHaveText(["5m", "2h", "12d"]);
     for (const card of await cmp.getByTestId("waiting-card").all()) await expectHeadLine(card, "tablet", "touch");
-    await cmp.getByTestId("snoozed-toggle").click();
     await expect(cmp.getByTestId("snoozed-until")).toHaveText(/^\d{2}\/\d{2}$/);
     await expectHeadLine(cmp.getByTestId("snoozed-card"), "tablet snoozed", "touch");
     await noPageOverflow(page);
@@ -695,7 +700,7 @@ for (const [width, height] of [
       await expect(card).not.toHaveClass(/reply-card--pressed/);
       await expect(card).toHaveAttribute("aria-expanded", "false");
 
-      await page.getByTestId("answered-toggle").tap();
+      await tickHandled(page, "tap");
       const answered = cardOf(page, "rc-desk-done");
       await expect(answered).toBeVisible();
       await expectHeadLine(answered, "answered", "touch");
@@ -790,7 +795,7 @@ for (const [width, height] of [
         ".reply-composer",
       ])
         await expect(card.locator(hidden).first(), `${hidden} in the mode`).toBeHidden();
-      for (const other of [cardOf(page, "rc-desk-1"), page.getByTestId("replies-filter"), page.getByTestId("waiting-toggle")]) {
+      for (const other of [cardOf(page, "rc-desk-1"), page.getByTestId("replies-filter"), page.locator(".replies__section-title")]) {
         await expect(other).toHaveCSS("filter", /blur/);
         await expect(other).toHaveCSS("pointer-events", "none");
         await expect(other).toHaveJSProperty("inert", true);
@@ -910,7 +915,7 @@ for (const [width, height] of [
     }) => {
       await context.grantPermissions(["clipboard-read", "clipboard-write"]);
       await mountDesk(mount, page, width, height);
-      await page.getByTestId("answered-toggle").tap();
+      await tickHandled(page, "tap");
       const card = cardOf(page, "rc-desk-done");
       await touch(page, await centreOf(card.locator(".reply-card__summary")), { holdMs: 700 });
       await page.getByTestId("chat-msg-menu-select").tap();
@@ -980,7 +985,6 @@ for (const [width, height] of [
       await expect(sheet).toHaveCount(0);
       await expect(page.locator('[data-testid="waiting-card"][data-reply-card-id="rc-desk-q"]')).toHaveCount(0);
 
-      await page.getByTestId("snoozed-toggle").tap();
       const snoozed = page.locator('[data-testid="snoozed-card"][data-reply-card-id="rc-desk-q"]');
       await expect(snoozed).toHaveCount(1);
       await press("rc-desk-q");
@@ -1070,19 +1074,17 @@ for (const [width, height] of [
 
 test.describe(() => {
   test.use({ hasTouch: true });
-  test("width 390, touch: a card in the mode that is snoozed from elsewhere moves to 已延後 below the screen and stays in the mode, brought up above the bar", async ({
+  test("width 390, touch: a card in the mode that is snoozed from elsewhere moves down among the 已延後 cards below the screen and stays in the mode, brought up above the bar", async ({
     mount,
     page,
   }) => {
     await mountDesk(mount, page, 390, 844);
-    await page.getByTestId("snoozed-toggle").tap();
     await expect(page.getByTestId("snoozed-card")).toHaveCount(1);
     const card = cardOf(page, "rc-desk-q");
     await touch(page, await centreOf(card.locator(".reply-card__summary")), { holdMs: 700 });
     await page.getByTestId("chat-msg-menu-select").tap();
     const bar = page.getByTestId("chat-select-bar");
     await expect(bar).toBeFocused();
-    const before = await card.elementHandle();
 
     await page.evaluate(() =>
       (window as unknown as { __ocSnooze: (id: string, untilTs: number) => void }).__ocSnooze(
@@ -1093,7 +1095,6 @@ test.describe(() => {
     await expect(page.getByTestId("snoozed-card")).toHaveCount(2);
     const moved = page.locator('[data-testid="snoozed-card"][data-reply-card-id="rc-desk-q"]');
     await expect(moved).toHaveClass(/reply-card--selecting/);
-    expect(await moved.evaluate((el, old) => el !== old, before), "the card was not remounted").toBe(true);
     await expect(bar).toBeVisible();
     await page.waitForTimeout(300);
     const barTop = (await bar.boundingBox())!.y;

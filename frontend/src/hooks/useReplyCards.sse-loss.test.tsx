@@ -45,6 +45,7 @@ import { ReplyCardsProvider } from "./useReplyCards";
 import { __resetMock, __injectMockReplyCard } from "../api/mock";
 import { api } from "../api";
 import type { ReplyCard } from "../api/adapter";
+import { toggleFilter } from "../test/tasksFilter";
 
 /** 🔴 開卡時間必須逐張不同,而且同一個 id 每次都拿到同一個戳記。
  *
@@ -437,11 +438,11 @@ describe("reply-card writes reconcile without any event stream", () => {
   });
 
   it("an in-flight PRE-WRITE handled snapshot cannot drop the card just answered", async () => {
-    // 🔴 The FOURTH site. "The pane is collapsed by default" does NOT make this
-    // unreachable: expanding it once sets handledLoaded for the rest of the visit,
-    // and from then on every delta refetches the handled lists — so the same
-    // in-flight snapshot lands on 近期已處理 and takes the card the owner just
-    // answered back out of it. (Expanding once is the entire point of that pane.)
+    // 🔴 The FOURTH site. "Handled cards are off by default" does NOT make this
+    // unreachable: ticking 已回覆 once sets handledLoaded for the rest of the
+    // visit, and from then on every delta refetches the handled lists — so the
+    // same in-flight snapshot takes the card the owner just answered back out of
+    // the handled list.
     __injectMockReplyCard(mkCard({ id: "rc-1", summary: "第一張" }));
     __injectMockReplyCard(
       mkCard({
@@ -457,8 +458,9 @@ describe("reply-card writes reconcile without any event stream", () => {
     const { findAllByTestId, findByTestId, queryAllByTestId } = renderPage();
     expect(await findAllByTestId("waiting-card")).toHaveLength(1);
 
-    // Expand 近期已處理 once — that is what arms the per-delta handled refetch.
-    fireEvent.click(await findByTestId("answered-toggle"));
+    // Ticking 已回覆 once is what arms the per-delta handled refetch.
+    await findByTestId("filter-status");
+    toggleFilter("filter-status", "answered");
     await waitFor(() =>
       expect(queryAllByTestId("answered-card")).toHaveLength(1)
     );
@@ -499,7 +501,7 @@ describe("reply-card writes reconcile without any event stream", () => {
     ]);
 
     // The snapshot committed (rc-peer is on screen) AND the card the owner just
-    // answered is still in 近期已處理 — three, not two.
+    // answered is still listed as 已回覆 — three, not two.
     await waitFor(() =>
       expect(
         queryAllByTestId("answered-card").map((el) => el.id).sort()
@@ -534,7 +536,8 @@ describe("reply-card writes reconcile without any event stream", () => {
 
     const stream = captureEventStream();
     const { findByTestId, findAllByTestId } = renderPage();
-    fireEvent.click(await findByTestId("answered-toggle"));
+    await findByTestId("filter-status");
+    toggleFilter("filter-status", "answered");
     const cards = await findAllByTestId("answered-card");
     expect(cards).toHaveLength(1);
     await openCards();

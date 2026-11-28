@@ -1,5 +1,5 @@
 // e2e_test/tests/15_card_waited_time.spec.js
-// NOTE(joey): chat MESSAGE timestamps render hh:mm-only (formatTime). The CARD absolute stamp this note was written about is gone from the 請示 card (owner 2026-09-11) and survives only on the 近期已處理 pane; whether chat messages should show absolute time is still an open question for kyle/Seth.
+// NOTE(joey): chat MESSAGE timestamps render hh:mm-only (formatTime). The CARD absolute stamp this note was written about is gone from the 請示 card (owner 2026-09-11) and survives only on answered and expired cards; whether chat messages should show absolute time is still an open question for kyle/Seth.
 //
 // C2 · reply-card 等待時間 — a 請示 card stamps how long it has been WAITING, as
 // a relative 已等你 counter in its head, to the RIGHT of 標為過期, and it carries

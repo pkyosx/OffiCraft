@@ -132,6 +132,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.tasks__ms-hint {
+  flex: none;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
 /* per-owner task count (T-be18 #3) */
 .tasks__ms-count {
   flex: none;
