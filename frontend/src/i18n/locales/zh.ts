@@ -388,7 +388,7 @@ export const zh = {
       in_progress: "進行中",
       done: "完成",
       waiting_owner: "等我回覆",
-      // 等待外部(T-6f11):與任務層 status.waiting_external 同詞,兩層才讀成同一件事。
+      // 等待外部:與任務層 status.waiting_external 同詞,兩層才讀成同一件事。
       waiting_external: "等待外部",
       // re-plan 凍結的已答卡節點(T-1aea):終態、灰階、只留問答史料
       superseded: "已取代",
@@ -618,8 +618,7 @@ export const zh = {
     // 內嵌請示卡(重用 M2 ReplyCardBody;可多張;內嵌在所屬 step 內)
     replyHeader: "請示",
     replyInChat: "在聊天室回覆",
-    // 審批步驟的盾牌角標:曾經開過卡/標過 gate 的 step,做完後仍看得出(owner
-    // 2026-07-14:不消失的標記)
+    // 審批步驟的盾牌角標:曾經開過卡/標過 gate 的 step,做完後仍看得出
     needsApproval: "需要你核可",
     // 卡片一律收合成一行摘要(可展開),標籤說明它現在的狀態
     replyAnsweredTag: "已回覆",

@@ -227,7 +227,7 @@ describe("TaskReplyCard", () => {
     expect(getSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("a waiting card's head carries no status tag, snoozed or not", async () => {
+  it("a waiting card's head reads only 請示 · 在聊天室回覆, snoozed or not", async () => {
     __injectMockReplyCard(mkCard({ id: "rc-1", snoozedUntilTs: Date.now() / 1000 + 3600 }));
     __injectMockReplyCard(mkCard({ id: "rc-2" }));
     render(
@@ -243,8 +243,7 @@ describe("TaskReplyCard", () => {
     await waitFor(() => expect(head("rc-1")?.textContent).toContain("在聊天室回覆"));
     await waitFor(() => expect(head("rc-2")?.textContent).toContain("在聊天室回覆"));
     for (const id of ["rc-1", "rc-2"]) {
-      expect(head(id)!.querySelector(".reply-tag")).toBeNull();
-      expect(head(id)!.textContent).not.toMatch(/已延後|等你回覆|待回覆/);
+      expect(head(id)!.textContent).toBe("請示在聊天室回覆");
     }
   });
 

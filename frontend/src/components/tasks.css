@@ -1901,7 +1901,7 @@ button.task-card__waiting--dep:focus-visible {
     var(--color-card)
   );
 }
-/* superseded step (T-1aea) — 已取代 frozen replan history, read as archive.
+/* superseded step — 已取代 frozen replan history, read as archive.
    🔴 .68 is the lowest opacity at which the title still clears 4.5:1 in every
    theme (theme-contrast); .62 did not. */
 .task-step--superseded {
@@ -2020,8 +2020,8 @@ button.task-card__waiting--dep:focus-visible {
   background: color-mix(in srgb, var(--color-text) 8%, transparent);
 }
 
-/* ── step-level 等待外部 reason row (T-9ca5) ── plain muted text with a purple
-   icon: the step box around it is already tinted purple. Since T-c514 this is the ONLY rendering of a
+/* ── step-level 等待外部 reason row ── plain muted text with a purple
+   icon: the step box around it is already tinted purple. This is the ONLY rendering of a
    waiting reason — the task-level copy was removed as duplicate. Always-stack:
    the label takes line 1, the markdown reason line 2, at every width (a
    bare-word reason can only be on line 2 because flex-basis:100% put it there —

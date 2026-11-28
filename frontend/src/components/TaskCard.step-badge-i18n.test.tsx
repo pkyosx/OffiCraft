@@ -1,4 +1,4 @@
-// T-6f11 — 座艙 step 狀態必須套翻譯,不得漏出原始英文 status 值。
+// 座艙 step 狀態必須套翻譯,不得漏出原始英文 status 值。
 //
 // Owner bug:step 狀態曾顯示 raw "waiting_external",任務層卻正常顯
 // 「等待外部」。DOM 層釘住兩件事:
@@ -41,7 +41,7 @@ beforeEach(() => {
   window.location.hash = "";
 });
 
-describe("TaskCard step 狀態 i18n (T-6f11)", () => {
+describe("TaskCard step 狀態 i18n", () => {
   it("六態 step 各渲染 zh 翻譯;waiting_external 與任務層同顯「等待外部」", async () => {
     __injectMockTask({
       id: "task-i18n",

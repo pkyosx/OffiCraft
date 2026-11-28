@@ -67,7 +67,7 @@ __injectMockReplyCard({
   answer: null,
 });
 
-/** Every step status, a parallel stage and three approval steps; the ids
+/** Every step status, a parallel stage and four approval steps (one inside the stage); the ids
  * address each step for the guards. */
 function allSteps(language: "zh" | "en") {
   const zh = language === "zh";
@@ -75,7 +75,7 @@ function allSteps(language: "zh" | "en") {
     mkStep({ id: "s-done", name: zh ? "Recon：讀現況程式與前例" : "Recon: read the current code and prior cases", status: "done", startedTs: 1000, finishedTs: 1000 + 7 * 60 }),
     mkStep({ id: "s-progress", name: zh ? "實作四項改動並在本機 dev 畫面確認每一項都可以操作" : "Implement the four changes and confirm each works in the local dev screen", status: "in_progress", startedTs: ALL_NOW - 2 * 3600 }),
     mkStep({ id: "s-par-1", name: zh ? "撰寫後端 API 測試" : "Write backend API tests", status: "in_progress", parallelGroup: "pg", startedTs: ALL_NOW - 40 * 60 }),
-    mkStep({ id: "s-par-2", name: zh ? "更新 i18n 字串與截圖" : "Update i18n strings and screenshots", status: "pending", parallelGroup: "pg" }),
+    mkStep({ id: "s-par-2", name: zh ? "更新 i18n 字串與截圖" : "Update i18n strings and screenshots", status: "pending", isGate: true, parallelGroup: "pg" }),
     mkStep({ id: "s-gate-pending", name: zh ? "上試用站並請 Owner 確認畫面" : "Deploy to staging and ask the Owner to check the screen", status: "pending", isGate: true }),
     mkStep({ id: "s-gate-waiting", name: zh ? "示意圖：任務卡狀態圖示與「更多」" : "Mockup: task card status icons and “More”", status: "waiting_owner", isGate: true, replyCardId: "rc-sections-gate", replyCardStatus: "waiting", startedTs: ALL_NOW - 5 * 3600 }),
     mkStep({ id: "s-gate-done", name: zh ? "CI 與交回合併" : "CI and hand back for merge", status: "done", isGate: true, startedTs: 1000, finishedTs: 1000 + 86400 }),

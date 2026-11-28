@@ -1,4 +1,4 @@
-// GUARD (T-9ca5) — step-level 等待外部 icon + reason row.
+// GUARD — step-level 等待外部 icon + reason row.
 //
 // Contract: a step in waiting_external gets its OWN timeline icon (named
 // 等待外部, distinct from the amber owner 等我回覆) and a .task-step__waiting

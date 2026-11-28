@@ -24,6 +24,7 @@ import {
   __injectMockReplyCard,
 } from "../api/mock";
 import type { TaskView, TaskStepView, ReplyCard } from "../api/adapter";
+import { CircleProgressIcon, UserClockIcon } from "./icons";
 
 let seq = 0;
 
@@ -88,6 +89,10 @@ function mkCard(over: Partial<ReplyCard>): ReplyCard {
     answer: null,
     ...over,
   };
+}
+
+function iconMarkup(Icon: (p: { size: number }) => React.JSX.Element): string {
+  return render(<Icon size={16} />).container.innerHTML;
 }
 
 /** The timeline icon drawn for a step (a parallel stage's shared one). */
@@ -331,6 +336,14 @@ describe("TaskCard 卡綁 step", () => {
         expiredTs: Date.now() / 1000 - 60,
       })
     );
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-b-par",
+        status: "answered",
+        answeredTs: Date.now() / 1000 - 120,
+        answer: { optionIdxs: [0], text: "", attachments: [] },
+      })
+    );
     __injectMockTask(
       mkTask({
         title: "卡態決定徽章",
@@ -357,6 +370,15 @@ describe("TaskCard 卡綁 step", () => {
             orderIdx: 2,
             startedTs: Date.now() / 1000 - 60,
           }),
+          mkStep({
+            name: "par-answered",
+            status: "waiting_owner",
+            replyCardId: "rc-b-par",
+            parallelGroup: "pg",
+            orderIdx: 3,
+            startedTs: Date.now() / 1000 - 60,
+          }),
+          mkStep({ name: "par-pending", parallelGroup: "pg", orderIdx: 4 }),
         ],
       })
     );
@@ -364,16 +386,40 @@ describe("TaskCard 卡綁 step", () => {
     const { findByTestId, findAllByTestId } = renderPage();
     fireEvent.click(await findByTestId("task-card"));
     const steps = await findAllByTestId("task-step");
+    const progressIcon = iconMarkup(CircleProgressIcon);
+    const waitingIcon = iconMarkup(UserClockIcon);
 
     expect(steps.map((s) => markerOf(s).getAttribute("aria-label"))).toEqual([
       "等我回覆",
       "進行中",
       "進行中",
+      "進行中",
+      "進行中",
+    ]);
+    expect(
+      steps.map((s) =>
+        Array.from(markerOf(s).classList).find((c) => c.startsWith("task-timeline__marker--"))
+      )
+    ).toEqual([
+      "task-timeline__marker--waiting_owner",
+      "task-timeline__marker--in_progress",
+      "task-timeline__marker--in_progress",
+      "task-timeline__marker--in_progress",
+      "task-timeline__marker--in_progress",
+    ]);
+    expect(steps.map((s) => markerOf(s).innerHTML)).toEqual([
+      waitingIcon,
+      progressIcon,
+      progressIcon,
+      progressIcon,
+      progressIcon,
     ]);
     expect(steps.map((s) => s.classList.contains("task-step--in_progress"))).toEqual([
       false,
       true,
       true,
+      true,
+      false,
     ]);
   });
 

@@ -161,6 +161,8 @@ type Box = { left: number; right: number; top: number; bottom: number; width: nu
 type StepGeometry = {
   id: string;
   inParallel: boolean;
+  group: Box | null;
+  above: Box | null;
   step: Box;
   name: Box;
   nameLineHeight: number;
@@ -180,7 +182,7 @@ async function stepGeometry(cmp: any): Promise<{ card: Box; steps: StepGeometry[
     const card = tl.closest(".task-card")!;
     return {
       card: box(card)!,
-      steps: [...tl.querySelectorAll<HTMLElement>('[data-testid="task-step"]')].map((step) => {
+      steps: [...tl.querySelectorAll<HTMLElement>('[data-testid="task-step"]')].map((step, i, all) => {
         const name = step.querySelector<HTMLElement>(".task-step__name")!;
         const row = step.closest(".task-timeline__row")!;
         const parallel = step.closest(".task-parallel");
@@ -189,6 +191,8 @@ async function stepGeometry(cmp: any): Promise<{ card: Box; steps: StepGeometry[
         return {
           id: step.dataset.stepId!,
           inParallel: parallel !== null,
+          group: box(parallel),
+          above: box(i > 0 ? all[i - 1] : null),
           step: box(step)!,
           name: box(name)!,
           nameLineHeight: parseFloat(getComputedStyle(name).lineHeight),
@@ -251,7 +255,7 @@ for (const width of [320, 375, 390, 1440]) {
       }
 
       const gated = g.steps.filter((s) => s.shield);
-      expect(gated.map((s) => s.id), `${at} steps with a shield`).toEqual(["s-gate-pending", "s-gate-waiting", "s-gate-done"]);
+      expect(gated.map((s) => s.id), `${at} steps with a shield`).toEqual(["s-par-2", "s-gate-pending", "s-gate-waiting", "s-gate-done"]);
       for (const s of gated) {
         const shield = s.shield!;
         const id = `${at} ${s.id}`;
@@ -259,6 +263,13 @@ for (const width of [320, 375, 390, 1440]) {
         expect.soft(shield.right, `${id} shield past the card`).toBeLessThanOrEqual(g.card.right);
         expect.soft(shield.left < s.step.right && shield.right > s.step.right, `${id} shield not on the box's right edge`).toBe(true);
         expect.soft(shield.top < s.step.top && shield.bottom > s.step.top, `${id} shield not on the box's top edge`).toBe(true);
+        if (s.above) {
+          expect.soft(overlaps(shield, s.above), `${id} shield over the step above`).toBe(false);
+        }
+        if (s.group) {
+          expect.soft(shield.right, `${id} shield past the parallel stage (right)`).toBeLessThanOrEqual(s.group.right);
+          expect.soft(shield.top, `${id} shield past the parallel stage (top)`).toBeGreaterThanOrEqual(s.group.top);
+        }
       }
 
       const progress = await cmp.locator(".task-card__progress").evaluate((el: HTMLElement) => {

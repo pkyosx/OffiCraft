@@ -361,7 +361,7 @@ export const en: Dict = {
       in_progress: "In progress",
       done: "Done",
       waiting_owner: "Awaiting my reply",
-      // Same wording as task-level status.waiting_external (T-6f11).
+      // Same wording as task-level status.waiting_external.
       waiting_external: "Waiting on external",
       superseded: "Superseded",
     } as Record<string, string>,
