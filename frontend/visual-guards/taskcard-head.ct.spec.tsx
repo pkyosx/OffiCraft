@@ -10,7 +10,8 @@
 //     scrolls sideways;
 //   · every status icon renders at the same size, in its status colour, and
 //     each status with a workflow-step twin (進行中、未開始、等我回覆、等待外部、
-//     完成、標為重複) paints whatever the theme sets as that step's colour;
+//     完成、標為重複) paints whatever the theme sets as that step's colour, and
+//     可結案 and 終止 paint their own tokens;
 //   · collapsed, the meta shows only 負責人／到期日 and no 更多 toggle; expanded,
 //     類型／產物／建立者 sit right under 到期日 and stay inside the card at
 //     320 / 390 / 1440 in zh and en.
@@ -92,19 +93,23 @@ for (const width of [320, 390, 1440]) {
       root.setProperty("--color-step-waiting-external", "rgb(77, 88, 99)");
       root.setProperty("--color-step-done", "rgb(101, 102, 103)");
       root.setProperty("--color-step-superseded", "rgb(151, 152, 153)");
+      root.setProperty("--color-ready-for-done", "rgb(171, 172, 173)");
+      root.setProperty("--color-danger", "rgb(191, 192, 193)");
     });
     const stepPainted = await cmp
       .locator(".task-card__status-icon")
       .evaluateAll((els) => els.map((el) => getComputedStyle(el).color));
     expect(
-      [stepPainted[0], stepPainted[1], stepPainted[2], stepPainted[3], stepPainted[5], stepPainted[7]],
-      "進行中／未開始／等我回覆／等待外部／完成／標為重複 paint the theme's step colours"
+      stepPainted,
+      "進行中／未開始／等我回覆／等待外部 and 完成／標為重複 paint the theme's step colours, 可結案 and 終止 their own"
     ).toEqual([
       "rgb(201, 202, 203)",
       "rgb(11, 22, 33)",
       "rgb(44, 55, 66)",
       "rgb(77, 88, 99)",
+      "rgb(171, 172, 173)",
       "rgb(101, 102, 103)",
+      "rgb(191, 192, 193)",
       "rgb(151, 152, 153)",
     ]);
 
