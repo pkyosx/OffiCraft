@@ -145,7 +145,7 @@ afterEach(() => {
 });
 
 describe("SharedDocsPage", () => {
-  it("lists every doc under ID, 檔案, 最後修改 and 操作, the file block showing the type, the name and the description under it", async () => {
+  it("lists every doc under ID, 檔案, 最後修改 and 操作, the ID cell showing the id then the type, the file block the name and the description under it", async () => {
     const boardId = await api.createSharedDoc({
       kind: "link",
       name: "Board",
@@ -168,32 +168,34 @@ describe("SharedDocsPage", () => {
       "操作",
     ]);
     expect(cellTexts(api規格)).toEqual([
-      "#sd-0c41e97a2b58",
+      "#sd-0c41e97a2b58連結",
       "API 規格GitHub 上的 spec/openapi.json，改 wire 前先讀",
       `Mira · ${formatAbsolute(1761648240, now)}`,
       "",
     ]);
     expect(cellTexts(review)).toEqual([
-      "#sd-3f9a2c71b0e4",
+      "#sd-3f9a2c71b0e4檔案",
       "Review RulePR 審查時逐項核對的規則與退件標準",
       `Mira · ${formatAbsolute(1763366700, now)}`,
       "",
     ]);
+    const idCell = (id: string) =>
+      Array.from(row(id).querySelector("td")!.querySelectorAll("[data-testid]")).map((el) => el.getAttribute("data-testid"));
+    expect(idCell("sd-3f9a2c71b0e4")).toEqual(["shared-doc-id", "shared-doc-kind-file"]);
+    expect(idCell("sd-0c41e97a2b58")).toEqual(["shared-doc-id", "shared-doc-kind-link"]);
+    expect(idCell(shotId)).toEqual(["shared-doc-id", "shared-doc-kind-image"]);
+    expect(row(shotId).querySelector('[data-testid="shared-doc-kind-image"]')!.textContent).toBe("圖片");
     const block = within(review).getByTestId("shared-doc-name");
-    expect(block.querySelector('[data-testid="shared-doc-kind-file"]')).not.toBeNull();
+    expect(block.querySelector('[data-testid^="shared-doc-kind-"]')).toBeNull();
     expect(Array.from(block.querySelectorAll(".shared-docs__file-text > span")).map((s) => s.textContent)).toEqual([
       "Review Rule",
       "PR 審查時逐項核對的規則與退件標準",
     ]);
     expect(
-      within(api規格).getByTestId("shared-doc-name").querySelector('[data-testid="shared-doc-kind-link"]'),
-    ).not.toBeNull();
-    expect(
       Array.from(
         within(row(boardId)).getByTestId("shared-doc-name").querySelectorAll(".shared-docs__file-text > span"),
       ).map((s) => s.textContent),
     ).toEqual(["Board"]);
-    expect(row(shotId).querySelector('[data-testid="shared-doc-kind-image"]')?.getAttribute("title")).toBe("圖片");
     expect(row(shotId).querySelector("img")).toBeNull();
     const fileActions = [
       ["shared-doc-upload", "上傳新版本", ""],

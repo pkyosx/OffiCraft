@@ -62,7 +62,7 @@
 }
 .shared-docs__table {
   width: 100%;
-  min-width: 760px;
+  min-width: 820px;
   table-layout: fixed;
   border-collapse: collapse;
   font-size: 13px;
@@ -87,7 +87,7 @@
 }
 /* Fixed so a copy (✓ swapped for the glyph) never shifts the columns. */
 .shared-docs__col-id {
-  width: 210px;
+  width: 270px;
 }
 .shared-docs__col-updated {
   width: 230px;
@@ -129,15 +129,8 @@
   min-width: 0;
   color: var(--color-text);
 }
-.shared-docs__kind {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 8px;
-  color: var(--color-text-muted);
+.lore-badge.shared-docs__kind::before {
+  content: none;
 }
 .shared-docs__file-text {
   display: flex;
@@ -250,8 +243,9 @@
   text-decoration: underline;
 }
 
-/* Phone: each row is a block of its own (file + actions, then ID and 最後修改)
- * instead of a 760px table scrolled sideways to its ID column. */
+/* Phone: each row is a block of its own, in the lore card's order — ID, kind
+ * and actions, then name, description and 最後修改 — instead of a table
+ * scrolled sideways to its ID column. */
 @media (max-width: 720px) {
   .shared-docs__table {
     display: block;
@@ -265,10 +259,11 @@
   }
   .shared-docs__row {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
-      "file file actions"
-      "id updated updated";
+      "id actions"
+      "file file"
+      "updated updated";
     align-items: center;
     column-gap: 10px;
     row-gap: 6px;
@@ -290,17 +285,21 @@
   }
   .shared-docs__table td.shared-docs__col-actions {
     grid-area: actions;
+    align-self: start;
   }
   .shared-docs__table td.shared-docs__col-id {
     grid-area: id;
   }
+  /* Like the lore card's badge row: a kind chip that does not fit beside the
+   * ID (320px) moves whole to the next line instead of under the actions. */
+  .shared-docs__id-cell {
+    display: flex;
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
   .shared-docs__table td.shared-docs__updated {
     grid-area: updated;
     font-size: 12px;
-  }
-  .shared-docs__kind {
-    width: 32px;
-    height: 32px;
   }
 }
 

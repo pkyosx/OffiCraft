@@ -89,24 +89,20 @@ export function defaultLinkName(url: string): string {
   return Array.from(name).slice(0, NAME_MAX_CHARS).join("");
 }
 
-function KindMedia({ doc }: { doc: SharedDocView }) {
+function KindChip({ doc }: { doc: SharedDocView }) {
   const { t } = useI18n();
   const d = t.sharedDocs;
   const label = doc.kind === "link" ? d.kindLink : doc.kind === "image" ? d.kindImage : d.kindFile;
   return (
-    <span
-      className="shared-docs__kind"
-      data-testid={`shared-doc-kind-${doc.kind}`}
-      title={label}
-      aria-label={label}
-    >
+    <span className="lore-badge shared-docs__kind" data-testid={`shared-doc-kind-${doc.kind}`}>
       {doc.kind === "link" ? (
-        <ExternalLinkIcon size={15} />
+        <ExternalLinkIcon size={13} />
       ) : doc.kind === "image" ? (
-        <ImageIcon size={15} />
+        <ImageIcon size={13} />
       ) : (
-        <PaperclipIcon size={15} />
+        <PaperclipIcon size={13} />
       )}
+      {label}
     </span>
   );
 }
@@ -130,7 +126,6 @@ function FileBlock({
   const infoLabel = doc.kind === "link" ? d.editLink : d.editInfo;
   return (
     <div className="shared-docs__file" data-testid="shared-doc-name">
-      <KindMedia doc={doc} />
       <span className="shared-docs__file-text">
         <span className="shared-docs__name-line">
           {doc.kind === "link" ? (
@@ -750,6 +745,7 @@ function SharedDocList({ actorName }: { actorName: (id: string) => string }) {
                         {flashed === `id:${doc.id}` ? <CheckIcon size={13} /> : <LayersIcon size={13} />}#
                         {doc.id}
                       </button>
+                      <KindChip doc={doc} />
                     </span>
                   </td>
                   <td className="shared-docs__col-file">
