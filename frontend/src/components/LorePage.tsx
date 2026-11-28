@@ -141,8 +141,6 @@ const DIR_GROUPS: readonly DirGroupKind[] = ["everyone", "staff", "outsource", "
 const DIR_DEFAULT_COLLAPSED: readonly DirGroupKind[] = ["staff", "outsource", "manual"];
 const DIR_COLLAPSED_KEY = "oc_lore_dir_collapsed";
 
-/** The folded directory groups, kept in this browser as the list of folded
- * kinds; nothing saved yet means the first-visit default. */
 /** 生效期: the start, and for a retired entry whose retire time is known, the
  * end as well. A retired entry bumped after it was retired starts after it
  * ended, so it shows the start alone. */
@@ -155,6 +153,8 @@ function loreEffectiveText(entry: LoreEntryView): string {
   return `${start} – ${formatAbsolute(entry.retiredTs, now)}`;
 }
 
+/** The folded directory groups, kept in this browser as the list of folded
+ * kinds; nothing saved yet means the first-visit default. */
 function readDirCollapsed(): ReadonlySet<DirGroupKind> {
   try {
     const raw = window.localStorage.getItem(DIR_COLLAPSED_KEY);

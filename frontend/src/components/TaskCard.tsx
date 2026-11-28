@@ -1735,7 +1735,6 @@ export function TaskCard({
               )}
             </div>
 
-            {/* 複製出去的字串等於 task id，由 TaskCard.copy-taskno.test.tsx 釘住。 */}
             <CopyIdChip
               value={task.taskNo}
               text={`#${task.taskNo}`}

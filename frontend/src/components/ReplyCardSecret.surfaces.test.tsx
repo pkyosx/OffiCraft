@@ -450,6 +450,40 @@ describe("the replies page's handled pane", () => {
   });
 });
 
+describe("the chat card's handled row", () => {
+  it("stamps a settled secret card as answered or expired, with no time", async () => {
+    const ts = Date.now() / 1000 - 60;
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-aaaaaaaaaaa1",
+        status: "answered",
+        answeredTs: ts,
+        answer: { optionIdxs: null, text: "", attachments: [] },
+        secret: { state: "provided", providedTs: ts, retrievedTs: null, expiresTs: ts + 3600 },
+      }),
+    );
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-aaaaaaaaaaa3",
+        status: "expired",
+        expiredTs: ts,
+        secret: { state: "expired", providedTs: ts, retrievedTs: null, expiresTs: null },
+      }),
+    );
+    const stamp = async (id: string) => {
+      const u = render(
+        withBystander(<ChatReplyCard replyCardId={id} fallbackSummary="部署金鑰" initialStatus="waiting" />),
+      );
+      fireEvent.click(u.getByTestId("chat-reply-card-expand"));
+      const text = (await u.findByTestId("reply-card-handled-at")).textContent;
+      u.unmount();
+      return text;
+    };
+    expect(await stamp("rc-aaaaaaaaaaa1")).toBe("已回覆");
+    expect(await stamp("rc-aaaaaaaaaaa3")).toBe("已過期");
+  });
+});
+
 describe("collapsed", () => {
   const ts = Date.now() / 1000 - 60;
   const held = (state: "provided" | "retrieved") =>

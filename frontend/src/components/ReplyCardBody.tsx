@@ -322,16 +322,6 @@ export function ReplyCardQuestionAttachments({
   );
 }
 
-/** §3.6 請示 → 任務: the task row an ask that names a task wears — the
- * task-number chip that jumps to the task (the outsource row's chip) and the
- * task's own TITLE. A pure chat ask (task absent/null) renders NOTHING: an empty
- * slot reads as "this ask has no task", which is a different claim from "it has
- * one and we would not say which".
- *
- * ONE HOME for both surfaces (the 請示 page and the inline ChatReplyCard). The
- * 請示 page passes `lead` — the priority and due chips after the number. The
- * typeKey is never shown. The jump is a callback so this stays presentational
- * (each surface owns its own router). */
 /** The card's own id as its first-line chip: six characters after `rc-`, a
  * click copies the whole id. */
 export function ReplyCardIdChip({ id }: { id: string }) {

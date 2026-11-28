@@ -499,6 +499,10 @@ func TestSetLoreStateStampsRetiredTs(t *testing.T) {
 	}
 
 	wantNoRetiredTs("a new active entry")
+	stateTo(`{"state":"pinned"}`)
+	wantNoRetiredTs("after pinning an active entry")
+	stateTo(`{"state":"active"}`)
+	wantNoRetiredTs("after moving a pinned entry to active")
 
 	before := nowSecs()
 	retiredAt := stateTo(`{"state":"retired","retire_reason":"已被取代"}`)

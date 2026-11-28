@@ -1,4 +1,4 @@
-// CT story (T-196): the asking outsource worker's CURRENT TASK line under the
+// CT story: the asking outsource worker's CURRENT TASK line under the
 // 請示卡's 開卡人 chip.
 //
 // Same philosophy as ReplyCardOpenerStory: RepliesPage owns live hooks this

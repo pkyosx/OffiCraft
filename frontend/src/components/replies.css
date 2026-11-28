@@ -301,7 +301,7 @@
   font-size: 12px;
   color: var(--color-text-muted);
 }
-/* T-196 — the asking outsource worker's CURRENT TASK, a small block under the
+/* The asking outsource worker's CURRENT TASK, a small block under the
  * 開卡人 chip: 目前任務 with the rail's task line, then the title. The two
  * lines inside are the office rail's own `.outsource-row__task-line` and
  * `.current-task-title`, drawn by the rail's components and styled by the rail's

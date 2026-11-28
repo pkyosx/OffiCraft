@@ -1661,6 +1661,11 @@ describe("RepliesPage", () => {
     fireEvent.click(jump);
     expect(window.location.hash).toBe("#tasks/T-11");
     expect(card.getAttribute("aria-expanded")).toBe("false");
+
+    window.location.hash = "#replies";
+    fireEvent.click(over.querySelector(".reply-card__task-title")!);
+    fireEvent.click(over);
+    expect(window.location.hash).toBe("#replies");
   });
 
   it("a task box with no priority or due date draws neither, and a card with no task draws no box", async () => {

@@ -793,8 +793,6 @@ export const zh = {
     redecidePlaceholder: "或直接打字改寫回覆…",
     quoteLabel: "引用原文",
     quoteCancel: "取消引用",
-    // §3.6 請示 → 任務：純聊天請示不顯示任務列。請示頁的任務列另外帶任務編號、
-    // 優先序與期限；聊天視窗裡的卡只顯示標題。
     copyIdLabel: "複製完整請示卡 ID",
     idCopied: "已複製",
     copyWholeCard: "複製整張卡片內容",
