@@ -230,6 +230,41 @@ async function expectTaskRow(card: Locator, cardBox: Box) {
 const LONG_TASK_TITLE = "OffiCraft 入門介紹影片（繁中，4 章＋完整版）的旁白、字幕與封面，另含英文與日文版本的字幕翻譯、章節縮圖、配樂授權確認、各平台上架描述撰寫，以及上線後第一週的觀看數據整理與回報，並把觀眾留言中的常見問題整理成下一版的修改清單、附上每一章的平均觀看秒數與跳出點分析";
 const LONG_TASK_LINE = "T-9021034多語系入門影片的旁白錄製、字幕校對、封面設計、章節切分、配樂授權確認、各平台上架前的最終品質檢查與上線後數據回報流程";
 
+/** The open card's divider: right under `above` (its last meta row, or the
+ * title on a chat card with none) and the full width of the card's content, a
+ * visible 1px line, with the question starting further below it than the
+ * card's own 12px gap. */
+async function expectDivider(card: Locator, above: Locator, tag: string) {
+  const divider = card.locator(".reply-card__divider");
+  await expect(divider, `${tag}: one divider`).toHaveCount(1);
+  const g = await divider.evaluate((el, aboveEl) => {
+    const r = (e: Element) => {
+      const b = e.getBoundingClientRect();
+      return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+    };
+    const cardEl = el.closest(".reply-card")!;
+    const cs = getComputedStyle(cardEl);
+    const c = r(cardEl);
+    return {
+      line: r(el),
+      prev: el.previousElementSibling === aboveEl,
+      above: r(aboveEl as Element),
+      next: el.nextElementSibling ? r(el.nextElementSibling) : null,
+      contentLeft: c.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft),
+      contentRight: c.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight),
+      bg: getComputedStyle(el).backgroundColor,
+    };
+  }, await above.elementHandle());
+  expect(g.prev, `${tag}: the divider comes right after the meta`).toBe(true);
+  expect(g.line.bottom - g.line.top, `${tag}: a 1px line`).toBeCloseTo(1, 0);
+  expect(g.line.top - g.above.bottom, `${tag}: space between the meta and the line`).toBeCloseTo(14, 0);
+  expect(g.line.left, `${tag}: the line starts at the content's left`).toBeCloseTo(g.contentLeft, 0);
+  expect(g.line.right, `${tag}: the line ends at the content's right`).toBeCloseTo(g.contentRight, 0);
+  expect(g.bg, `${tag}: the line is drawn`).not.toMatch(/^rgba\(\d+, \d+, \d+, 0\)$|^transparent$/);
+  expect(g.next, `${tag}: something under the line`).not.toBeNull();
+  expect(g.next!.top - g.line.bottom, `${tag}: the question starts 18px under the line`).toBeCloseTo(18, 0);
+}
+
 /** Pick one of the three list labels above the cards. */
 async function selectTab(page: Page, view: "waiting" | "snoozed" | "answered", gesture: "click" | "tap") {
   await page.getByTestId(`replies-tab-${view}`)[gesture]();
@@ -558,6 +593,31 @@ async function mountDesk(
   const cmp = await mount(<ReplyDeskStory questions {...props} />);
   await expect(cardOf(page, "rc-desk-q")).toBeVisible();
   return cmp;
+}
+
+for (const width of [320, 390, 1440]) {
+  for (const language of ["zh", "en"]) {
+    test(`width ${width}, ${language}: an open card, waiting or answered, draws a line under its last meta row and its question starts below it; a folded card has none`, async ({
+      mount,
+      page,
+    }) => {
+      await page.evaluate((lang) => localStorage.setItem("oc.language", lang), language);
+      await mountDesk(mount, page, width, 900);
+      await expect(cardOf(page, "rc-desk-2").locator(".reply-card__divider")).toHaveCount(0);
+      const waiting = cardOf(page, "rc-desk-q");
+      await waiting.locator(".reply-card__summary").click();
+      await expect(waiting.locator(".reply-card__body")).toBeVisible();
+      await expectDivider(waiting, waiting.locator(".reply-card__meta"), `${width} ${language} waiting`);
+
+      await selectTab(page, "answered", "click");
+      const answered = cardOf(page, "rc-desk-done");
+      await expect(answered.locator(".reply-card__divider")).toHaveCount(0);
+      await answered.locator(".reply-card__summary").click();
+      await expect(answered.locator(".reply-card__body")).toBeVisible();
+      await expectDivider(answered, answered.locator(".reply-card__meta"), `${width} ${language} answered`);
+      await noPageOverflow(page);
+    });
+  }
 }
 
 test("width 1440, mouse: 複製 in each card's head writes the whole question and turns into a check without folding the card; a mouse selection still quotes into the answer box", async ({

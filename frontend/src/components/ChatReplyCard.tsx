@@ -483,6 +483,7 @@ export function ChatReplyCard({
               />
             </div>
           )}
+          <hr className="reply-card__divider" />
           {card?.body && (
             <Markdown source={card.body} className="reply-card__body doc-md" />
           )}

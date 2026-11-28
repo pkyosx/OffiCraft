@@ -489,6 +489,16 @@
   white-space: nowrap;
 }
 
+/* Under the last meta row of an open card: what the card is above, what it
+ * asks below. */
+.reply-card__divider {
+  flex: none;
+  height: 1px;
+  margin: 2px 0 6px;
+  border: 0;
+  background: color-mix(in srgb, var(--color-overlay) 11%, transparent);
+}
+
 .reply-card__summary {
   font-size: 14px;
   font-weight: 600;

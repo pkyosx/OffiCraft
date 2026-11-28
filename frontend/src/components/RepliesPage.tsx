@@ -1605,6 +1605,7 @@ export function RepliesPage({
         <ReplyCardLinkComments from={row.from} recipientFor={docCommentRecipientFor}>
           <Markdown source={row.summary} className="reply-card__summary doc-md" />
           {renderMeta(row, opts.handled)}
+          {open && <hr className="reply-card__divider" />}
           {open &&
             (card ? (
               <ReplyCardMentionProvider
