@@ -1,4 +1,5 @@
-import { I18nProvider } from "../../src/i18n";
+import { useEffect } from "react";
+import { I18nProvider, useI18n } from "../../src/i18n";
 import { TaskCard } from "../../src/components/TaskCard";
 import { mkTask, mkStep, MIRA, NOOP, WORKERS } from "./taskFixtures";
 
@@ -38,7 +39,34 @@ const STEPS = [
   mkStep({ name: "發佈週報", status: "pending", dod: "週報發佈到共享文件區" }),
 ];
 
-export function TaskCardSectionsStory({ description }: { description: StoryDescription }) {
+const NOW = 1000 + 4 * 3600 + 59 * 60;
+
+const GATE_STEPS = [
+  mkStep({ name: "整理三個文案方案", status: "done", isGate: true, dod: "三個方案各附一張示意圖", startedTs: 1000, finishedTs: 1060 }),
+  mkStep({ name: "請 Owner 選定文案", status: "in_progress", isGate: true, dod: "Owner 選定其中一個方案", startedTs: 1000 }),
+  mkStep({ name: "依選定方案出稿", status: "pending", dod: "交付 1920x600 與手機版兩種尺寸" }),
+  mkStep({ name: "發佈週報", status: "pending", dod: "週報發佈到共享文件區" }),
+];
+
+export type StorySteps = "weekly" | "gates";
+
+function LanguageSwitch({ language }: { language: "zh" | "en" }) {
+  const { language: current, setLanguage } = useI18n();
+  useEffect(() => {
+    if (language !== current) setLanguage(language);
+  }, [language, current, setLanguage]);
+  return null;
+}
+
+export function TaskCardSectionsStory({
+  description,
+  steps = "weekly",
+  language = "zh",
+}: {
+  description: StoryDescription;
+  steps?: StorySteps;
+  language?: "zh" | "en";
+}) {
   const task = mkTask({
     id: "t-0048a0000002",
     taskNo: "t-0048a0000002",
@@ -46,22 +74,33 @@ export function TaskCardSectionsStory({ description }: { description: StoryDescr
     description: DESCRIPTIONS[description],
     progressDone: 1,
     progressTotal: 4,
-    steps: STEPS,
+    steps: steps === "gates" ? GATE_STEPS : STEPS,
   });
   return (
     <I18nProvider>
-      <TaskCard
-        task={task}
-        members={[MIRA]}
-        workers={WORKERS}
-        nowTs={8000}
-        onTerminate={NOOP as never}
-        onMarkDuplicate={NOOP as never}
-        onSetPriority={NOOP as never}
-        onSendMessage={NOOP as never}
-        onReassign={NOOP as never}
-        onHydrate={(async () => task) as never}
-      />
+      <LanguageSwitch language={language} />
+      <div className="app">
+        <main className="app__main">
+          <div className="tasks">
+            <section className="tasks__section">
+              <div className="tasks__list">
+                <TaskCard
+                  task={task}
+                  members={[MIRA]}
+                  workers={WORKERS}
+                  nowTs={NOW}
+                  onTerminate={NOOP as never}
+                  onMarkDuplicate={NOOP as never}
+                  onSetPriority={NOOP as never}
+                  onSendMessage={NOOP as never}
+                  onReassign={NOOP as never}
+                  onHydrate={(async () => task) as never}
+                />
+              </div>
+            </section>
+          </div>
+        </main>
+      </div>
     </I18nProvider>
   );
 }

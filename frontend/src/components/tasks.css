@@ -841,7 +841,13 @@ button.task-card__prio-chip:hover {
 }
 
 /* 到期日 value cell: stretched over the whole value column so the popover
-   anchored in it has the card's width to work with on a phone. */
+   anchored in it has the card's width to work with on a phone. When the
+   relative time wraps to a second line, the baseline keeps the label on the
+   date's line instead of centred between the two. */
+.task-card__meta-label--due,
+.task-card__due {
+  align-self: baseline;
+}
 .task-card__due {
   position: relative;
   justify-self: stretch;
@@ -1883,13 +1889,26 @@ button.task-card__waiting--dep:focus-visible {
   filter: grayscale(1);
   opacity: 0.62;
 }
+/* The title's 10em basis is what makes the badges wrap: once title and badges
+   cannot share a line, the badges drop together to a right-aligned second line
+   instead of squeezing the title to one character per line. */
 .task-step__row {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
-  gap: 10px;
+  gap: 4px 10px;
+}
+.task-step__badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px 10px;
+  max-width: 100%;
 }
 .task-step__name {
-  flex: 1;
+  flex: 1 1 10em;
   min-width: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;

@@ -2,9 +2,13 @@
 // browser's own layout at phone and desktop width: a long description is cut
 // to about six lines with a fade and 展開全文, a short one shows whole with no
 // toggle, the 任務描述 bar is its icon, title and chevron with no summary, and
-// each title bar folds its body away without folding the card.
+// each title bar folds its body away without folding the card. On a phone a
+// step whose badges cannot share a line with its title moves them to the next
+// line rather than squeezing the title to one character per line.
 import { test, expect } from "@playwright/experimental-ct-react";
 import { TaskCardSectionsStory, type StoryDescription } from "./stories/TaskCardSectionsStory";
+
+const card = (cmp: any) => cmp.locator(".task-card");
 
 async function mountExpanded(mount: any, page: any, width: number, description: StoryDescription) {
   await page.setViewportSize({ width, height: 900 });
@@ -49,7 +53,7 @@ for (const width of [390, 1440]) {
 
     await toggle.click();
     await expect(toggle).toHaveText("收起");
-    await expect(cmp).toHaveAttribute("aria-expanded", "true");
+    await expect(card(cmp)).toHaveAttribute("aria-expanded", "true");
     const open = await body.evaluate((el: HTMLElement) => ({
       hidden: el.scrollHeight - el.clientHeight,
       mask: getComputedStyle(el).maskImage,
@@ -105,7 +109,7 @@ for (const width of [390, 1440]) {
     await expect(wfHead).toHaveAttribute("aria-expanded", "false");
     await expect(cmp.getByTestId("task-step")).toHaveCount(0);
     await expect(cmp.getByTestId("task-workflow-section-summary")).toHaveText("1/4 完成 · 進行中：草擬週報");
-    await expect(cmp).toHaveAttribute("aria-expanded", "true");
+    await expect(card(cmp)).toHaveAttribute("aria-expanded", "true");
     const bar = await wfHead.evaluate((el: HTMLElement) => ({ over: el.scrollWidth - el.clientWidth, h: el.clientHeight }));
     expect.soft(bar.over, `[${width}px] collapsed workflow bar overflows`).toBeLessThanOrEqual(0);
 
@@ -120,4 +124,41 @@ for (const width of [390, 1440]) {
     await expect(cmp.getByTestId("task-step")).toHaveCount(4);
     expect.soft(await pageOverflow(page), `[${width}px] page horizontal scroll`).toBeLessThanOrEqual(0);
   });
+}
+
+for (const width of [320, 375, 390]) {
+  for (const language of ["zh", "en"] as const) {
+    test(`a gate step keeps its title readable with 審批, its duration and 等我回覆 on the step @${width}px ${language}`, async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      const cmp = await mount(<TaskCardSectionsStory description="short" steps="gates" language={language} />);
+      await cmp.locator(".task-card__head").first().click();
+      const step = cmp.getByTestId("task-step").nth(1);
+      await expect(step.getByTestId("gate-mark")).toHaveText(language === "en" ? "Approval" : "審批");
+      await expect(step.locator(".task-step__duration")).toHaveText("4h 59m");
+      await expect(step.getByTestId("gate-announced")).toHaveText(language === "en" ? "Awaiting my reply" : "等我回覆");
+      const g = await step.locator(".task-step__row").evaluate((row: HTMLElement) => {
+        const name = row.querySelector(".task-step__name") as HTMLElement;
+        const lineHeight = parseFloat(getComputedStyle(name).lineHeight) || parseFloat(getComputedStyle(name).fontSize) * 1.2;
+        const rowBox = row.getBoundingClientRect();
+        const nameBox = name.getBoundingClientRect();
+        const badges = [...row.querySelectorAll(".task-step__badges > *")].map((c) => c.getBoundingClientRect());
+        return {
+          nameShare: nameBox.width / rowBox.width,
+          nameLines: Math.round(nameBox.height / lineHeight),
+          badgesRight: Math.max(...badges.map((b) => b.right)) - rowBox.right,
+          badgesOverName: badges.some((b) => b.top < nameBox.bottom - 1 && b.left < nameBox.right - 1),
+          over: row.scrollWidth - row.clientWidth,
+        };
+      });
+      expect.soft(g.nameShare, `[${width}px ${language}] step title width share`).toBeGreaterThan(0.4);
+      expect.soft(g.nameLines, `[${width}px ${language}] step title lines`).toBeLessThanOrEqual(2);
+      expect.soft(g.badgesOverName, `[${width}px ${language}] badges overlap the title`).toBe(false);
+      expect.soft(g.badgesRight, `[${width}px ${language}] badges past the step`).toBeLessThanOrEqual(0.5);
+      expect.soft(g.over, `[${width}px ${language}] step header overflows`).toBeLessThanOrEqual(0);
+      expect.soft(await pageOverflow(page), `[${width}px ${language}] page horizontal scroll`).toBeLessThanOrEqual(0);
+    });
+  }
 }

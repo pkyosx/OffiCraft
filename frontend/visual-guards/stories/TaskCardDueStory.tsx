@@ -1,4 +1,5 @@
-import { I18nProvider } from "../../src/i18n";
+import { useEffect } from "react";
+import { I18nProvider, useI18n } from "../../src/i18n";
 import { TaskCard } from "../../src/components/TaskCard";
 import { mkTask, MIRA, NOOP, WORKERS } from "./taskFixtures";
 
@@ -19,12 +20,22 @@ const TASK = mkTask({
   dueTs: DUE_OCT_30,
 });
 
+function LanguageSwitch({ language }: { language: "zh" | "en" }) {
+  const { language: current, setLanguage } = useI18n();
+  useEffect(() => {
+    if (language !== current) setLanguage(language);
+  }, [language, current, setLanguage]);
+  return null;
+}
+
 export function TaskCardDueStory({
   dueTs = DUE_OCT_30,
   dueSoonLeadMinutes,
+  language = "zh",
 }: {
   dueTs?: number;
   dueSoonLeadMinutes?: number;
+  language?: "zh" | "en";
 }) {
   const task =
     dueTs === DUE_OCT_30 && dueSoonLeadMinutes === undefined
@@ -34,6 +45,7 @@ export function TaskCardDueStory({
   window.__leadSaves = [];
   return (
     <I18nProvider>
+      <LanguageSwitch language={language} />
       <div className="app">
         <main className="app__main">
           <div className="tasks">

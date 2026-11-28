@@ -1426,17 +1426,19 @@ export function TaskCard({
       >
         <div className="task-step__row">
           <span className="task-step__name">{step.name}</span>
-          {everApproval && (
-            <span className="task-step__gate-mark" data-testid="gate-mark">
-              {t.tasks.gateMark}
-            </span>
-          )}
-          {dur && (
-            <span className="task-step__duration">
-              <ClockIcon size={12} /> {dur}
-            </span>
-          )}
-          {renderStepBadge(step)}
+          <span className="task-step__badges">
+            {everApproval && (
+              <span className="task-step__gate-mark" data-testid="gate-mark">
+                {t.tasks.gateMark}
+              </span>
+            )}
+            {dur && (
+              <span className="task-step__duration">
+                <ClockIcon size={12} /> {dur}
+              </span>
+            )}
+            {renderStepBadge(step)}
+          </span>
         </div>
         {step.dod && (
           <div className="task-step__dod">
@@ -1988,7 +1990,7 @@ export function TaskCard({
 
           {dueRowShown && (
             <>
-              <span className="task-card__meta-label">{t.tasks.dueLabel}</span>
+              <span className="task-card__meta-label task-card__meta-label--due">{t.tasks.dueLabel}</span>
               <div className="task-card__due" ref={dueRef}>
                 {dueEditable ? (
                   <button
