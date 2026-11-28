@@ -195,6 +195,7 @@ import { Breadcrumbs, type Crumb } from "./Breadcrumbs";
 import {
   ChevronRightIcon,
   DownloadIcon,
+  ShieldIcon,
   FileTextIcon,
   UsersIcon,
   GlobeIcon,
@@ -510,6 +511,7 @@ import "./settings.css";
 type View =
   | { kind: "landing" }
   | { kind: "software" }
+  | { kind: "security" }
   | { kind: "roles" }
   // 全域情境 (T-a241) — the boot/lifecycle documents' OWN settings section.
   // They were never role definitions; 角色誌 merely happened to exist first, so
@@ -649,6 +651,18 @@ export function SettingsPage({
         onClearSaveError={params.clearSaveError}
         crumbs={[crumbRoot, { label: t.settings.software }]}
       />
+    );
+  }
+
+  if (view.kind === "security") {
+    return (
+      <div className="settings">
+        <Breadcrumbs items={[crumbRoot, { label: t.settings.security }]} />
+        <h1 className="settings__title settings__title--doc">
+          {t.settings.security}
+        </h1>
+        <SigningKeysCard />
+      </div>
     );
   }
 
@@ -1232,6 +1246,18 @@ export function SettingsPage({
             <DownloadIcon size={18} />
           </span>
           <span className="set-entry__name">{t.settings.software}</span>
+          <ChevronRightIcon size={18} className="set-entry__chev" />
+        </button>
+        <button
+          type="button"
+          className="set-entry"
+          data-testid="settings-security-entry"
+          onClick={() => setView({ kind: "security" })}
+        >
+          <span className="set-entry__icon set-entry__icon--neutral">
+            <ShieldIcon size={18} />
+          </span>
+          <span className="set-entry__name">{t.settings.security}</span>
           <ChevronRightIcon size={18} className="set-entry__chev" />
         </button>
         {/* 全域情境 (T-a241) — the boot / lifecycle documents, pulled OUT of
@@ -2821,12 +2847,6 @@ function SoftwareUpdate({
           HERE, under 系統更新與備份, and nowhere else: it used to sit on the
           monitor page plus a topbar light, which the owner did not want. */}
       <BackupHealthCard />
-
-      {/* ── 簽章金鑰 (T-62) ── the ring, and the two buttons that move it.
-          It sits under 系統更新與備份 rather than in its own section for the
-          same reason 備份健康 does: it is an operational posture the owner
-          checks, not a parameter that is tuned. */}
-      <SigningKeysCard />
     </div>
   );
 }

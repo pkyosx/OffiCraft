@@ -1525,6 +1525,7 @@ var messageKeys = map[string]bool{
 	"settings.secretCardUnretrievedTtlRange":           true,
 	"settings.secretCardUnretrievedTtlSub":             true,
 	"settings.secretCardUnretrievedTtlWarning":         true,
+	"settings.security":                                true,
 	"settings.sessionTtl":                              true,
 	"settings.software":                                true,
 	"settings.stepNoteCap":                             true,

@@ -1,4 +1,4 @@
-// SigningKeysCard — 設定 › 系統更新與備份 · 簽章金鑰 (T-62).
+// SigningKeysCard — 設定 › 安全性 · 簽章金鑰 (T-62).
 //
 // Its own file rather than a private function inside SettingsPage for the same
 // reason ThemeSettings is: the browser-level guard beside it

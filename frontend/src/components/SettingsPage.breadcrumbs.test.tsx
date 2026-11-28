@@ -169,7 +169,7 @@ describe("SettingsPage · unified breadcrumb header (T-8f6e)", () => {
     expectHeader(utils, [s.title, s.manuals]);
   });
 
-  it("一般設定 and 進階設定: 設定 › <page> + title, no back button", async () => {
+  it("一般設定, 進階設定 and 安全性: 設定 › <page> + title, no back button", async () => {
     const general = renderSettings();
     fireEvent.click(general.getByTestId("settings-params-entry"));
     await general.findByLabelText(s.dueSoonLead);
@@ -182,6 +182,12 @@ describe("SettingsPage · unified breadcrumb header (T-8f6e)", () => {
     await advanced.findByLabelText(s.sessionTtl);
     expectHeader(advanced, ["設定", "進階設定"]);
     expect(advanced.getByRole("heading", { name: "進階設定" })).toBeTruthy();
+    advanced.unmount();
+
+    const security = renderSettings();
+    fireEvent.click(security.getByTestId("settings-security-entry"));
+    await security.findByTestId("set-signing-keys");
+    expectHeader(security, ["設定", "安全性"]);
   });
 });
 

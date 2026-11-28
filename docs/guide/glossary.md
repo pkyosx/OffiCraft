@@ -105,7 +105,7 @@ This page lists what each term in the console and the user guide means, and whic
 - **Passkeys**: sign in with your device's biometrics or screen lock, without typing a password.
 - **Claim code**: the one-time code needed the first time you set the admin password.
 - **Session length / Member login lifetime**: how long after you sign in to the console you must sign in again; how long before a member must get a new login credential.
-- **Signing keys**: the keys the server uses to issue login credentials and share links, under Settings › System update & backup. Removing an old key immediately invalidates the logins and links it signed. See [Protect your studio](security.md).
+- **Signing keys**: the keys the server uses to issue login credentials and share links, under Settings › Security. Removing an old key immediately invalidates the logins and links it signed. See [Protect your studio](security.md).
 - **Machine credential lifetime**: how long each machine's warden login credential is valid. It is renewed automatically before it expires; a machine that misses the renewal has to be reinstalled.
 - **Preferences**: the place in the avatar menu for adjusting theme, language, and layout.
 - **Notification email**: the email address you must enter before turning on push notifications. See [Use it on your phone](mobile.md).
@@ -115,7 +115,8 @@ This page lists what each term in the console and the user guide means, and whic
 - **Background animation**: whether the theme background plays an animation. The options are Auto, Play, and Still, saved only on this device; with "Auto", phones and tablets show a still image. See [Themes (look and wording)](theme.md).
 - **General**: the Settings page for the suggested-reply lists and the due-soon lead time. See [Settings](settings.md).
 - **Advanced**: the other system parameters in Settings (thresholds, size caps, intervals, number of backups kept, developer mode, and so on). See [Settings](settings.md).
-- **System update & backup**: the Settings page for checking for updates, upgrading, automatic updates, the update check interval, backup health, and signing keys. See [Settings](settings.md).
+- **System update & backup**: the Settings page for checking for updates, upgrading, automatic updates, the update check interval, and backup health.
+- **Security**: the Settings page for signing keys. See [Settings](settings.md).
 - **Developer mode**: the switch at the bottom of Settings › Advanced, off by default. While it is off, every document in Global context except User Language and User additions is locked and nobody can change it. See [Settings](settings.md).
 - **Receive beta versions**: also includes pre-release versions when checking for updates.
 - **Backup health**: shows whether scheduled backups are working (Backups are healthy, Backups are failing, Cannot tell). See [Troubleshooting and FAQ](troubleshooting.md).

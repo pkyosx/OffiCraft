@@ -20,7 +20,7 @@ From left to right:
 - **Studio name** — the pencil icon next to it lets you rename it.
 - **Reload** — reloads the whole page.
 - **Notification button ("Turn on notifications")** — a bell icon. A slash through the bell means push notifications are not yet turned on for this device; press it to turn them on. No slash means they are on; pressing it again turns them off ("Turn off notifications").
-- **Gear** — opens Settings: the sub-pages ("System update & backup", "Global context", "Roles", "Task manuals", "General", "Advanced", "Theme") and the "User guide".
+- **Gear** — opens Settings: the sub-pages ("System update & backup", "Security", "Global context", "Roles", "Task manuals", "General", "Advanced", "Theme") and the "User guide".
 - **Avatar** — opens the avatar menu: "Profile", "Preferences", "Notification email", "Account security" and "Log out".
 
 The current version number is not in the top bar; it is in "Settings › System update & backup".
@@ -596,7 +596,8 @@ For installing machines and signing in to Claude and Codex, see [Install, upgrad
 
 Open it with the gear in the top bar. It opens over the current tab; click any tab to go back to that tab. The home page itself has no path at the top. After you go into an entry, use the path at the top to go back up a level:
 
-- **System update & backup** — Current version, "Check for updates", update settings ("Receive beta versions", "Automatic updates", "Update check interval"), "Backup health", "Signing keys".
+- **System update & backup** — Current version, "Check for updates", update settings ("Receive beta versions", "Automatic updates", "Update check interval"), "Backup health".
+- **Security** — "Signing keys".
 - **Global context** — Documents sent to members: "User Language" and "User additions" at the top, and the rest in three groups, BOOT, STOP and TASK EVENTS. While "Developer mode" (in Advanced) is off, every document except "User Language" and "User additions" is locked.
 - **Roles** — Each role's Duty and Insight.
 - **Task manuals** — The manual for each kind of task, split into built-in and custom.

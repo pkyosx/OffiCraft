@@ -39,6 +39,7 @@ export const TERM_ALIASES: readonly (readonly TermName[])[] = [
   ["settings.params"],
   ["settings.advanced"],
   ["settings.software"],
+  ["settings.security"],
   ["profile.theme"],
   ["profile.preferences"],
   ["settings.assigneeKindMember"],

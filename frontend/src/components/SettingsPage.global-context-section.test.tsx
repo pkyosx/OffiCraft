@@ -63,13 +63,19 @@ beforeEach(() => {
 });
 
 describe("T-a241 · 全域情境 as its own settings section", () => {
-  it("landing: 全域情境 sits between 系統更新與備份 and 角色誌", () => {
+  it("landing: the entries run 系統更新與備份, 安全性, 全域情境, 角色 … in this order", () => {
     const utils = renderSettings();
-    const names = landingRowNames(utils);
-    // POSITION, not presence: the three are compared as an ordered slice, so a
-    // row appended at the end of the landing fails here.
-    expect(names.indexOf(s.globalContext)).toBeGreaterThan(-1);
-    expect(names.slice(0, 3)).toEqual([s.software, s.globalContext, s.roles]);
+    expect(landingRowNames(utils)).toEqual([
+      "系統更新與備份",
+      "安全性",
+      "全域情境",
+      "角色",
+      "任務手冊",
+      "一般設定",
+      "進階設定",
+      "主題",
+      "使用說明",
+    ]);
   });
 
   it("全域情境 holds the whole 事件程序文件 zone, 使用者自訂 included", async () => {

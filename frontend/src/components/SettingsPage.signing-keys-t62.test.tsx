@@ -1,4 +1,4 @@
-// 設定 › 系統更新與備份 · 簽章金鑰 (T-62).
+// 設定 › 安全性 · 簽章金鑰 (T-62).
 //
 // The card's job beyond listing is to make the ASYMMETRY between its two
 // buttons visible, so that is what this file asserts as RENDERED TEXT:
@@ -21,6 +21,7 @@ import { zh } from "../i18n/locales/zh";
 import { en } from "../i18n/locales/en";
 import type { SigningKeyView } from "../types";
 import { __resetMock } from "../api/mock";
+import { api } from "../api";
 
 const state = {
   keys: [] as SigningKeyView[],
@@ -58,8 +59,8 @@ async function openSection() {
       <SettingsPage />
     </I18nProvider>,
   );
-  fireEvent.click(utils.getByText(s.software));
-  await utils.findByText(s.currentVersion);
+  fireEvent.click(utils.getByTestId("settings-security-entry"));
+  await utils.findByTestId("set-signing-keys");
   return utils;
 }
 
@@ -72,6 +73,25 @@ beforeEach(() => {
 });
 
 describe("簽章金鑰卡 · 看得出現況", () => {
+  it.each([false, true])(
+    "sits on 設定 › 安全性 and not on 系統更新與備份 (developer mode %s)",
+    async (developerMode) => {
+      await api.patchServerSettings({ developerMode });
+      const utils = await openSection();
+      expect(utils.getByRole("heading", { level: 1 }).textContent).toBe("安全性");
+      utils.unmount();
+
+      const software = render(
+        <I18nProvider>
+          <SettingsPage />
+        </I18nProvider>,
+      );
+      fireEvent.click(software.getByText(s.software));
+      await software.findByText(s.currentVersion);
+      expect(software.queryByTestId("set-signing-keys")).toBeNull();
+    },
+  );
+
   it("shows how many keys there are, when each was made, and which one signs", async () => {
     await openSection();
     const card = await waitFor(() => screen.getByTestId("set-signing-keys"));

@@ -1524,6 +1524,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "settings.secretCardUnretrievedTtlRange",
   "settings.secretCardUnretrievedTtlSub",
   "settings.secretCardUnretrievedTtlWarning",
+  "settings.security",
   "settings.sessionTtl",
   "settings.software",
   "settings.stepNoteCap",

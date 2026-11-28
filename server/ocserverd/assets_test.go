@@ -391,6 +391,7 @@ const apiTestUserLanguageGlossary = "If the user writes one of the Chinese scree
 	"| General | 一般設定 |\n" +
 	"| Advanced | 進階設定 |\n" +
 	"| System update & backup | 系統更新與備份 |\n" +
+	"| Security | 安全性 |\n" +
 	"| Theme | 主題 |\n" +
 	"| Preferences | 偏好設定 |\n" +
 	"| Member | 成員 |\n" +

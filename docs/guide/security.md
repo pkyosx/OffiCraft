@@ -84,13 +84,13 @@ Signing keys are what OffiCraft uses to prove that sign-ins and share links are 
 
 If you suspect a sign-in or a share link has leaked:
 
-1. Go to the "Signing keys" card at the bottom of **Settings › System update & backup** and press "Create a new key". The new key takes over immediately, and nobody who is signed in is signed out.
+1. Go to the "Signing keys" card in **Settings › Security** and press "Create a new key". The new key takes over immediately, and nobody who is signed in is signed out.
 2. Wait until every machine has come online at least once, so that it switches to the new key.
 3. Press "Remove" next to the old key.
 
 **Removing cannot be undone and takes effect immediately**: every sign-in and share link signed with the old key stops working, and people holding those links are not notified. Machines that have not yet switched to the new key are disconnected immediately. So before removing, make sure every machine has come online.
 
-For a description of the Signing keys card, see "System update & backup" in [Settings](settings.md). For how long members and machines each stay signed in, see "Advanced" in [Settings](settings.md).
+For a description of the Signing keys card, see "Security" in [Settings](settings.md). For how long members and machines each stay signed in, see "Advanced" in [Settings](settings.md).
 
 ---
 

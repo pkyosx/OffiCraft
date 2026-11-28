@@ -4,7 +4,7 @@ After reading this page, you will know what each settings subpage covers, the ra
 
 ## Opening settings
 
-Settings opens from the gear in the top bar. The settings home page lists, from top to bottom: System update & backup, Global context, Roles, Task manuals, General, Advanced, Theme, and User guide. The last one, "User guide", opens these guide pages; the others are the settings subpages. The path at the top of a subpage links back up one level.
+Settings opens from the gear in the top bar. The settings home page lists, from top to bottom: System update & backup, Security, Global context, Roles, Task manuals, General, Advanced, Theme, and User guide. The last one, "User guide", opens these guide pages; the others are the settings subpages. The path at the top of a subpage links back up one level.
 
 ## Settings outside the settings page
 
@@ -22,7 +22,9 @@ From top to bottom:
 
 - **Current version** and **Update settings** (Receive beta versions, Automatic updates, Update check interval, Let the assistant tell me about new-version features) — For checking for updates, upgrading, and the purpose and default of each field, see "Advanced: upgrade settings" in [Install, upgrade, and uninstall](install.md).
 - **Backup health** — Whether scheduled backups keep producing restore points: "Backups are healthy", "Backups are failing", "Cannot tell". The card lists the latest scheduled backup, how long the failure has lasted, the freshness window, and the server diagnostic. "Cannot tell" does not mean there is no problem. For what each status means and how backup and restore work, see "Backup and restore" in [Troubleshooting and FAQ](troubleshooting.md).
-- **Signing keys** — The keys the server uses to issue login credentials and share links, at the bottom of this page. Login credentials for the console, members, and machines, and the links made by "Copy share link" (for files) and "Copy external link" (for comparisons), are all signed with a signing key. For more, see "Signing keys" in [Protect your studio](security.md).
+## Security
+
+- **Signing keys** — The keys the server uses to issue login credentials and share links. Login credentials for the console, members, and machines, and the links made by "Copy share link" (for files) and "Copy external link" (for comparisons), are all signed with a signing key. For more, see "Signing keys" in [Protect your studio](security.md).
   - The card lists how many keys there are now: the one marked "In use" issues new credentials; one marked "Old key (still valid)" no longer issues any, but credentials and links signed with it remain valid.
   - "Create a new key": the new key takes over signing immediately. Nobody who is logged in is logged out, and no restart is needed. After that, every online machine automatically switches to credentials signed with the new key; offline machines switch once they come online.
   - "Remove": there is no undo, and it takes effect immediately. Every login credential signed with this key stops working, and console tabs using one must log in again; every share link made with this key stops working, and people holding the links are not notified; machines that have not yet switched to the new key disconnect immediately.

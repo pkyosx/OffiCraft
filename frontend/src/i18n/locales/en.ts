@@ -2388,6 +2388,7 @@ export const en: Dict = {
   settings: {
     title: "Settings",
     software: "System update & backup",
+    security: "Security",
     // Global context (T-a241): the boot / lifecycle documents are their own
     // Settings section now, no longer inside the role journal.
     globalContext: "Global context",
